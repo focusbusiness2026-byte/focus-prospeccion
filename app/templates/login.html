@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acceso · Focus Prospeccion</title>
+    <link rel="stylesheet" href="/static/app.css" />
+    {% if google_oauth_client_id %}<script src="https://accounts.google.com/gsi/client" async defer></script>{% endif %}
+  </head>
+  <body class="access-page">
+    <main class="access-card">
+      <a class="brand" href="/"><i>F</i><span>FOCUS<small>BUSINESS</small></span></a>
+      <p class="eyebrow">PORTAL DE PROSPECCION</p>
+      <h1>Acceso privado</h1>
+      <p class="intro">Entra con la cuenta de Google cuyo correo figura como activo en la hoja de calculo de Focus Business.</p>
+      {% if google_oauth_client_id %}
+        <div id="google-button"></div>
+      {% else %}
+        <div class="notice warning">El acceso de Google quedara disponible al configurar <code>GOOGLE_OAUTH_CLIENT_ID</code> en Render.</div>
+      {% endif %}
+      {% if demo_enabled %}<button id="demo-login" class="primary full-button">Entrar en modo demo local</button>{% endif %}
+      <p id="login-message" class="form-message"></p>
+      <p class="access-note">El portal no almacena contrasenas. Google verifica la identidad y la hoja controla el permiso y las ejecuciones disponibles.</p>
+    </main>
+    <script>
+      const clientId = {{ google_oauth_client_id|tojson }};
+      const message = document.querySelector('#login-message');
+      const csrf = () => document.cookie.split('; ').find(v => v.startsWith('focus_csrf='))?.split('=')[1] || '';
+      async function postLogin(url, body = {}) {
+        message.textContent = 'Verificando acceso...';
+        const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf())}, body:JSON.stringify(body)});
+        const data = await response.json();
+        if (!response.ok) { message.textContent = data.detail || 'No se pudo iniciar sesion.'; return; }
+        window.location.assign(data.redirect || '/portal');
+      }
+      window.addEventListener('load', () => {
+        if (clientId && window.google) {
+          google.accounts.id.initialize({client_id:clientId, callback:response => postLogin('/auth/google',{credential:response.credential}), use_fedcm_for_prompt:true});
+          google.accounts.id.renderButton(document.querySelector('#google-button'), {theme:'filled_black',size:'large',shape:'pill',text:'signin_with',width:360});
+        }
+      });
+      document.querySelector('#demo-login')?.addEventListener('click', () => postLogin('/auth/demo'));
+    </script>
+  </body>
+</html>
+

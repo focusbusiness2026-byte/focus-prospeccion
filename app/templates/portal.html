@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Portal · Focus Prospeccion</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="portal-shell">
+      <aside class="sidebar">
+        <a class="brand" href="/portal"><i>F</i><span>FOCUS<small>BUSINESS</small></span></a>
+        <p class="eyebrow">PROSPECCION</p>
+        <nav>
+          <a class="nav-step current" href="#dashboard"><b>1</b><span>Dashboard<small>Cuota y actividad</small></span></a>
+          <a class="nav-step" href="#new-search"><b>2</b><span>Nueva empresa<small>Web y redes publicas</small></span></a>
+          <a class="nav-step" href="#results"><b>3</b><span>Resultados<small>Evidencia y score</small></span></a>
+          <a class="nav-step" href="#method"><b>4</b><span>Metodologia<small>Fuentes permitidas</small></span></a>
+        </nav>
+        <div class="sidebar-note">Las redes se detectan desde enlaces publicos de la web corporativa. No se evaden inicios de sesion ni bloqueos.</div>
+      </aside>
+      <main class="content">
+        <header class="portal-header">
+          <div><p class="eyebrow">PORTAL PRIVADO</p><strong>{{ identity.email }}</strong><small>{{ identity.role }}</small></div>
+          <button id="logout" class="secondary">Cerrar sesion</button>
+        </header>
+
+        <section id="dashboard">
+          <h1>Dashboard de prospeccion</h1>
+          <p class="intro">Ejecuciones disponibles, consumo global y ultimos prospectos.</p>
+          <div class="stats">
+            <article><span>Disponibles</span><b id="available">—</b><small>de <i id="assigned">—</i> asignadas</small></article>
+            <article><span>Utilizadas</span><b id="used">—</b><small>por esta cuenta</small></article>
+            <article id="global-card"><span>Bolsa global</span><b id="global-remaining">—</b><small id="global-detail">Solo visible para administradores</small></article>
+            <article id="gemini-card"><span>Limite interno Gemini</span><b id="gemini-remaining">—</b><small>No sustituye el limite real de AI Studio</small></article>
+          </div>
+        </section>
+
+        <section id="new-search" class="card search-card">
+          <p class="eyebrow">NUEVA EJECUCION</p>
+          <h2>Investigar una empresa</h2>
+          <p class="intro">Introduce la empresa y su web oficial. El sistema consultara paginas publicas permitidas, detectara enlaces sociales y usara Gemini para normalizar la evidencia.</p>
+          <form id="scrape-form" class="form-grid">
+            <label class="input"><span>Nombre de la empresa *</span><input name="company" required placeholder="Ej. Empresa Demo S.L." /></label>
+            <label class="input"><span>Web corporativa *</span><input name="website" type="url" required placeholder="https://empresa.es" /></label>
+            <button class="primary form-submit" type="submit">Usar 1 ejecucion</button>
+          </form>
+          <div class="source-pills"><span>Web corporativa</span><span>LinkedIn enlazado</span><span>Instagram enlazado</span><span>Facebook</span><span>X</span><span>YouTube</span><span>TikTok</span></div>
+          <p id="scrape-message" class="form-message"></p>
+        </section>
+
+        <section id="results" class="results-section">
+          <div class="section-heading"><div><p class="eyebrow">HISTORIAL</p><h2>Prospectos investigados</h2></div><button id="refresh" class="secondary">Actualizar</button></div>
+          <div id="results-list" class="result-list"><p class="empty">Cargando resultados...</p></div>
+        </section>
+
+        <section id="method" class="card method-card">
+          <p class="eyebrow">METODOLOGIA Y PRIVACIDAD</p>
+          <h2>Datos publicos con evidencia</h2>
+          <div class="method-grid"><div><b>1</b><span>Consulta la web oficial y respeta robots.txt.</span></div><div><b>2</b><span>Detecta perfiles sociales enlazados, sin acceder a zonas privadas.</span></div><div><b>3</b><span>Gemini resume y clasifica solo la evidencia obtenida.</span></div><div><b>4</b><span>La hoja registra fuente, fecha, cuota y consumo.</span></div></div>
+        </section>
+      </main>
+    </div>
+    <script>
+      const csrf = () => document.cookie.split('; ').find(v => v.startsWith('focus_csrf='))?.split('=')[1] || '';
+      const headers = {'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf())};
+      const message = document.querySelector('#scrape-message');
+      const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+      function paint(card, state) { card.classList.remove('green','yellow','red'); card.classList.add(state || 'green'); }
+      async function loadDashboard() {
+        const response = await fetch('/api/portal-dashboard');
+        if (response.status === 401) { window.location.assign('/'); return; }
+        const data = await response.json();
+        if (!response.ok) { message.textContent = data.detail || 'No se pudo cargar el dashboard'; return; }
+        document.querySelector('#available').textContent = data.user.available;
+        document.querySelector('#assigned').textContent = data.user.assigned;
+        document.querySelector('#used').textContent = data.user.used;
+        const userRatio = data.user.assigned ? data.user.available / data.user.assigned : 0;
+        paint(document.querySelector('.stats article'), userRatio > .5 ? 'green' : userRatio > .2 ? 'yellow' : 'red');
+        if (data.global) {
+          document.querySelector('#global-remaining').textContent = data.global.remaining;
+          document.querySelector('#global-detail').textContent = `${data.global.used} usadas de ${data.global.assigned}`;
+          document.querySelector('#gemini-remaining').textContent = data.global.gemini_requests_remaining;
+          paint(document.querySelector('#global-card'), data.global.state);
+          const gRatio = data.global.gemini_internal_budget ? data.global.gemini_requests_remaining / data.global.gemini_internal_budget : 0;
+          paint(document.querySelector('#gemini-card'), gRatio > .5 ? 'green' : gRatio > .2 ? 'yellow' : 'red');
+        }
+        const list = document.querySelector('#results-list');
+        list.innerHTML = data.prospects.length ? data.prospects.map(item => `<article class="result-card ${['green','yellow','red'].includes(item.classification) ? item.classification : 'yellow'}"><div><p class="result-id">${escapeHtml(item.execution_id)}</p><h3>${escapeHtml(item.company)}</h3><p>${escapeHtml(item.sector || 'Sector pendiente')} · ${escapeHtml(item.created_at || '')}</p><small>${escapeHtml(item.summary || 'Sin resumen')}</small></div><div class="result-score">${escapeHtml(item.score || '—')}<span>/10</span></div><p class="angle"><b>Angulo:</b> ${escapeHtml(item.entry_angle || 'Pendiente')}</p></article>`).join('') : '<p class="empty">Aun no hay investigaciones para esta cuenta.</p>';
+      }
+      document.querySelector('#scrape-form').addEventListener('submit', async event => {
+        event.preventDefault();
+        const values = Object.fromEntries(new FormData(event.currentTarget));
+        message.textContent = 'Consultando fuentes publicas y analizando evidencia...';
+        const response = await fetch('/api/scrape',{method:'POST',headers,body:JSON.stringify(values)});
+        const data = await response.json();
+        message.textContent = response.ok ? `Investigacion completada: ${data.execution_id}` : (data.detail || 'No se pudo completar.');
+        if (response.ok) { event.currentTarget.reset(); await loadDashboard(); }
+      });
+      document.querySelector('#refresh').addEventListener('click',loadDashboard);
+      document.querySelector('#logout').addEventListener('click',async()=>{const response=await fetch('/auth/logout',{method:'POST',headers});const data=await response.json();window.location.assign(data.redirect||'/');});
+      loadDashboard();
+    </script>
+  </body>
+</html>

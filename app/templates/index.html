@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Focus Prospeccion</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <aside>
+      <div class="brand">FOCUS <span>BUSINESS</span></div>
+      <nav>
+        <button>1 <small>Oferta</small></button>
+        <button>2 <small>Rentabilidad</small></button>
+        <button class="active">3 <small>Empresas objetivo</small></button>
+        <button>4 <small>Senales</small></button>
+        <button>5 <small>Decisores</small></button>
+        <button>6 <small>Revision</small></button>
+      </nav>
+      <p class="safe">Modo local seguro<br /><strong>Fuentes externas apagadas</strong></p>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">MVP MULTI-CLIENTE</p>
+          <h1>¿Que empresas deberia encontrar el sistema?</h1>
+          <p>Define el ICP, lanza una ejecucion controlada y conserva evidencia de cada resultado.</p>
+        </div>
+        <div class="quota" id="quota">Cargando cuota...</div>
+      </header>
+
+      <section class="grid">
+        <form id="search-form" class="panel filters">
+          <h2>1. Firmografia avanzada</h2>
+          <div class="fields">
+            <label>Ubicacion<input name="location" value="Espana" /></label>
+            <label>Ciudad<input name="city" value="Madrid" /></label>
+            <label>Sectores<input name="sectors" value="Servicios B2B, Tecnologia" /></label>
+            <label>Exclusiones<input name="excluded_sectors" value="Administracion publica, ONG" /></label>
+            <label>Empleados min.<input name="employees_min" type="number" value="10" /></label>
+            <label>Empleados max.<input name="employees_max" type="number" value="250" /></label>
+            <label>Facturacion minima<input name="revenue_min_eur" type="number" value="500000" /></label>
+            <label>Modelo<select name="business_model"><option>B2B</option><option>B2C</option><option>Mixto</option></select></label>
+          </div>
+          <div class="checks">
+            <span>✓ Equipo comercial</span><span>✓ Web actualizada</span><span>✓ Esta contratando</span>
+          </div>
+          <button class="launch" type="submit">Lanzar busqueda segura</button>
+          <p id="message" class="message"></p>
+        </form>
+
+        <section class="panel preview">
+          <p class="eyebrow">CLIENTE IDEAL PROVISIONAL</p>
+          <h2>Empresas privadas en Espana</h2>
+          <p>De 10 a 250 empleados, facturacion desde 500K EUR y con madurez comercial suficiente para servicios B2B.</p>
+          <dl>
+            <div><dt>Scoring</dt><dd>4 pilares Focus</dd></div>
+            <div><dt>Evidencia</dt><dd>Fuente + fecha</dd></div>
+            <div><dt>Cuota</dt><dd>Por lanzamiento</dd></div>
+          </dl>
+        </section>
+      </section>
+
+      <section class="panel results">
+        <div class="results-head"><div><p class="eyebrow">RESULTADOS PRIORIZADOS</p><h2>Empresas que coinciden</h2></div><button id="refresh" class="secondary">Actualizar</button></div>
+        <div id="prospects" class="cards"><p>Aun no hay resultados.</p></div>
+      </section>
+    </main>
+    <script>
+      const form = document.querySelector('#search-form');
+      const message = document.querySelector('#message');
+      const prospects = document.querySelector('#prospects');
+      const quota = document.querySelector('#quota');
+
+      function euro(value) {
+        return value ? new Intl.NumberFormat('es-ES', {style: 'currency', currency: 'EUR', maximumFractionDigits: 0}).format(value) : 'Sin dato';
+      }
+
+      async function loadDashboard() {
+        const response = await fetch('/api/dashboard');
+        const data = await response.json();
+        if (!response.ok) { message.textContent = data.detail || 'No se pudo cargar'; return; }
+        quota.textContent = `${data.quota.available} lanzamientos disponibles`;
+        prospects.innerHTML = data.prospects.length ? data.prospects.map(item => `
+          <article class="prospect ${item.classification}">
+            <div><h3>${item.name}</h3><p>${item.city || 'Sin ciudad'} · ${item.sector || 'Sin sector'}</p><small>${item.employees ?? '—'} empleados · ${euro(item.revenue_eur)}</small></div>
+            <div class="score">${item.score}<small>/10</small></div>
+          </article>`).join('') : '<p>Aun no hay resultados.</p>';
+      }
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault(); message.textContent = 'Creando ejecucion...';
+        const values = Object.fromEntries(new FormData(form));
+        const payload = {
+          client_id: 'demo', location: values.location, city: values.city,
+          sectors: values.sectors.split(',').map(v => v.trim()).filter(Boolean),
+          excluded_sectors: values.excluded_sectors.split(',').map(v => v.trim()).filter(Boolean),
+          employees_min: Number(values.employees_min), employees_max: Number(values.employees_max),
+          revenue_min_eur: Number(values.revenue_min_eur), business_model: values.business_model,
+          source_mode: 'fixture'
+        };
+        const created = await fetch('/api/searches', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        const job = await created.json();
+        if (!created.ok) { message.textContent = job.detail || 'No se pudo crear'; return; }
+        message.textContent = 'Aplicando deduplicacion y scoring...';
+        const run = await fetch(`/api/searches/${job.id}/run`, {method:'POST'});
+        const result = await run.json();
+        message.textContent = result.status === 'completed' ? `${result.results_count} resultados procesados.` : `Fallo controlado: ${result.error}`;
+        await loadDashboard();
+      });
+      document.querySelector('#refresh').addEventListener('click', loadDashboard);
+      loadDashboard();
+    </script>
+  </body>
+</html>
+

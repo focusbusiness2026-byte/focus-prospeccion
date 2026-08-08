@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: focus-prospeccion
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_SECRET
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: DEMO_AUTH_BYPASS
+        value: "false"
+      - key: SOURCE_MODE
+        value: public_web
+      - key: ALLOW_EXTERNAL_SOURCES
+        value: "true"
+      - key: GOOGLE_SHEETS_ENABLED
+        value: "true"
+      - key: GOOGLE_SHEET_ID
+        value: 1FTWbZ1gDpA4RezEz89w9PmbRjwx_2bX2mhzF67V8wiE
+      - key: GOOGLE_SHEET_TAB
+        value: Prospeccion
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_REQUEST_BUDGET
+        value: "500"
+      - key: WEB_SCRAPER_MAX_PAGES
+        value: "4"
