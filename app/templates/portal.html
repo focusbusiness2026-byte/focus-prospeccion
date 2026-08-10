@@ -1,335 +1,194 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Panel de prospección · Focus Business</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260810-2" />
-  </head>
-  <body>
-    <div class="portal-shell">
-      <aside class="sidebar">
-        <a class="brand" href="/portal"><i>F</i><span>FOCUS<small>BUSINESS</small></span></a>
-        <p class="eyebrow sidebar-title">PROSPECCIÓN</p>
-        <nav aria-label="Secciones del panel">
-          <a class="nav-step current" href="#dashboard"><b>1</b><span>Dashboard<small>Cuota y actividad</small></span></a>
-          <a class="nav-step" href="#new-search"><b>2</b><span>Nueva empresa<small>Web y redes públicas</small></span></a>
-          <a class="nav-step" href="#results"><b>3</b><span>Resultados<small>Evidencia y score</small></span></a>
-          <a class="nav-step" href="#activity"><b>4</b><span>Ejecuciones<small>Historial y errores</small></span></a>
-          <a class="nav-step" href="#method"><b>5</b><span>Metodología<small>Fuentes permitidas</small></span></a>
-        </nav>
-        <div class="sidebar-note">Se consultan páginas públicas de la web corporativa. El sistema no evade accesos, CAPTCHA ni bloqueos.</div>
-      </aside>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Panel de prospección · Focus Business</title>
+  <link rel="stylesheet" href="/static/app.css?v=20260811-1" />
+</head>
+<body>
+  <div class="portal-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/portal"><i>F</i><span>FOCUS<small>BUSINESS</small></span></a>
+      <p class="eyebrow sidebar-title">PROSPECCIÓN</p>
+      <nav aria-label="Secciones del panel">
+        <a class="nav-step current" href="#dashboard"><b>1</b><span>Dashboard<small>Resumen</small></span></a>
+        <a class="nav-step" href="#sources"><b>2</b><span>Productoras<small>Configuración automática</small></span></a>
+        <a class="nav-step" href="#results"><b>3</b><span>Resultados<small>Leads y evidencia</small></span></a>
+        <a class="nav-step" href="#activity"><b>4</b><span>Ejecuciones<small>Consultas y estado</small></span></a>
+        <a class="nav-step" href="#method"><b>5</b><span>Metodología<small>Límites y fuentes</small></span></a>
+        <a class="nav-step" href="#warmup"><b>6</b><span>Calentamiento<small>Fase futura</small></span></a>
+      </nav>
+      <div class="sidebar-note">Máximo 5 búsquedas web públicas por ejecución. Sin accesos privados, CAPTCHA ni automatización de mensajes.</div>
+    </aside>
 
-      <main class="content">
-        <header class="portal-header">
-          <div class="account-block">
-            <p class="eyebrow">FOCUS BUSINESS · PANEL DE PROSPECCIÓN</p>
-            <strong>{{ identity.email }}</strong>
-            <small>{{ identity.role }}</small>
-          </div>
-          <div class="header-actions">
-            <span id="demo-badge" class="badge demo-badge" hidden>Vista de demostración</span>
-            <button id="logout" class="secondary">Cerrar sesión</button>
-          </div>
-        </header>
+    <main class="content">
+      <header class="portal-header">
+        <div class="account-block"><p class="eyebrow">FOCUS BUSINESS · PANEL DE PROSPECCIÓN</p><strong>{{ identity.email }}</strong><small>{{ identity.role }}</small></div>
+        <div class="header-actions"><span id="demo-badge" class="badge demo-badge" hidden>Vista de demostración</span><button id="logout" class="secondary">Cerrar sesión</button></div>
+      </header>
 
-        <section id="dashboard" class="hero-section">
-          <div class="section-heading dashboard-heading">
-            <div>
-              <p class="eyebrow">RESUMEN OPERATIVO</p>
-              <h1>Dashboard de prospección</h1>
-              <p class="intro">Controla la cuota, la calidad de los leads y las últimas ejecuciones desde un solo lugar.</p>
-            </div>
-            <button id="refresh-top" class="secondary">Actualizar datos</button>
-          </div>
+      <section id="dashboard" class="hero-section">
+        <div class="section-heading dashboard-heading"><div><p class="eyebrow">RESUMEN OPERATIVO</p><h1>Dashboard de prospección</h1><p class="intro">Configuración desde Onboarding, investigación pública trazable y gestión sencilla de leads.</p></div><button id="refresh-top" class="secondary">Actualizar datos</button></div>
+        <div class="stats">
+          <article id="quota-card"><span>Ejecuciones disponibles</span><b id="available">—</b><small>de <i id="assigned">—</i> asignadas</small></article>
+          <article id="used-card"><span>Ejecuciones utilizadas</span><b id="used">—</b><small>por esta cuenta</small></article>
+          <article id="global-card"><span>Bolsa global</span><b id="global-remaining">—</b><small id="global-detail">Solo administradores</small></article>
+          <article id="openai-card"><span>Búsqueda OpenAI</span><b id="openai-remaining">—</b><small id="openai-detail">Máximo 5 por ejecución</small></article>
+        </div>
+        <div class="overview-grid">
+          <article class="card compact-card"><div class="card-title-row"><div><p class="eyebrow">CALIDAD</p><h2>Semáforo de leads</h2></div><b id="total-prospects" class="metric-total">0</b></div><div class="distribution"><div><span class="dot green-dot"></span><small>Verdes</small><b id="green-count">0</b></div><div><span class="dot yellow-dot"></span><small>Amarillos</small><b id="yellow-count">0</b></div><div><span class="dot red-dot"></span><small>Rojos</small><b id="red-count">0</b></div></div></article>
+          <article class="card compact-card"><div class="card-title-row"><div><p class="eyebrow">CRM</p><h2>Estado de los leads</h2></div></div><div class="distribution"><div><small>Nuevos</small><b id="new-count">0</b></div><div><small>Aprobados</small><b id="approved-count">0</b></div><div><small>Descartados</small><b id="discarded-count">0</b></div></div></article>
+        </div>
+      </section>
 
-          <div class="stats" aria-label="Indicadores principales">
-            <article id="quota-card"><span>Raspados disponibles</span><b id="available">—</b><small>de <i id="assigned">—</i> asignados</small></article>
-            <article id="used-card"><span>Raspados utilizados</span><b id="used">—</b><small>por esta cuenta</small></article>
-            <article id="global-card"><span>Bolsa global</span><b id="global-remaining">—</b><small id="global-detail">Solo administradores</small></article>
-            <article id="gemini-card"><span>Solicitudes Gemini</span><b id="gemini-remaining">—</b><small id="gemini-detail">Presupuesto interno restante</small></article>
-          </div>
+      <section id="sources" class="prospecting-studio">
+        <div class="studio-toolbar">
+          <div><p class="eyebrow">CENTRO DE INVESTIGACIÓN</p><h2>Configuración profesional de prospección</h2><p class="intro">La configuración recomendada se construye automáticamente con el Onboarding. Puedes afinarla para una ejecución concreta sin modificar las respuestas originales.</p></div>
+          <div class="studio-toolbar-actions"><label class="input source-select"><span>Productora activa</span><select id="source-selector"><option value="">Selecciona una productora</option></select></label><button id="recommended-config" class="secondary" type="button">Configuración recomendada</button><button id="save-config" class="secondary" type="button">Guardar borrador</button></div>
+        </div>
+        <div id="source-summary" class="source-summary">Cargando productoras...</div>
+        <div id="source-list" class="source-list"><p class="empty">Cargando configuración...</p></div>
+        <p id="scrape-message" class="form-message" role="status" aria-live="polite"></p>
+      </section>
 
-          <div class="overview-grid">
-            <article class="card compact-card">
-              <div class="card-title-row"><div><p class="eyebrow">CALIDAD</p><h2>Semáforo de leads</h2></div><b id="total-prospects" class="metric-total">0</b></div>
-              <div class="distribution" aria-label="Distribución por clasificación">
-                <div><span class="dot green-dot"></span><small>Verdes</small><b id="green-count">0</b></div>
-                <div><span class="dot yellow-dot"></span><small>Amarillos</small><b id="yellow-count">0</b></div>
-                <div><span class="dot red-dot"></span><small>Rojos</small><b id="red-count">0</b></div>
-              </div>
-            </article>
-            <article class="card compact-card">
-              <div class="card-title-row"><div><p class="eyebrow">DECISIÓN</p><h2>Estado de los leads</h2></div></div>
-              <div class="distribution status-distribution" aria-label="Distribución por estado">
-                <div><small>Nuevos</small><b id="new-count">0</b></div>
-                <div><small>Aprobados</small><b id="approved-count">0</b></div>
-                <div><small>Descartados</small><b id="discarded-count">0</b></div>
-              </div>
-            </article>
-          </div>
-        </section>
+      <section id="results" class="results-section">
+        <div class="section-heading"><div><p class="eyebrow">LEADS INVESTIGADOS</p><h2>Resultados</h2><p class="intro">Vista inicial simple; abre una tarjeta para consultar fuentes, contactos y evidencia.</p></div><a id="export" class="secondary button-link" href="/api/prospects/export.csv">Descargar CSV filtrado</a></div>
+        <div class="filters">
+          <label class="input search-input"><span>Buscar</span><input id="result-search" type="search" placeholder="Empresa, sector o ciudad" /></label>
+          <label class="input"><span>Productora</span><select id="productora-filter"><option value="">Todas</option></select></label>
+          <label class="input"><span>País</span><select id="country-filter"><option value="">Todos</option></select></label>
+          <label class="input"><span>Sector</span><select id="sector-filter"><option value="">Todos</option></select></label>
+          <label class="input"><span>Tipo de cliente</span><select id="client-type-filter"><option value="">Todos</option></select></label>
+          <label class="input"><span>Clasificación</span><select id="classification-filter"><option value="">Todas</option><option value="green">Verde</option><option value="yellow">Amarillo</option><option value="red">Rojo</option></select></label>
+          <label class="input"><span>Estado</span><select id="status-filter"><option value="">Todos</option><option>Nuevo</option><option>Aprobado</option><option>Descartado</option></select></label>
+          <button id="refresh" class="secondary filter-button">Actualizar</button>
+        </div>
+        <div id="results-list" class="result-list"><p class="empty">Cargando resultados...</p></div>
+      </section>
 
-        <section id="new-search" class="card search-card">
-          <p class="eyebrow">NUEVO RASPADO</p>
-          <h2>Investigar una empresa</h2>
-          <p class="intro">Indica el nombre y la web oficial. Se analizarán páginas públicas permitidas, enlaces sociales y señales verificables.</p>
-          <form id="scrape-form" class="form-grid">
-            <label class="input"><span>Nombre de la empresa *</span><input name="company" required minlength="2" maxlength="120" autocomplete="organization" placeholder="Ej. Empresa Demo S.L." /></label>
-            <label class="input"><span>Web corporativa *</span><input name="website" type="url" required inputmode="url" autocomplete="url" placeholder="https://empresa.es" /></label>
-            <button id="scrape-button" class="primary form-submit" type="submit"><span>Usar 1 raspado</span></button>
-          </form>
-          <div class="source-pills" aria-label="Fuentes que se detectan"><span>Web corporativa</span><span>LinkedIn enlazado</span><span>Instagram enlazado</span><span>Facebook</span><span>X</span><span>YouTube</span><span>TikTok</span></div>
-          <p id="scrape-message" class="form-message" role="status" aria-live="polite"></p>
-        </section>
+      <section id="activity" class="card activity-card">
+        <div class="section-heading"><div><p class="eyebrow">TRAZABILIDAD</p><h2>Historial de ejecuciones</h2></div><span id="execution-summary" class="muted-pill">0 ejecuciones</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Productora</th><th>Estado</th><th>Búsquedas</th><th>Resultado</th></tr></thead><tbody id="execution-list"><tr><td colspan="5" class="empty-cell">Cargando actividad...</td></tr></tbody></table></div>
+      </section>
 
-        <section id="results" class="results-section">
-          <div class="section-heading">
-            <div><p class="eyebrow">LEADS INVESTIGADOS</p><h2>Resultados y evidencia</h2></div>
-            <a id="export" class="secondary button-link" href="/api/prospects/export.csv">Descargar CSV</a>
-          </div>
-          <div class="filters" aria-label="Filtros de resultados">
-            <label class="input search-input"><span>Buscar empresa</span><input id="result-search" type="search" placeholder="Nombre, sector o ciudad" /></label>
-            <label class="input"><span>Clasificación</span><select id="classification-filter"><option value="">Todas</option><option value="green">Verde</option><option value="yellow">Amarillo</option><option value="red">Rojo</option></select></label>
-            <label class="input"><span>Estado</span><select id="status-filter"><option value="">Todos</option><option value="Nuevo">Nuevo</option><option value="Aprobado">Aprobado</option><option value="Descartado">Descartado</option></select></label>
-            <button id="refresh" class="secondary filter-button">Actualizar</button>
-          </div>
-          <div id="results-list" class="result-list"><p class="empty">Cargando resultados...</p></div>
-        </section>
+      <section id="method" class="card method-card">
+        <p class="eyebrow">METODOLOGÍA</p><h2>Investigación pública con evidencia</h2>
+        <div class="method-grid"><div><b>1</b><span>El Onboarding define empresa, sectores, zonas, tamaño, presupuesto y exclusiones.</span></div><div><b>2</b><span>OpenAI puede realizar hasta 5 búsquedas web públicas por ejecución.</span></div><div><b>3</b><span>Contactos y señales solo se muestran con URL; lo ausente figura como no encontrado.</span></div><div><b>4</b><span>Google Sheets conserva configuración, resultados, trazabilidad y CRM.</span></div></div>
+      </section>
 
-        <section id="activity" class="card activity-card">
-          <div class="section-heading"><div><p class="eyebrow">TRAZABILIDAD</p><h2>Historial de ejecuciones</h2></div><span id="execution-summary" class="muted-pill">0 ejecuciones</span></div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Fecha</th><th>Empresa</th><th>Cuenta</th><th>Estado</th><th>Tokens</th><th>Detalle</th></tr></thead>
-              <tbody id="execution-list"><tr><td colspan="6" class="empty-cell">Cargando actividad...</td></tr></tbody>
-            </table>
-          </div>
-        </section>
+      <section id="warmup" class="card method-card">
+        <p class="eyebrow">FASE FUTURA · NO ACTIVADA</p><h2>Calentamiento 11-4-7</h2>
+        <p class="intro">El CRM deja preparados estado, propietario, próxima acción y seguimiento para una fase posterior aprobada. En esta entrega no se envían mensajes, invitaciones ni reacciones.</p>
+        <div class="method-grid"><div><b>11</b><span>Preparación y observación documentada antes de contactar.</span></div><div><b>4</b><span>Interacciones relevantes con revisión humana.</span></div><div><b>7</b><span>Seguimiento controlado después de la aprobación.</span></div><div><b>✓</b><span>LinkedIn e Instagram serán manuales o muy controlados; no automatización agresiva.</span></div></div>
+      </section>
+    </main>
+  </div>
 
-        <section id="method" class="card method-card">
-          <p class="eyebrow">METODOLOGÍA Y PRIVACIDAD</p>
-          <h2>Datos públicos con evidencia</h2>
-          <div class="method-grid">
-            <div><b>1</b><span>Consulta la web oficial y respeta robots.txt.</span></div>
-            <div><b>2</b><span>Detecta perfiles sociales enlazados sin acceder a zonas privadas.</span></div>
-            <div><b>3</b><span>Gemini resume y clasifica únicamente la evidencia obtenida.</span></div>
-            <div><b>4</b><span>Google Sheets registra la fuente, la fecha, la cuota y el consumo.</span></div>
-          </div>
-        </section>
-      </main>
-    </div>
+  <dialog id="lead-dialog" class="lead-dialog"><div class="dialog-header"><div><p class="eyebrow">FICHA DEL LEAD</p><h2 id="dialog-company">Empresa</h2></div><button id="close-dialog" class="icon-button" aria-label="Cerrar ficha">×</button></div><div id="dialog-content"></div></dialog>
 
-    <dialog id="lead-dialog" class="lead-dialog">
-      <div class="dialog-header"><div><p class="eyebrow">FICHA DEL LEAD</p><h2 id="dialog-company">Empresa</h2></div><button id="close-dialog" class="icon-button" aria-label="Cerrar ficha">×</button></div>
-      <div id="dialog-content"></div>
-    </dialog>
+  <script>
+    const csrf = () => document.cookie.split('; ').find(v => v.startsWith('focus_csrf='))?.split('=')[1] || '';
+    const headers = () => ({'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf())});
+    const message = document.querySelector('#scrape-message');
+    const dialog = document.querySelector('#lead-dialog');
+    let dashboardData = {prospects:[], executions:[], sources:[], demo:false};
+    let selectedSourceId = "";
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const safeUrl = value => { try { const u=new URL(String(value||'')); return ['http:','https:'].includes(u.protocol)?u.href:''; } catch { return ''; } };
+    const date = value => { if(!value)return 'Sin fecha'; const d=new Date(value); return Number.isNaN(d.getTime())?String(value):new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(d); };
+    const setText=(s,v)=>{const n=document.querySelector(s);if(n)n.textContent=v;};
+    const classLabel=v=>({green:'Verde',yellow:'Amarillo',red:'Rojo'})[String(v).toLowerCase()]||'Sin clasificar';
+    const signalLabel=v=>({revenue:'Facturación / ingresos',valuation:'Valoración',funding:'Financiación',advertising:'Publicidad anunciada',public_procurement:'Contratación pública',other:'Otra señal'})[v]||v;
+    const evidenceLabel=v=>({company_declared:'Declarado por la empresa',public_secondary:'Fuente pública secundaria',estimate_unverified:'Estimación / no verificado'})[v]||v;
+    const confidenceLabel=v=>({high:'alta',medium:'media',low:'baja'})[v]||v;
+    const paint=(n,s)=>{n.classList.remove('green','yellow','red');n.classList.add(s||'green');};
+    const unique=key=>[...new Set(dashboardData.prospects.map(x=>String(x[key]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
+    const optionize=(id,key)=>{const el=document.querySelector(id),current=el.value;el.innerHTML='<option value="">Todos</option>'+unique(key).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');el.value=current;};
 
-    <script>
-      const csrf = () => document.cookie.split('; ').find(value => value.startsWith('focus_csrf='))?.split('=')[1] || '';
-      const headers = () => ({'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf())});
-      const message = document.querySelector('#scrape-message');
-      const dialog = document.querySelector('#lead-dialog');
-      let dashboardData = {prospects: [], executions: [], demo: false};
+    function renderMetrics(data){
+      setText('#available',data.user.available);setText('#assigned',data.user.assigned);setText('#used',data.user.used);
+      const ratio=data.user.assigned?data.user.available/data.user.assigned:0;paint(document.querySelector('#quota-card'),ratio>.5?'green':ratio>.2?'yellow':'red');paint(document.querySelector('#used-card'),ratio>.5?'green':ratio>.2?'yellow':'red');
+      if(data.global){setText('#global-remaining',data.global.remaining);setText('#global-detail',`${data.global.used} usadas de ${data.global.assigned}`);setText('#openai-remaining',data.global.openai_requests_remaining);setText('#openai-detail',`${data.global.openai_web_search_calls_used||0} búsquedas acumuladas · máx. 5/ejecución`);paint(document.querySelector('#global-card'),data.global.state);}else{setText('#global-remaining','—');setText('#global-detail','Solo administradores');setText('#openai-remaining','—');setText('#openai-detail','Máximo 5 por ejecución');}
+      const m=data.metrics||{total:0,classifications:{},statuses:{}};setText('#total-prospects',m.total||0);setText('#green-count',m.classifications?.green||0);setText('#yellow-count',m.classifications?.yellow||0);setText('#red-count',m.classifications?.red||0);setText('#new-count',m.statuses?.Nuevo||0);setText('#approved-count',m.statuses?.Aprobado||0);setText('#discarded-count',m.statuses?.Descartado||0);
+    }
 
-      const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
-      const safeUrl = value => { try { const url = new URL(String(value || '')); return ['http:','https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; } };
-      const formatDate = value => { if (!value) return 'Sin fecha'; const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date); };
-      const classificationLabel = value => ({green:'Verde',yellow:'Amarillo',red:'Rojo'})[String(value).toLowerCase()] || 'Sin clasificar';
-      const normalizeClassification = value => ['green','yellow','red'].includes(String(value).toLowerCase()) ? String(value).toLowerCase() : 'yellow';
-      const setText = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
-      function paint(card, state) { card.classList.remove('green','yellow','red'); card.classList.add(state || 'green'); }
+    const filterOptions={
+      sectors:['Tecnología','Salud','Industria','Inmobiliario','Retail / e-commerce','Hostelería','Educación','Servicios profesionales','Finanzas','Turismo','Automoción','Belleza','Fitness','Alimentación'],
+      countries:['España','Portugal','Francia','Italia','Alemania','Reino Unido','México','Colombia','Chile','Argentina','Estados Unidos'],
+      clientTypes:['Empresa privada B2B','Empresa B2C','Agencia','Marca con equipo de marketing','Institución pública','Startup','Pyme','Gran empresa'],
+      organizationTypes:['Privada','Pública','Asociación / ONG','Franquicia','Grupo empresarial','Startup'],
+      businessModels:['B2B','B2C','B2B2C','Marketplace','E-commerce','Suscripción'],
+      salesModels:['Proyecto puntual','Recurrente / retainer','Suscripción','Licitación','Venta consultiva'],
+      employees:['1–10','11–50','51–200','201–1.000','Más de 1.000'],
+      revenue:['Menos de 500K €','500K–2M €','2M–10M €','10M–50M €','Más de 50M €','No limitar'],
+      technologies:['Meta Ads','Google Ads','LinkedIn Ads','HubSpot','Salesforce','Shopify','WordPress','Klaviyo','ActiveCampaign','YouTube'],
+      signals:['Contratación de marketing','Lanzamiento de producto','Apertura de sedes','Campaña publicitaria anunciada','Financiación reciente','Crecimiento de plantilla','Web renovada','Actividad frecuente en LinkedIn','Licitación o contratación pública'],
+      roles:['CEO / Dirección general','Dirección de marketing','Marketing Manager','Brand Manager','Comunicación','Compras','Dirección comercial','Fundador/a'],
+    };
+    const uniqueValues=values=>[...new Set((values||[]).map(v=>String(v).trim()).filter(Boolean))];
+    const recommendedConfig=s=>{const t=s.targeting||{};return {lead_count:25,target_city:t.target_city||'',target_region:t.target_region||'',target_countries:uniqueValues(t.target_countries?.length?t.target_countries:t.markets),sectors:uniqueValues(t.sectors),excluded_sectors:[],client_types:uniqueValues(t.target_client_types?.length?t.target_client_types:t.audience),organization_types:['Privada'],business_models:uniqueValues(t.audience),sales_models:['Proyecto puntual','Recurrente / retainer'],employee_ranges:t.ideal_company_size?[t.ideal_company_size]:[],revenue_ranges:['No limitar'],technologies:[],opportunity_signals:[],decision_roles:t.decision_maker?[t.decision_maker]:[],keywords:[],lookalike_companies:uniqueValues(t.reference_companies),ideal_company_size:t.ideal_company_size||'',minimum_budget:t.minimum_budget||'',exclusions:t.prospect_exclusions||'',preferences:t.prospect_preferences||'',hiring_recency:'Últimos 90 días',funding_recency:'Últimos 12 meses',require_marketing_department:false,require_sales_team:false,require_ad_investment:false,require_active_linkedin:false,require_updated_website:true,require_identifiable_decision_maker:false,exclude_current_clients:true,exclude_contacted_companies:true,exclude_competitors:true};};
+    const draftKey=id=>`focus-prospeccion-config:${id}`;
+    function configFor(source,forceRecommended=false){const base=recommendedConfig(source);if(forceRecommended)return base;try{return {...base,...JSON.parse(localStorage.getItem(draftKey(source.onboarding_id))||'{}')};}catch{return base;}}
+    function multiDropdown(name,label,options,selected){const values=uniqueValues([...(selected||[]),...options]);const checked=new Set(selected||[]);return `<details class="multi-dropdown"><summary><span>${esc(label)}</span><b>${checked.size||'Todos'}</b></summary><div class="multi-menu">${values.map(value=>`<label><input type="checkbox" data-array="${esc(name)}" value="${esc(value)}" ${checked.has(value)?'checked':''}/><span>${esc(value)}</span></label>`).join('')}</div></details>`;}
+    const toggle=(name,label,checked)=>`<label class="switch-row"><span>${esc(label)}</span><input type="checkbox" data-boolean="${esc(name)}" ${checked?'checked':''}/><i></i></label>`;
+    function renderWorkspace(source,forceRecommended=false){
+      const list=document.querySelector('#source-list'),p=source.productora||{},t=source.targeting||{},c=configFor(source,forceRecommended),configured=source.openai_configured;
+      const existing=dashboardData.prospects.filter(item=>item.onboarding_id===source.onboarding_id),green=existing.filter(item=>item.classification==='green').length,contacts=existing.reduce((sum,item)=>sum+(item.public_contacts||[]).length,0);
+      const blockers=(source.blockers||[]).map(item=>`<li>${esc(item)}</li>`).join('');
+      list.innerHTML=`<article class="research-workspace ${source.ready?'ready':'blocked'}" data-source="${esc(source.onboarding_id)}">
+        <div class="research-layout"><form class="research-builder" id="research-config-form">
+          <div class="builder-heading"><div><p class="eyebrow">EMPRESAS OBJETIVO</p><h3>¿Qué tipo de empresa debe encontrar el sistema?</h3><p>Parte del perfil recomendado y ajusta solo lo necesario para esta ejecución.</p></div><div class="run-target"><label>Cantidad objetivo<input type="number" min="1" max="50" data-number="lead_count" value="${esc(c.lead_count)}"/></label><small>Hasta 50 leads verificables · máximo 5 búsquedas</small></div></div>
+          ${!source.ready?`<div class="blocking-panel"><strong>Configuración bloqueada</strong><ul>${blockers}</ul></div>`:''}
+          <section class="builder-card"><div class="builder-card-title"><b>1</b><div><h4>Firmografía avanzada</h4><p>Sector, ubicación, tamaño y modelo empresarial.</p></div></div><div class="professional-grid">
+            ${multiDropdown('sectors','Sectores prioritarios',filterOptions.sectors,c.sectors)}${multiDropdown('excluded_sectors','Sectores excluidos',filterOptions.sectors,c.excluded_sectors)}
+            ${multiDropdown('target_countries','Países',filterOptions.countries,c.target_countries)}${multiDropdown('client_types','Tipos de cliente',filterOptions.clientTypes,c.client_types)}
+            ${multiDropdown('employee_ranges','Número de empleados',filterOptions.employees,c.employee_ranges)}${multiDropdown('revenue_ranges','Facturación anual',filterOptions.revenue,c.revenue_ranges)}
+            ${multiDropdown('organization_types','Tipo de organización',filterOptions.organizationTypes,c.organization_types)}${multiDropdown('business_models','Modelo de negocio',filterOptions.businessModels,c.business_models)}
+            ${multiDropdown('sales_models','Tipo de venta',filterOptions.salesModels,c.sales_models)}
+            <label class="input"><span>Ciudad</span><input data-string="target_city" value="${esc(c.target_city)}" placeholder="Madrid"/></label><label class="input"><span>Región / radio</span><input data-string="target_region" value="${esc(c.target_region)}" placeholder="Comunidad de Madrid, 100 km"/></label>
+            <label class="input wide"><span>Palabras clave</span><textarea data-list="keywords" placeholder="premium, lanzamiento, contenido recurrente">${esc((c.keywords||[]).join(', '))}</textarea></label>
+          </div></section>
+          <section class="builder-card"><div class="builder-card-title"><b>2</b><div><h4>Madurez comercial y digital</h4><p>Condiciones que indican capacidad real para contratar.</p></div></div><div class="switch-grid">${toggle('require_marketing_department','Tiene departamento de marketing',c.require_marketing_department)}${toggle('require_sales_team','Tiene equipo comercial',c.require_sales_team)}${toggle('require_ad_investment','Invierte en publicidad',c.require_ad_investment)}${toggle('require_active_linkedin','LinkedIn activo',c.require_active_linkedin)}${toggle('require_updated_website','Web actualizada',c.require_updated_website)}</div></section>
+          <section class="builder-card two-card"><div><div class="builder-card-title"><b>3</b><div><h4>Tecnologías y señales</h4><p>Indicadores públicos que elevan la prioridad.</p></div></div>${multiDropdown('technologies','Tecnologías detectadas',filterOptions.technologies,c.technologies)}${multiDropdown('opportunity_signals','Señales de oportunidad',filterOptions.signals,c.opportunity_signals)}<div class="professional-grid compact"><label class="input"><span>Vacantes recientes</span><select data-string="hiring_recency"><option>${esc(c.hiring_recency||'Sin requisito')}</option><option>Sin requisito</option><option>Últimos 30 días</option><option>Últimos 90 días</option><option>Últimos 12 meses</option></select></label><label class="input"><span>Financiación reciente</span><select data-string="funding_recency"><option>${esc(c.funding_recency||'Sin requisito')}</option><option>Sin requisito</option><option>Últimos 90 días</option><option>Últimos 12 meses</option><option>Últimos 24 meses</option></select></label></div></div><div><div class="builder-card-title"><b>4</b><div><h4>Decisores y empresas similares</h4><p>Quién debería poder contratar y qué referencias debe usar.</p></div></div>${multiDropdown('decision_roles','Decisores objetivo',filterOptions.roles,c.decision_roles)}<label class="input full"><span>Empresas similares / lookalikes</span><textarea data-list="lookalike_companies" placeholder="Una empresa por línea">${esc((c.lookalike_companies||[]).join('\n'))}</textarea></label>${toggle('require_identifiable_decision_maker','Solo empresas con decisor identificable',c.require_identifiable_decision_maker)}</div></section>
+          <section class="builder-card"><div class="builder-card-title"><b>5</b><div><h4>Encaje y exclusiones</h4><p>Reglas para evitar leads irrelevantes o ya trabajados.</p></div></div><div class="professional-grid"><label class="input"><span>Valor mínimo del proyecto</span><input data-string="minimum_budget" value="${esc(c.minimum_budget)}"/></label><label class="input"><span>Tamaño ideal descrito</span><input data-string="ideal_company_size" value="${esc(c.ideal_company_size)}"/></label><label class="input wide"><span>Señales y preferencias de encaje</span><textarea data-string="preferences">${esc(c.preferences)}</textarea></label><label class="input wide"><span>Exclusiones específicas</span><textarea data-string="exclusions">${esc(c.exclusions)}</textarea></label></div><div class="switch-grid exclusions">${toggle('exclude_current_clients','Excluir clientes actuales',c.exclude_current_clients)}${toggle('exclude_contacted_companies','Excluir empresas ya contactadas',c.exclude_contacted_companies)}${toggle('exclude_competitors','Excluir competidores',c.exclude_competitors)}</div></section>
+          <div class="research-launch"><div><strong>${source.ready&&configured?'Configuración lista para investigar':'Investigación todavía no disponible'}</strong><small>${esc(source.automation_state||'Pendiente')} · el objetivo no garantiza esa cantidad de resultados</small></div><button class="primary launch-button" data-action="research" type="submit" ${!source.ready||!configured||dashboardData.demo?'disabled':''}>Iniciar investigación profesional →</button></div>
+        </form><aside class="icp-preview"><p class="eyebrow">CONFIGURACIÓN RECOMENDADA</p><h3>Cliente ideal provisional</h3><p>${esc(t.ideal_profile_detail||`${(t.client_types||t.target_client_types||[]).join(', ')||'Empresas'} en ${(t.target_countries||t.markets||[]).join(', ')||'mercados definidos'}, de tamaño ${t.ideal_company_size||'por confirmar'}.`)}</p><div class="preview-facts"><div><span>Oferta prioritaria</span><b>${esc(t.main_service||'Pendiente')}</b></div><div><span>Presupuesto mínimo</span><b>${esc(t.minimum_budget||'Sin límite')}</b></div><div><span>Decisor habitual</span><b>${esc(t.decision_maker||'Pendiente')}</b></div><div><span>Capacidad productora</span><b>${esc(t.monthly_capacity||'Sin indicar')}</b></div></div><div class="preview-results"><h4>Resultados ya disponibles</h4><div><b>${existing.length}</b><span>Leads</span></div><div><b>${green}</b><span>Prioridad alta</span></div><div><b>${contacts}</b><span>Contactos públicos</span></div></div><div class="source-identity"><span class="badge">${source.ready?'Lista':'Bloqueada'}</span><b>${esc(p.name||'Productora')}</b><small>${esc(source.onboarding_id)} · ${esc(p.website||'Sin web')}</small></div></aside></div></article>`;
+    }
+    function renderSources(forceRecommended=false){
+      const list=document.querySelector('#source-list'),selector=document.querySelector('#source-selector'),m=dashboardData.source_metrics||{total:0,ready:0,blocked:0};setText('#source-summary',`${m.total||0} productoras · ${m.ready||0} listas · ${m.blocked||0} con datos pendientes`);
+      if(!dashboardData.sources?.length){list.innerHTML='<p class="empty">Todavía no hay registros de Onboarding para esta cuenta.</p>';selector.innerHTML='<option value="">Sin productoras</option>';return;}
+      if(!selectedSourceId||!dashboardData.sources.some(s=>s.onboarding_id===selectedSourceId))selectedSourceId=dashboardData.sources[0].onboarding_id;
+      selector.innerHTML=dashboardData.sources.map(s=>`<option value="${esc(s.onboarding_id)}" ${s.onboarding_id===selectedSourceId?'selected':''}>${esc(s.productora?.name||s.onboarding_id)} · ${s.ready?'Lista':'Bloqueada'}</option>`).join('');
+      renderWorkspace(dashboardData.sources.find(s=>s.onboarding_id===selectedSourceId),forceRecommended);
+    }
 
-      function renderMetrics(data) {
-        setText('#available', data.user.available);
-        setText('#assigned', data.user.assigned);
-        setText('#used', data.user.used);
-        const userRatio = data.user.assigned ? data.user.available / data.user.assigned : 0;
-        paint(document.querySelector('#quota-card'), userRatio > .5 ? 'green' : userRatio > .2 ? 'yellow' : 'red');
-        paint(document.querySelector('#used-card'), userRatio > .5 ? 'green' : userRatio > .2 ? 'yellow' : 'red');
-        if (data.global) {
-          setText('#global-remaining', data.global.remaining);
-          setText('#global-detail', `${data.global.used} usados de ${data.global.assigned}`);
-          setText('#gemini-remaining', data.global.gemini_requests_remaining);
-          setText('#gemini-detail', `${data.global.gemini_requests_used || 0} completadas · ${data.global.failed_requests || 0} fallidas`);
-          paint(document.querySelector('#global-card'), data.global.state);
-          const ratio = data.global.gemini_internal_budget ? data.global.gemini_requests_remaining / data.global.gemini_internal_budget : 0;
-          paint(document.querySelector('#gemini-card'), ratio > .5 ? 'green' : ratio > .2 ? 'yellow' : 'red');
-        } else {
-          setText('#global-remaining', '—');
-          setText('#global-detail', 'Solo visible para administradores');
-          setText('#gemini-remaining', '—');
-          setText('#gemini-detail', 'Solo visible para administradores');
-        }
-        const metrics = data.metrics || {total:0,classifications:{},statuses:{}};
-        setText('#total-prospects', metrics.total || 0);
-        setText('#green-count', metrics.classifications?.green || 0);
-        setText('#yellow-count', metrics.classifications?.yellow || 0);
-        setText('#red-count', metrics.classifications?.red || 0);
-        setText('#new-count', metrics.statuses?.Nuevo || 0);
-        setText('#approved-count', metrics.statuses?.Aprobado || 0);
-        setText('#discarded-count', metrics.statuses?.Descartado || 0);
-      }
+    function filtered(){const q=document.querySelector('#result-search').value.trim().toLowerCase();const f={productora:'#productora-filter',country:'#country-filter',sector:'#sector-filter',client_type:'#client-type-filter',classification:'#classification-filter',lead_status:'#status-filter'};return dashboardData.prospects.filter(x=>(!q||[x.company,x.sector,x.city,x.summary].join(' ').toLowerCase().includes(q))&&Object.entries(f).every(([k,id])=>!document.querySelector(id).value||String(x[k]||'')===document.querySelector(id).value));}
+    function updateExport(){const p=new URLSearchParams({q:document.querySelector('#result-search').value,productora:document.querySelector('#productora-filter').value,country:document.querySelector('#country-filter').value,sector:document.querySelector('#sector-filter').value,client_type:document.querySelector('#client-type-filter').value,classification:document.querySelector('#classification-filter').value,status:document.querySelector('#status-filter').value});document.querySelector('#export').href='/api/prospects/export.csv?'+p.toString();}
+    function renderProspects(){const list=document.querySelector('#results-list'),items=filtered();updateExport();if(!items.length){list.innerHTML=`<p class="empty">${dashboardData.prospects.length?'No hay resultados con estos filtros.':'Aún no hay prospectos. Revisa el estado de las ejecuciones.'}</p>`;return;}list.innerHTML=items.map(x=>{const c=['green','yellow','red'].includes(String(x.classification))?x.classification:'yellow';return `<article class="result-card ${c}"><div class="result-main"><div class="result-meta"><span class="status-badge status-${esc(String(x.lead_status||'Nuevo').toLowerCase())}">${esc(x.lead_status||'Nuevo')}</span><span>${esc(x.productora||'Sin productora')}</span><span>${esc(date(x.created_at))}</span></div><h3>${esc(x.company)}</h3><p>${esc(x.sector||'Sector pendiente')} · ${esc(x.city||x.country||'Ubicación pendiente')}</p><small>${esc(x.summary||'Sin resumen')}</small><div class="result-actions"><button class="secondary small-button" data-action="detail" data-id="${esc(x.execution_id)}">Ver ficha y CRM</button>${safeUrl(x.website)?`<a class="text-link" href="${esc(safeUrl(x.website))}" target="_blank" rel="noopener">Abrir web ↗</a>`:''}</div></div><div class="result-score">${esc(x.score??'—')}<span>/10</span></div><p class="angle"><b>Señales:</b> ${esc(x.public_signals_status||'No encontrado públicamente')} · <b>Contactos:</b> ${(x.public_contacts||[]).length}</p></article>`;}).join('');}
 
-      function filteredProspects() {
-        const query = document.querySelector('#result-search').value.trim().toLowerCase();
-        const classification = document.querySelector('#classification-filter').value;
-        const status = document.querySelector('#status-filter').value;
-        return dashboardData.prospects.filter(item => {
-          const haystack = [item.company,item.sector,item.city,item.summary,item.email].join(' ').toLowerCase();
-          return (!query || haystack.includes(query)) && (!classification || item.classification === classification) && (!status || item.lead_status === status);
-        });
-      }
+    function renderExecutions(){const body=document.querySelector('#execution-list'),items=dashboardData.executions||[];setText('#execution-summary',`${items.length} ${items.length===1?'ejecución':'ejecuciones'}`);if(!items.length){body.innerHTML='<tr><td colspan="5" class="empty-cell">Aún no hay ejecuciones.</td></tr>';return;}body.innerHTML=items.map(x=>{const trace=(x.search_trace||[]).map(t=>`${date(t.searched_at)} · ${t.status||'Sin estado'} · ${t.query||'Consulta no registrada'} · ${t.result||'Sin resultado'}`).join('\n');return `<tr><td>${esc(date(x.created_at))}</td><td><strong>${esc(x.productora||x.company)}</strong><small class="table-subtext">${esc(x.onboarding_id||x.execution_id)}</small></td><td><span class="execution-status ${String(x.status).startsWith('Completado')?'success':'failure'}">${esc(x.status||'Pendiente')}</span><small class="table-subtext">${esc(x.research_provider||'Sin proveedor')}</small></td><td>${esc(x.web_search_calls||0)} / ${esc(x.web_search_call_limit||5)}<small class="table-subtext">${esc((x.search_queries||[]).join(' · ')||'Sin consultas ejecutadas')}</small>${trace?`<details><summary>Ver trazabilidad</summary><small class="table-subtext">${esc(trace)}</small></details>`:''}</td><td>${esc(x.no_prospect_reason||x.error||x.research_summary||'Resultado registrado')}${x.duplicates_discarded?`<small class="table-subtext">${esc(x.duplicates_discarded)} duplicados descartados</small>`:''}</td></tr>`}).join('');}
 
-      function renderProspects() {
-        const list = document.querySelector('#results-list');
-        const prospects = filteredProspects();
-        if (!prospects.length) {
-          list.innerHTML = `<p class="empty">${dashboardData.prospects.length ? 'No hay resultados con estos filtros.' : 'Aún no hay investigaciones para esta cuenta.'}</p>`;
-          return;
-        }
-        list.innerHTML = prospects.map(item => {
-          const classification = normalizeClassification(item.classification);
-          const website = safeUrl(item.website);
-          return `<article class="result-card ${classification}">
-            <div class="result-main">
-              <div class="result-meta"><span class="status-badge status-${escapeHtml(String(item.lead_status || 'Nuevo').toLowerCase())}">${escapeHtml(item.lead_status || 'Nuevo')}</span><span>${escapeHtml(classificationLabel(classification))}</span><span>${escapeHtml(formatDate(item.created_at))}</span></div>
-              <h3>${escapeHtml(item.company)}</h3>
-              <p>${escapeHtml(item.sector || 'Sector pendiente')} · ${escapeHtml(item.city || 'Ubicación pendiente')}</p>
-              <small>${escapeHtml(item.summary || 'Sin resumen')}</small>
-              <div class="result-actions">
-                <button class="secondary small-button" data-action="detail" data-id="${escapeHtml(item.execution_id)}">Ver ficha completa</button>
-                ${website ? `<a class="text-link" href="${escapeHtml(website)}" target="_blank" rel="noopener">Abrir web ↗</a>` : ''}
-              </div>
-            </div>
-            <div class="result-score">${escapeHtml(item.score || '—')}<span>/10</span></div>
-            <p class="angle"><b>Ángulo de entrada:</b> ${escapeHtml(item.entry_angle || 'Pendiente')}</p>
-          </article>`;
-        }).join('');
-      }
+    const links=(items,empty)=>items.length?items.map(x=>`<a href="${esc(safeUrl(x.url||x.source_url))}" target="_blank" rel="noopener">${esc(x.title||x.value||x.url||x.source_url)} ↗</a>`).join(''):`<span class="muted-text">${esc(empty)}</span>`;
+    function openLead(id){const x=dashboardData.prospects.find(p=>p.execution_id===id);if(!x)return;setText('#dialog-company',x.company);const contacts=(x.public_contacts||[]).map(c=>({url:c.source_url,title:`${c.type}: ${c.value}`}));const signals=(x.public_signals||[]).map(s=>`<article class="signal"><b>${esc(signalLabel(s.type))}</b><p>${esc(s.value)}</p><small>${esc(s.date||'Sin fecha')} · ${esc(evidenceLabel(s.evidence_class))} · confianza ${esc(confidenceLabel(s.confidence))}</small><a href="${esc(safeUrl(s.source_url))}" target="_blank" rel="noopener">Fuente ↗</a></article>`).join('')||'<span class="muted-text">No encontrado públicamente.</span>';const decisionMakers=(x.decision_makers||[]).map(p=>({url:p.source_url,title:`${p.name} · ${p.role}${p.public_contact?' · '+p.public_contact:''}`}));const socials=Object.entries(x.social_links||{}).filter(([,v])=>safeUrl(v)).map(([k,v])=>({url:v,title:k.toUpperCase()}));document.querySelector('#dialog-content').innerHTML=`<div class="detail-grid"><div><span>Productora</span><b>${esc(x.productora||'Sin vincular')}</b></div><div><span>Score</span><b>${esc(x.score??'—')} / 10 · ${esc(classLabel(x.classification))}</b></div><div><span>Sector / tipo</span><b>${esc(x.sector||'Pendiente')} · ${esc(x.client_type||'Pendiente')}</b></div><div><span>Ubicación</span><b>${esc(x.city||'Pendiente')}, ${esc(x.country||'')}</b></div><div class="wide"><span>Resumen</span><p>${esc(x.summary||x.description||'Sin resumen')}</p></div><div class="wide"><span>Motivo de encaje</span><p>${esc(x.entry_angle||x.no_prospect_reason||'Pendiente')}</p></div><div class="wide"><span>Consultas (${esc(x.web_search_calls||0)} de ${esc(x.web_search_call_limit||5)})</span><p>${esc((x.search_queries||[]).join(' · ')||'Sin consultas registradas')}</p></div><div class="wide"><span>Decisores públicos</span><div class="evidence-list">${links(decisionMakers,'No se encontraron decisores públicos verificables.')}</div></div><div class="wide"><span>Contactos públicos</span><div class="evidence-list">${links(contacts,x.no_contacts_reason||'No se encontraron contactos públicos verificables.')}</div></div><div class="wide"><span>Redes enlazadas</span><div class="evidence-list">${links(socials,'No se encontraron redes sociales verificables.')}</div></div><div class="wide"><span>Señales empresariales/financieras</span><div class="signal-list">${signals}</div></div><div class="wide"><span>Fuentes y evidencia</span><div class="evidence-list">${links(x.research_sources||[],'Sin fuentes registradas.')}</div></div></div><form id="crm-form" class="crm-form" data-id="${esc(x.execution_id)}"><h3>Seguimiento CRM</h3><div class="config-grid"><label class="input"><span>Estado</span><select name="status"><option ${x.lead_status==='Nuevo'?'selected':''}>Nuevo</option><option ${x.lead_status==='Aprobado'?'selected':''}>Aprobado</option><option ${x.lead_status==='Descartado'?'selected':''}>Descartado</option></select></label><label class="input"><span>Propietario</span><input name="owner" value="${esc(x.crm_owner||'')}" /></label><label class="input"><span>Próxima acción</span><input name="next_action" value="${esc(x.crm_next_action||'')}" /></label><label class="input"><span>Fecha seguimiento</span><input name="follow_up_date" type="date" value="${esc(x.crm_follow_up_date||'')}" /></label><label class="input"><span>Preparación calentamiento</span><select name="warmup_preparation"><option ${x.warmup_preparation==='No iniciada'?'selected':''}>No iniciada</option><option ${x.warmup_preparation==='Preparada'?'selected':''}>Preparada</option><option ${x.warmup_preparation==='En revisión'?'selected':''}>En revisión</option></select></label><label class="input"><span>Aprobación calentamiento</span><select name="warmup_approval"><option ${x.warmup_approval==='Pendiente'?'selected':''}>Pendiente</option><option ${x.warmup_approval==='Aprobada'?'selected':''}>Aprobada</option><option ${x.warmup_approval==='Rechazada'?'selected':''}>Rechazada</option></select></label><label class="input wide"><span>Notas</span><textarea name="notes">${esc(x.crm_notes||'')}</textarea></label></div><div class="dialog-actions"><button type="button" class="secondary" data-copy="${esc(x.execution_id)}">Copiar resumen</button><button class="primary" ${dashboardData.demo?'disabled':''}>Guardar CRM</button></div></form>`;dialog.showModal();}
 
-      function renderExecutions() {
-        const body = document.querySelector('#execution-list');
-        const executions = dashboardData.executions || [];
-        setText('#execution-summary', `${executions.length} ${executions.length === 1 ? 'ejecución' : 'ejecuciones'}`);
-        if (!executions.length) {
-          body.innerHTML = '<tr><td colspan="6" class="empty-cell">Aún no hay ejecuciones registradas.</td></tr>';
-          return;
-        }
-        body.innerHTML = executions.map(item => `<tr>
-          <td>${escapeHtml(formatDate(item.created_at))}</td>
-          <td><strong>${escapeHtml(item.company)}</strong><small class="table-subtext">${escapeHtml(item.execution_id)}</small></td>
-          <td>${escapeHtml(item.email || '—')}</td>
-          <td><span class="execution-status ${String(item.status).toLowerCase() === 'completado' ? 'success' : 'failure'}">${escapeHtml(item.status || 'Pendiente')}</span></td>
-          <td>${escapeHtml(item.total_tokens || 0)}</td>
-          <td>${escapeHtml(item.error || 'Sin errores')}</td>
-        </tr>`).join('');
-      }
+    function collectResearchConfig(workspace){const body={};workspace.querySelectorAll('[data-string]').forEach(n=>body[n.dataset.string]=n.value.trim());workspace.querySelectorAll('[data-number]').forEach(n=>body[n.dataset.number]=Math.max(1,Math.min(50,Number(n.value)||25)));workspace.querySelectorAll('[data-boolean]').forEach(n=>body[n.dataset.boolean]=n.checked);workspace.querySelectorAll('[data-array]').forEach(n=>{body[n.dataset.array]??=[];if(n.checked)body[n.dataset.array].push(n.value)});workspace.querySelectorAll('[data-list]').forEach(n=>body[n.dataset.list]=n.value.split(/[\n,]+/).map(v=>v.trim()).filter(Boolean));return body;}
+    function persistResearchDraft(silent=false){const workspace=document.querySelector('.research-workspace');if(!workspace)return;localStorage.setItem(draftKey(workspace.dataset.source),JSON.stringify(collectResearchConfig(workspace)));if(!silent)message.textContent='Borrador de configuración guardado en este dispositivo.';}
+    async function runResearch(workspace){const id=workspace.dataset.source,body=collectResearchConfig(workspace);persistResearchDraft(true);message.textContent=`Iniciando investigación pública para hasta ${body.lead_count} leads...`;const button=workspace.querySelector('[data-action="research"]');button.disabled=true;const r=await fetch(`/api/onboarding-sources/${encodeURIComponent(id)}/research`,{method:'POST',headers:headers(),body:JSON.stringify(body)}),d=await r.json();message.textContent=r.ok?`Investigación completada: ${d.prospects.length} prospectos verificables, ${d.trace.web_search_calls}/${d.trace.web_search_call_limit} búsquedas.`:(d.detail||'No se pudo ejecutar.');if(r.ok)await loadDashboard();else button.disabled=false;}
+    async function saveCRM(form){const body=Object.fromEntries(new FormData(form).entries()),r=await fetch(`/api/prospects/${encodeURIComponent(form.dataset.id)}/crm`,{method:'POST',headers:headers(),body:JSON.stringify(body)}),d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo guardar el CRM.';return;}dialog.close();message.textContent='Seguimiento CRM guardado en Google Sheets.';await loadDashboard();}
+    async function copyLead(id){const x=dashboardData.prospects.find(p=>p.execution_id===id);if(!x)return;await navigator.clipboard.writeText([`Empresa: ${x.company}`,`Web: ${x.website}`,`Productora: ${x.productora||''}`,`Resumen: ${x.summary||''}`,`Contactos: ${(x.public_contacts||[]).map(c=>c.value).join(', ')}`,`Fuentes: ${(x.research_sources||[]).map(s=>s.url).join(', ')}`].join('\n'));message.textContent='Resumen copiado.';}
+    async function loadDashboard(){const r=await fetch('/api/portal-dashboard',{headers:{Accept:'application/json'}});if(r.status===401){location.assign('/');return;}const d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo cargar el dashboard.';return;}dashboardData=d;document.querySelector('#demo-badge').hidden=!d.demo;renderMetrics(d);renderSources();optionize('#productora-filter','productora');optionize('#country-filter','country');optionize('#sector-filter','sector');optionize('#client-type-filter','client_type');renderProspects();renderExecutions();}
 
-      function socialLinks(item) {
-        return Object.entries(item.social_links || {}).filter(([,value]) => safeUrl(value)).map(([network,value]) => `<a class="social-link" href="${escapeHtml(safeUrl(value))}" target="_blank" rel="noopener">${escapeHtml(network.toUpperCase())} ↗</a>`).join('') || '<span class="muted-text">No se detectaron redes enlazadas.</span>';
-      }
-
-      function openLead(executionId) {
-        const item = dashboardData.prospects.find(prospect => prospect.execution_id === executionId);
-        if (!item) return;
-        setText('#dialog-company', item.company);
-        const evidence = (item.evidence || []).map(value => safeUrl(value) ? `<a href="${escapeHtml(safeUrl(value))}" target="_blank" rel="noopener">${escapeHtml(value)} ↗</a>` : `<span>${escapeHtml(value)}</span>`).join('') || '<span class="muted-text">Sin fuentes registradas.</span>';
-        document.querySelector('#dialog-content').innerHTML = `
-          <div class="detail-grid">
-            <div><span>Estado</span><b>${escapeHtml(item.lead_status || 'Nuevo')}</b></div>
-            <div><span>Score</span><b>${escapeHtml(item.score || '—')} / 10 · ${escapeHtml(classificationLabel(item.classification))}</b></div>
-            <div><span>Sector</span><b>${escapeHtml(item.sector || 'Pendiente')}</b></div>
-            <div><span>Modelo</span><b>${escapeHtml(item.business_model || 'Pendiente')}</b></div>
-            <div><span>Ciudad</span><b>${escapeHtml(item.city || 'Pendiente')}</b></div>
-            <div><span>Empleados</span><b>${escapeHtml(item.employees || 'Pendiente')}</b></div>
-            <div class="wide"><span>Resumen</span><p>${escapeHtml(item.summary || item.description || 'Sin resumen')}</p></div>
-            <div class="wide"><span>Ángulo de entrada</span><p>${escapeHtml(item.entry_angle || 'Pendiente')}</p></div>
-            <div class="wide"><span>Redes detectadas</span><div class="social-row">${socialLinks(item)}</div></div>
-            <div class="wide"><span>Fuentes y evidencia</span><div class="evidence-list">${evidence}</div></div>
-          </div>
-          <div class="dialog-actions">
-            <button class="secondary" data-dialog-action="copy" data-id="${escapeHtml(item.execution_id)}">Copiar datos</button>
-            <button class="secondary" data-dialog-action="status" data-status="Descartado" data-id="${escapeHtml(item.execution_id)}" ${dashboardData.demo ? 'disabled' : ''}>Descartar</button>
-            <button class="primary" data-dialog-action="status" data-status="Aprobado" data-id="${escapeHtml(item.execution_id)}" ${dashboardData.demo ? 'disabled' : ''}>Aprobar lead</button>
-          </div>`;
-        dialog.showModal();
-      }
-
-      async function copyLead(executionId) {
-        const item = dashboardData.prospects.find(prospect => prospect.execution_id === executionId);
-        if (!item) return;
-        const text = [`Empresa: ${item.company}`,`Web: ${item.website}`,`Sector: ${item.sector || ''}`,`Ciudad: ${item.city || ''}`,`Score: ${item.score || ''}/10`,`Estado: ${item.lead_status || 'Nuevo'}`,`Resumen: ${item.summary || ''}`,`Ángulo de entrada: ${item.entry_angle || ''}`,`ID: ${item.execution_id}`].join('\n');
-        await navigator.clipboard.writeText(text);
-        message.textContent = `Datos de ${item.company} copiados.`;
-      }
-
-      async function updateStatus(executionId, status) {
-        const response = await fetch(`/api/prospects/${encodeURIComponent(executionId)}/status`, {method:'POST',headers:headers(),body:JSON.stringify({status})});
-        const data = await response.json();
-        if (!response.ok) { message.textContent = data.detail || 'No se pudo actualizar el estado.'; return; }
-        dialog.close();
-        message.textContent = `Lead marcado como ${status.toLowerCase()}.`;
-        await loadDashboard();
-      }
-
-      async function loadDashboard() {
-        const response = await fetch('/api/portal-dashboard', {headers:{'Accept':'application/json'}});
-        if (response.status === 401) { window.location.assign('/'); return; }
-        const data = await response.json();
-        if (!response.ok) { message.textContent = data.detail || 'No se pudo cargar el dashboard.'; return; }
-        dashboardData = data;
-        document.querySelector('#demo-badge').hidden = !data.demo;
-        renderMetrics(data);
-        renderProspects();
-        renderExecutions();
-      }
-
-      document.querySelector('#scrape-form').addEventListener('submit', async event => {
-        event.preventDefault();
-        if (!event.currentTarget.reportValidity()) return;
-        const button = document.querySelector('#scrape-button');
-        const values = Object.fromEntries(new FormData(event.currentTarget));
-        button.disabled = true;
-        button.classList.add('loading');
-        button.querySelector('span').textContent = 'Analizando...';
-        message.className = 'form-message';
-        message.textContent = 'Consultando fuentes públicas y analizando evidencia. Esto puede tardar unos segundos...';
-        try {
-          const response = await fetch('/api/scrape',{method:'POST',headers:headers(),body:JSON.stringify(values)});
-          const data = await response.json();
-          message.classList.toggle('error-message', !response.ok);
-          message.classList.toggle('success-message', response.ok);
-          message.textContent = response.ok ? `Investigación completada: ${data.execution_id}` : (data.detail || 'No se pudo completar el raspado.');
-          if (response.ok) { event.currentTarget.reset(); await loadDashboard(); }
-        } catch {
-          message.classList.add('error-message');
-          message.textContent = 'No se pudo conectar con el servidor. Inténtalo de nuevo.';
-        } finally {
-          button.disabled = false;
-          button.classList.remove('loading');
-          button.querySelector('span').textContent = 'Usar 1 raspado';
-        }
-      });
-
-      document.querySelector('#results-list').addEventListener('click', event => {
-        const button = event.target.closest('[data-action="detail"]');
-        if (button) openLead(button.dataset.id);
-      });
-      document.querySelector('#dialog-content').addEventListener('click', async event => {
-        const button = event.target.closest('[data-dialog-action]');
-        if (!button) return;
-        if (button.dataset.dialogAction === 'copy') await copyLead(button.dataset.id);
-        if (button.dataset.dialogAction === 'status') await updateStatus(button.dataset.id, button.dataset.status);
-      });
-      ['#result-search','#classification-filter','#status-filter'].forEach(selector => document.querySelector(selector).addEventListener('input', renderProspects));
-      document.querySelector('#refresh').addEventListener('click', loadDashboard);
-      document.querySelector('#refresh-top').addEventListener('click', loadDashboard);
-      document.querySelector('#close-dialog').addEventListener('click', () => dialog.close());
-      dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
-      document.querySelector('#logout').addEventListener('click',async()=>{const response=await fetch('/auth/logout',{method:'POST',headers:headers()});const data=await response.json();window.location.assign(data.redirect||'/');});
-      loadDashboard();
-    </script>
-  </body>
+    document.querySelector('#source-list').addEventListener('submit',e=>{if(e.target.id==='research-config-form'){e.preventDefault();runResearch(e.target.closest('[data-source]'));}});
+    document.querySelector('#source-list').addEventListener('change',()=>persistResearchDraft(true));
+    document.querySelector('#source-selector').addEventListener('change',e=>{selectedSourceId=e.target.value;renderSources();});
+    document.querySelector('#recommended-config').addEventListener('click',()=>{if(!selectedSourceId)return;localStorage.removeItem(draftKey(selectedSourceId));renderSources(true);message.textContent='Configuración recomendada restaurada desde las respuestas del Onboarding.';});
+    document.querySelector('#save-config').addEventListener('click',()=>persistResearchDraft(false));
+    document.querySelector('#results-list').addEventListener('click',e=>{const b=e.target.closest('[data-action="detail"]');if(b)openLead(b.dataset.id);});
+    document.querySelector('#dialog-content').addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='crm-form')saveCRM(e.target);});
+    document.querySelector('#dialog-content').addEventListener('click',e=>{const b=e.target.closest('[data-copy]');if(b)copyLead(b.dataset.copy);});
+    ['#result-search','#productora-filter','#country-filter','#sector-filter','#client-type-filter','#classification-filter','#status-filter'].forEach(s=>document.querySelector(s).addEventListener('input',renderProspects));
+    document.querySelector('#refresh').addEventListener('click',loadDashboard);document.querySelector('#refresh-top').addEventListener('click',loadDashboard);document.querySelector('#close-dialog').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});document.querySelector('#logout').addEventListener('click',async()=>{const r=await fetch('/auth/logout',{method:'POST',headers:headers()}),d=await r.json();location.assign(d.redirect||'/');});loadDashboard();
+  </script>
+</body>
 </html>

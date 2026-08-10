@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import csv
+import asyncio
 import io
+import json
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -10,7 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field
 
 from app.auth import (
     CSRF_COOKIE,
@@ -24,7 +27,8 @@ from app.auth import (
 )
 from app.config import get_settings
 from app.db import create_schema, session_scope
-from app.enrichment import GeminiAnalyzer, PublicWebScraper
+from app.dedupe import company_dedupe_key
+from app.enrichment import OpenAIProspectDiscovery
 from app.services import ensure_demo_client
 from app.sheet_store import SheetStore
 
@@ -33,16 +37,60 @@ class GoogleCredential(BaseModel):
     credential: str
 
 
-class ScrapeRequest(BaseModel):
-    company: str
-    website: HttpUrl
-
-
 class LeadStatusRequest(BaseModel):
     status: Literal["Nuevo", "Aprobado", "Descartado"]
 
 
-def _demo_payload(identity: Identity, gemini_budget: int) -> dict:
+class CRMRequest(BaseModel):
+    status: Literal["Nuevo", "Aprobado", "Descartado"]
+    owner: str = ""
+    notes: str = ""
+    next_action: str = ""
+    follow_up_date: str = ""
+    warmup_preparation: Literal["No iniciada", "Preparada", "En revisión"] = "No iniciada"
+    warmup_approval: Literal["Pendiente", "Aprobada", "Rechazada"] = "Pendiente"
+
+
+class ResearchAdjustments(BaseModel):
+    lead_count: int = Field(default=25, ge=1, le=50)
+    target_city: str = ""
+    target_region: str = ""
+    target_countries: list[str] = Field(default_factory=list)
+    sectors: list[str] = Field(default_factory=list)
+    excluded_sectors: list[str] = Field(default_factory=list)
+    client_types: list[str] = Field(default_factory=list)
+    organization_types: list[str] = Field(default_factory=list)
+    business_models: list[str] = Field(default_factory=list)
+    sales_models: list[str] = Field(default_factory=list)
+    employee_ranges: list[str] = Field(default_factory=list)
+    revenue_ranges: list[str] = Field(default_factory=list)
+    technologies: list[str] = Field(default_factory=list)
+    opportunity_signals: list[str] = Field(default_factory=list)
+    decision_roles: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    lookalike_companies: list[str] = Field(default_factory=list)
+    ideal_company_size: str = ""
+    minimum_budget: str = ""
+    exclusions: str = ""
+    preferences: str = ""
+    hiring_recency: str = ""
+    funding_recency: str = ""
+    require_marketing_department: bool = False
+    require_sales_team: bool = False
+    require_ad_investment: bool = False
+    require_active_linkedin: bool = False
+    require_updated_website: bool = False
+    require_identifiable_decision_maker: bool = False
+    exclude_current_clients: bool = True
+    exclude_contacted_companies: bool = True
+    exclude_competitors: bool = True
+
+
+class OnboardingTrigger(BaseModel):
+    onboarding_id: str
+
+
+def _demo_payload(identity: Identity, openai_budget: int) -> dict:
     prospects = [
         {
             "execution_id": "DEMO-VERDE-001",
@@ -62,7 +110,28 @@ def _demo_payload(identity: Identity, gemini_budget: int) -> dict:
             "entry_angle": "Proponer una estrategia de captacion para sus servicios corporativos.",
             "social_links": {"linkedin": "https://www.linkedin.com", "instagram": "https://www.instagram.com"},
             "evidence": ["https://example.com", "https://example.com/contacto"],
+            "research_sources": [{"url": "https://example.com", "title": "Fuente de demostración", "type": "company_website"}],
+            "search_queries": ["empresa audiovisual corporativa Madrid"],
+            "web_search_calls": 1,
+            "web_search_call_limit": 5,
+            "public_contacts": [{"type": "email", "value": "info@example.com", "source_url": "https://example.com/contacto"}],
+            "decision_makers": [{"name": "Responsable de marketing", "role": "Dirección de marketing", "public_contact": "", "source_url": "https://example.com/contacto"}],
+            "public_signals": [],
+            "public_signals_status": "No encontrado públicamente",
+            "prospect_found": True,
+            "no_prospect_reason": "",
+            "no_contacts_reason": "",
+            "country": "España",
+            "client_type": "Empresa privada B2B",
+            "onboarding_id": "ONB-DEMO0001",
+            "productora": "Productora Demo Focus",
+            "crm_owner": "Alberto",
+            "crm_notes": "Validar encaje en la próxima revisión.",
+            "crm_next_action": "Revisar decisor",
+            "crm_follow_up_date": "2026-08-20",
             "lead_status": "Aprobado",
+            "warmup_preparation": "No iniciada",
+            "warmup_approval": "Pendiente",
             "updated_at": "2026-08-10T09:35:00+00:00",
         },
         {
@@ -83,7 +152,28 @@ def _demo_payload(identity: Identity, gemini_budget: int) -> dict:
             "entry_angle": "Validar volumen de proyectos y necesidad de apoyo comercial.",
             "social_links": {"linkedin": "https://www.linkedin.com"},
             "evidence": ["https://example.org"],
+            "research_sources": [{"url": "https://example.org", "title": "Fuente de demostración", "type": "company_website"}],
+            "search_queries": ["agencia creativa Barcelona B2B"],
+            "web_search_calls": 1,
+            "web_search_call_limit": 5,
+            "public_contacts": [],
+            "decision_makers": [],
+            "public_signals": [],
+            "public_signals_status": "No encontrado públicamente",
+            "prospect_found": True,
+            "no_prospect_reason": "",
+            "no_contacts_reason": "No se encontraron contactos públicos verificables.",
+            "country": "España",
+            "client_type": "Agencia",
+            "onboarding_id": "ONB-DEMO0001",
+            "productora": "Productora Demo Focus",
+            "crm_owner": "",
+            "crm_notes": "",
+            "crm_next_action": "",
+            "crm_follow_up_date": "",
             "lead_status": "Nuevo",
+            "warmup_preparation": "No iniciada",
+            "warmup_approval": "Pendiente",
             "updated_at": "2026-08-09T16:10:00+00:00",
         },
     ]
@@ -96,17 +186,56 @@ def _demo_payload(identity: Identity, gemini_budget: int) -> dict:
             "remaining": 8,
             "remaining_ratio": 0.8,
             "state": "green",
-            "gemini_internal_budget": gemini_budget,
-            "gemini_requests_used": 2,
-            "gemini_requests_remaining": max(0, gemini_budget - 2),
+            "openai_internal_budget": openai_budget,
+            "openai_requests_used": 2,
+            "openai_requests_remaining": max(0, openai_budget - 2),
+            "openai_web_search_calls_used": 2,
             "failed_requests": 0,
         },
         "metrics": {"total": 2, "classifications": {"green": 1, "yellow": 1, "red": 0}, "statuses": {"Nuevo": 1, "Aprobado": 1, "Descartado": 0}},
         "prospects": prospects,
         "executions": [
-            {"execution_id": item["execution_id"], "created_at": item["created_at"], "email": identity.email, "company": item["company"], "website": item["website"], "status": "Completado", "gemini_model": "demo", "prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0, "error": ""}
+            {"execution_id": item["execution_id"], "created_at": item["created_at"], "email": identity.email, "company": item["company"], "website": item["website"], "status": "Completado", "model": "demo", "prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0, "error": "", "onboarding_id": "ONB-DEMO0001", "productora": "Productora Demo Focus", "web_search_calls": 1, "web_search_call_limit": 5, "search_queries": item["search_queries"], "research_sources": item["research_sources"], "no_prospect_reason": "", "research_summary": item["summary"], "research_provider": "OpenAI Responses API + web_search (demo)"}
             for item in prospects
         ],
+        "sources": [
+            {
+                "onboarding_id": "ONB-DEMO0001",
+                "productora": {
+                    "name": "Productora Demo Focus",
+                    "website": "https://example.com",
+                    "email": identity.email,
+                    "activity": "Productora audiovisual",
+                    "location": "Madrid, España",
+                    "description": "Fuente ficticia para validar la interfaz local.",
+                },
+                "targeting": {
+                    "main_service": "Producción audiovisual",
+                    "services": ["Vídeo corporativo"],
+                    "audience": ["B2B"],
+                    "sectors": ["Tecnología"],
+                    "markets": ["España"],
+                    "target_city": "Madrid",
+                    "target_region": "Comunidad de Madrid",
+                    "target_countries": ["España"],
+                    "target_client_types": ["Empresa privada B2B"],
+                    "ideal_company_size": "11–50 empleados",
+                    "decision_maker": "Dirección de marketing",
+                    "minimum_budget": "3.000 €",
+                    "monthly_capacity": "2–3 proyectos",
+                    "prospect_exclusions": "Clientes actuales y competidores directos",
+                    "prospect_preferences": "Empresas con marketing activo",
+                    "objectives": ["Captar clientes B2B"],
+                },
+                "submitted_at": "2026-08-10T09:00:00+00:00",
+                "status": "Nuevo",
+                "ready": True,
+                "blockers": [],
+                "automation_state": "Pendiente de configurar OpenAI",
+                "openai_configured": False,
+            }
+        ],
+        "source_metrics": {"total": 1, "ready": 1, "blocked": 0},
         "demo": True,
     }
 
@@ -116,6 +245,153 @@ def _csv_cell(value) -> str:
     return f"'{text}" if text.startswith(("=", "+", "-", "@")) else text
 
 
+def _source_view(source, settings, latest: dict | None = None) -> dict:
+    data = source.as_dict()
+    configured = bool(settings.openai_api_key)
+    if latest:
+        automation_state = latest["status"]
+    elif not source.ready:
+        automation_state = "Bloqueado por datos incompletos"
+    elif not configured:
+        automation_state = "Pendiente de configurar OpenAI"
+    else:
+        automation_state = "Listo para investigación automática"
+    return {**data, "automation_state": automation_state, "openai_configured": configured, "latest_execution": latest}
+
+
+def _run_onboarding_research(source, store: SheetStore, adjustments: dict | None = None) -> dict:
+    settings = get_settings()
+    if not source.ready:
+        raise ValueError("; ".join(source.blockers))
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY_REQUIRED")
+    execution_id = str(uuid.uuid4())
+    reserved = False
+    try:
+        store.ensure_operational_schema()
+        store.reserve_execution(source.email)
+        reserved = True
+        prospects, trace = OpenAIProspectDiscovery(settings).discover(source.prospecting_profile(), adjustments)
+        existing_keys = store.existing_prospect_keys(source.record_id)
+        discovered_count = len(prospects)
+        prospects = [
+            prospect for prospect in prospects
+            if company_dedupe_key({"commercial_name": prospect.get("company", ""), "website": prospect.get("website", ""), "city": prospect.get("city", "")}) not in existing_keys
+        ]
+        duplicates_discarded = discovered_count - len(prospects)
+        if not prospects and duplicates_discarded:
+            trace["no_prospect_reason"] = "Los resultados encontrados ya existían para esta productora y se descartaron como duplicados."
+        for index, prospect in enumerate(prospects, start=1):
+            store.append_prospect(
+                {
+                    **prospect,
+                    "execution_id": f"{execution_id}-{index:03d}",
+                    "email": source.email,
+                    "onboarding_id": source.record_id,
+                    "productora": source.company,
+                }
+            )
+        store.append_execution(
+            execution_id=execution_id,
+            email=source.email,
+            company=source.company,
+            website=source.website,
+            status="Completado" if prospects else "Completado sin prospectos",
+            model=settings.openai_model,
+            prompt_tokens=trace["prompt_tokens"],
+            output_tokens=trace["output_tokens"],
+            total_tokens=trace["total_tokens"],
+            onboarding_id=source.record_id,
+            productora=source.company,
+            web_search_calls=trace["web_search_calls"],
+            web_search_call_limit=trace["web_search_call_limit"],
+            search_queries=trace["search_queries"],
+            research_sources=trace["research_sources"],
+            no_prospect_reason=trace["no_prospect_reason"],
+            research_summary=trace["research_summary"],
+            search_configuration=trace["search_configuration"],
+            adjustments=trace["adjustments"],
+            research_provider=trace["research_provider"],
+            search_trace=trace["search_trace"],
+            duplicates_discarded=duplicates_discarded,
+        )
+        try:
+            store.refresh_dashboard_summary()
+        except Exception:
+            pass
+        return {"ok": True, "execution_id": execution_id, "prospects": prospects, "trace": trace}
+    except Exception as exc:
+        if reserved and settings.refund_failed_searches:
+            try:
+                store.refund_execution(source.email)
+            except Exception:
+                pass
+        try:
+            store.append_execution(
+                execution_id=execution_id,
+                email=source.email,
+                company=source.company,
+                website=source.website,
+                status="Fallido",
+                model=settings.openai_model,
+                prompt_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+                error=str(exc)[:500],
+                onboarding_id=source.record_id,
+                productora=source.company,
+                web_search_call_limit=settings.web_search_call_limit,
+            )
+        except Exception:
+            pass
+        raise
+
+
+def _sync_onboarding_once() -> None:
+    settings = get_settings()
+    if not settings.auto_research_enabled or not settings.google_sheets_enabled:
+        return
+    store = SheetStore(settings)
+    store.ensure_operational_schema()
+    for source in store.onboarding_sources():
+        try:
+            _process_onboarding_trigger(source.record_id, store)
+        except Exception:
+            continue
+
+
+def _process_onboarding_trigger(record_id: str, store: SheetStore) -> dict:
+    settings = get_settings()
+    store.ensure_operational_schema()
+    source = store.get_onboarding_source(record_id)
+    if not source:
+        raise LookupError("El registro de Onboarding todavía no está disponible en Google Sheets")
+    latest = store.latest_execution_for_onboarding(source.record_id)
+    if not source.ready:
+        if not latest or latest["status"] != "Bloqueado por datos incompletos":
+            store.append_execution(
+                execution_id=str(uuid.uuid4()), email=source.email, company=source.company, website=source.website,
+                status="Bloqueado por datos incompletos", model=settings.openai_model, prompt_tokens=0,
+                output_tokens=0, total_tokens=0, error="; ".join(source.blockers), onboarding_id=source.record_id,
+                productora=source.company, web_search_call_limit=settings.web_search_call_limit,
+            )
+        return {"ok": True, "state": "blocked", "blockers": source.blockers}
+    if not settings.openai_api_key:
+        if not latest or latest["status"] != "Pendiente de configurar OpenAI":
+            store.append_execution(
+                execution_id=str(uuid.uuid4()), email=source.email, company=source.company, website=source.website,
+                status="Pendiente de configurar OpenAI", model=settings.openai_model, prompt_tokens=0,
+                output_tokens=0, total_tokens=0, error="Falta OPENAI_API_KEY en el entorno del servidor",
+                onboarding_id=source.record_id, productora=source.company,
+                web_search_call_limit=settings.web_search_call_limit,
+            )
+        return {"ok": True, "state": "pending_openai_configuration"}
+    if latest and latest["status"] not in {"Pendiente de configurar OpenAI", "Bloqueado por datos incompletos"}:
+        return {"ok": True, "state": "already_processed", "execution": latest}
+    result = _run_onboarding_research(source, store)
+    return {"ok": True, "state": "completed", "execution_id": result["execution_id"], "prospects": len(result["prospects"])}
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -123,7 +399,19 @@ async def lifespan(_: FastAPI):
         create_schema()
         with session_scope() as session:
             ensure_demo_client(session)
-    yield
+    automation_task = None
+    if settings.google_sheets_enabled and settings.auto_research_enabled:
+        async def automation_loop():
+            while True:
+                await asyncio.to_thread(_sync_onboarding_once)
+                await asyncio.sleep(max(30, settings.auto_research_poll_seconds))
+
+        automation_task = asyncio.create_task(automation_loop())
+    try:
+        yield
+    finally:
+        if automation_task:
+            automation_task.cancel()
 
 
 app = FastAPI(title="Focus Prospeccion", version="0.3.0", lifespan=lifespan)
@@ -170,8 +458,29 @@ def health():
         "status": "ok",
         "sheets_configured": bool(settings.google_sheets_enabled and settings.google_service_account_json),
         "google_login_configured": bool(settings.google_oauth_client_id),
-        "gemini_configured": bool(settings.gemini_api_key),
+        "openai_configured": bool(settings.openai_api_key),
+        "openai_web_search_call_limit": settings.web_search_call_limit,
+        "auto_research_enabled": settings.auto_research_enabled,
     }
+
+
+@app.post("/api/internal/onboarding-trigger")
+def onboarding_trigger(payload: OnboardingTrigger, request: Request):
+    settings = get_settings()
+    supplied = request.headers.get("authorization", "")
+    expected = f"Bearer {settings.prospection_trigger_token}" if settings.prospection_trigger_token else ""
+    if not expected:
+        raise HTTPException(status_code=503, detail="El disparador automático no está configurado")
+    if not secrets.compare_digest(supplied, expected):
+        raise HTTPException(status_code=403, detail="Disparador no autorizado")
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="Google Sheets no está activado")
+    try:
+        return _process_onboarding_trigger(payload.onboarding_id.strip(), SheetStore(settings))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No se pudo procesar el registro: {str(exc)[:300]}") from exc
 
 
 @app.post("/auth/google")
@@ -229,13 +538,15 @@ def logout(request: Request):
 def portal_dashboard(identity: Identity = Depends(require_identity)):
     settings = get_settings()
     if not settings.google_sheets_enabled:
-        return _demo_payload(identity, settings.gemini_request_budget)
+        return _demo_payload(identity, settings.openai_request_budget)
     store = SheetStore()
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = "admin" in access.role.lower()
     scope_email = None if is_admin else identity.email
+    source_records = store.onboarding_sources(scope_email)
+    sources = [_source_view(source, settings, store.latest_execution_for_onboarding(source.record_id)) for source in source_records]
     global_metrics = store.global_metrics() if is_admin else None
     return {
         "user": {
@@ -249,8 +560,72 @@ def portal_dashboard(identity: Identity = Depends(require_identity)):
         "metrics": store.prospect_metrics(scope_email),
         "prospects": store.recent_prospects(scope_email),
         "executions": store.recent_executions(scope_email),
+        "sources": sources,
+        "source_metrics": {
+            "total": len(sources),
+            "ready": sum(1 for source in sources if source["ready"]),
+            "blocked": sum(1 for source in sources if not source["ready"]),
+        },
         "demo": False,
     }
+
+
+@app.get("/api/onboarding-sources/{record_id}")
+def onboarding_source(record_id: str, identity: Identity = Depends(require_identity)):
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        source = next(
+            (item for item in _demo_payload(identity, settings.openai_request_budget)["sources"] if item["onboarding_id"] == record_id),
+            None,
+        )
+        if not source:
+            raise HTTPException(status_code=404, detail="No se encontró la productora")
+        return {"source": source}
+    store = SheetStore()
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = "admin" in access.role.lower()
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    return {"source": _source_view(source, settings, store.latest_execution_for_onboarding(source.record_id))}
+
+
+@app.post("/api/onboarding-sources/{record_id}/research")
+def research_onboarding_source(
+    record_id: str,
+    payload: ResearchAdjustments,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="Google Sheets no está activado")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = "admin" in access.role.lower()
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    try:
+        return _run_onboarding_research(source, store, payload.model_dump())
+    except RuntimeError as exc:
+        if str(exc) == "OPENAI_API_KEY_REQUIRED":
+            raise HTTPException(
+                status_code=503,
+                detail="Investigación pendiente: configura OPENAI_API_KEY como secreto del servidor.",
+            ) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No se pudo completar la investigación: {str(exc)[:300]}") from exc
 
 
 @app.post("/api/prospects/{execution_id}/status")
@@ -282,11 +657,59 @@ def update_prospect_status(
     return {"ok": True, "prospect": prospect}
 
 
-@app.get("/api/prospects/export.csv")
-def export_prospects(identity: Identity = Depends(require_identity)):
+@app.post("/api/prospects/{execution_id}/crm")
+def update_prospect_crm(
+    execution_id: str,
+    payload: CRMRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
     settings = get_settings()
     if not settings.google_sheets_enabled:
-        prospects = _demo_payload(identity, settings.gemini_request_budget)["prospects"]
+        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    try:
+        prospect = store.update_prospect_crm(
+            execution_id,
+            identity.email,
+            status=payload.status,
+            owner=payload.owner[:160],
+            notes=payload.notes[:4000],
+            next_action=payload.next_action[:500],
+            follow_up_date=payload.follow_up_date[:40],
+            warmup_preparation=payload.warmup_preparation,
+            warmup_approval=payload.warmup_approval,
+            is_admin="admin" in access.role.lower(),
+        )
+        try:
+            store.refresh_dashboard_summary()
+        except Exception:
+            pass
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "prospect": prospect}
+
+
+@app.get("/api/prospects/export.csv")
+def export_prospects(
+    q: str = "",
+    classification: str = "",
+    status: str = "",
+    productora: str = "",
+    country: str = "",
+    sector: str = "",
+    client_type: str = "",
+    identity: Identity = Depends(require_identity),
+):
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        prospects = _demo_payload(identity, settings.openai_request_budget)["prospects"]
     else:
         store = SheetStore()
         access = store.get_access(identity.email)
@@ -295,12 +718,38 @@ def export_prospects(identity: Identity = Depends(require_identity)):
         prospects = store.recent_prospects(None if "admin" in access.role.lower() else identity.email, limit=1000)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["Empresa", "Web", "Sector", "Ciudad", "Empleados", "Score", "Clasificacion", "Estado", "Resumen", "Angulo de entrada", "Correo de cuenta", "Fecha", "ID ejecucion"])
+    filters = {
+        "classification": classification.strip().lower(), "lead_status": status.strip().lower(),
+        "productora": productora.strip().lower(), "country": country.strip().lower(),
+        "sector": sector.strip().lower(), "client_type": client_type.strip().lower(),
+    }
+    query = q.strip().lower()
+    prospects = [
+        item for item in prospects
+        if (not query or query in " ".join(str(item.get(key, "")) for key in ("company", "website", "sector", "city", "summary")).lower())
+        and all(not value or value == str(item.get(key, "")).strip().lower() for key, value in filters.items())
+    ]
+    writer.writerow([
+        "Productora", "ID onboarding", "Empresa", "Web", "Sector", "Tipo de cliente", "Ciudad", "País",
+        "Empleados", "Score", "Clasificación", "Estado CRM", "Propietario CRM", "Notas CRM", "Próxima acción",
+        "Fecha seguimiento", "Preparación calentamiento", "Aprobación calentamiento", "Resumen", "Ángulo de entrada", "Contactos públicos", "Redes sociales",
+        "Decisores públicos", "Señales financieras/comerciales", "Estado de señales", "Consultas", "Llamadas de búsqueda", "Límite",
+        "Fuentes", "Motivo sin contactos", "Motivo sin prospecto", "Correo de cuenta", "Fecha", "ID lead",
+    ])
     for item in prospects:
         writer.writerow([_csv_cell(value) for value in [
-            item["company"], item["website"], item["sector"], item["city"], item["employees"],
-            item["score"], item["classification"], item["lead_status"], item["summary"], item["entry_angle"],
-            item["email"], item["created_at"], item["execution_id"],
+            item.get("productora", ""), item.get("onboarding_id", ""), item.get("company", ""), item.get("website", ""),
+            item.get("sector", ""), item.get("client_type", ""), item.get("city", ""), item.get("country", ""),
+            item.get("employees", ""), item.get("score", ""), item.get("classification", ""), item.get("lead_status", ""),
+            item.get("crm_owner", ""), item.get("crm_notes", ""), item.get("crm_next_action", ""), item.get("crm_follow_up_date", ""),
+            item.get("warmup_preparation", "No iniciada"), item.get("warmup_approval", "Pendiente"),
+            item.get("summary", ""), item.get("entry_angle", ""), json.dumps(item.get("public_contacts") or [], ensure_ascii=False),
+            json.dumps(item.get("social_links") or {}, ensure_ascii=False), json.dumps(item.get("decision_makers") or [], ensure_ascii=False), json.dumps(item.get("public_signals") or [], ensure_ascii=False),
+            item.get("public_signals_status", "No encontrado públicamente"), " | ".join(item.get("search_queries") or []),
+            item.get("web_search_calls", 0), item.get("web_search_call_limit", 5),
+            " | ".join(source.get("url", "") for source in item.get("research_sources") or []),
+            item.get("no_contacts_reason", ""), item.get("no_prospect_reason", ""), item.get("email", ""),
+            item.get("created_at", ""), item.get("execution_id", ""),
         ]])
     content = "\ufeff" + buffer.getvalue()
     return StreamingResponse(
@@ -308,72 +757,3 @@ def export_prospects(identity: Identity = Depends(require_identity)):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=focus-prospeccion-leads.csv"},
     )
-
-
-@app.post("/api/scrape")
-def scrape_company(payload: ScrapeRequest, request: Request, identity: Identity = Depends(require_identity)):
-    validate_csrf(request)
-    settings = get_settings()
-    if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="Google Sheets no esta activado")
-    store = SheetStore()
-    execution_id = str(uuid.uuid4())
-    website = str(payload.website)
-    reserved = False
-    try:
-        store.reserve_execution(identity.email)
-        reserved = True
-        if not settings.gemini_api_key:
-            raise RuntimeError("GEMINI_API_KEY_REQUIRED")
-        evidence = PublicWebScraper().scrape(website)
-        analysis, usage = GeminiAnalyzer().analyze(payload.company.strip(), evidence)
-        result = {
-            **analysis,
-            "execution_id": execution_id,
-            "email": identity.email,
-            "company": payload.company.strip(),
-            "website": website,
-            "title": evidence.title,
-            "description": evidence.description,
-            "social_links": evidence.social_links,
-            "evidence": evidence.pages,
-        }
-        store.append_prospect(result)
-        store.append_execution(
-            execution_id=execution_id,
-            email=identity.email,
-            company=payload.company.strip(),
-            website=website,
-            status="Completado",
-            gemini_model=settings.gemini_model,
-            prompt_tokens=usage["prompt_tokens"],
-            output_tokens=usage["output_tokens"],
-            total_tokens=usage["total_tokens"],
-        )
-        return {"ok": True, "execution_id": execution_id, "result": result}
-    except Exception as exc:
-        if reserved:
-            try:
-                store.refund_execution(identity.email)
-            except Exception:
-                pass
-        try:
-            store.append_execution(
-                execution_id=execution_id,
-                email=identity.email,
-                company=payload.company.strip(),
-                website=website,
-                status="Fallido",
-                gemini_model=settings.gemini_model,
-                prompt_tokens=0,
-                output_tokens=0,
-                total_tokens=0,
-                error=str(exc)[:500],
-            )
-        except Exception:
-            pass
-        if str(exc) == "GEMINI_API_KEY_REQUIRED":
-            raise HTTPException(status_code=503, detail="Falta configurar la clave de Gemini en Render") from exc
-        if isinstance(exc, PermissionError):
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        raise HTTPException(status_code=502, detail=f"No se pudo completar el raspado: {str(exc)[:300]}") from exc

@@ -10,10 +10,33 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 from app.config import Settings, get_settings
+from app.onboarding import OnboardingSource
 
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _quota_lock = threading.Lock()
+
+PROSPECT_HEADERS = [
+    "execution_id", "email", "created_at", "company", "website", "title", "description", "sector",
+    "business_model", "city", "employees", "score", "classification", "summary", "entry_angle",
+    "linkedin", "instagram", "facebook", "x", "youtube", "tiktok", "evidence", "lead_status", "updated_at",
+    "onboarding_id", "productora", "search_queries", "web_search_calls", "web_search_call_limit",
+    "public_contacts_json", "research_sources_json", "no_contacts_reason", "prospect_found",
+    "no_prospect_reason", "crm_owner", "crm_notes", "crm_next_action", "crm_follow_up_date",
+    "public_signals_json", "public_signals_status", "country", "client_type", "decision_makers_json",
+    "warmup_preparation", "warmup_approval",
+]
+EXECUTION_HEADERS = [
+    "execution_id", "created_at", "email", "company", "website", "status", "model", "prompt_tokens",
+    "output_tokens", "total_tokens", "error", "onboarding_id", "productora", "web_search_calls",
+    "web_search_call_limit", "search_queries_json", "research_sources_json", "no_prospect_reason",
+    "research_summary", "search_configuration_json", "adjustments_json", "research_provider",
+    "search_trace_json", "duplicates_discarded",
+]
+DASHBOARD_HEADERS = [
+    "updated_at", "active_users", "prospects", "new", "approved", "discarded", "executions_completed",
+    "executions_failed", "web_search_calls", "openai_configured", "web_search_limit_per_execution",
+]
 
 
 @dataclass(frozen=True)
@@ -77,6 +100,35 @@ class SheetStore:
         response.raise_for_status()
 
     @staticmethod
+    def _column_name(index: int) -> str:
+        output = ""
+        while index:
+            index, remainder = divmod(index - 1, 26)
+            output = chr(65 + remainder) + output
+        return output
+
+    def _ensure_header_row(self, tab: str, expected: list[str]) -> None:
+        current_rows = self._get(f"'{tab}'!A1:{self._column_name(len(expected))}1")
+        current = [str(value).strip() for value in (current_rows[0] if current_rows else [])]
+        while current and not current[-1]:
+            current.pop()
+        if current == expected:
+            return
+        if current and current != expected[: len(current)]:
+            raise RuntimeError(f"Los encabezados de {tab} no coinciden; aplica la migración documentada antes de continuar")
+        missing = expected[len(current):]
+        if missing:
+            start = self._column_name(len(current) + 1)
+            end = self._column_name(len(expected))
+            self._update(f"'{tab}'!{start}1:{end}1", [missing])
+
+    def ensure_operational_schema(self) -> None:
+        """Add only missing trailing headers; never rewrites existing rows."""
+        self._ensure_header_row(self.settings.google_sheet_tab, PROSPECT_HEADERS)
+        self._ensure_header_row(self.settings.google_executions_tab, EXECUTION_HEADERS)
+        self._ensure_header_row(self.settings.google_dashboard_tab, DASHBOARD_HEADERS)
+
+    @staticmethod
     def _int(value, fallback: int = 0) -> int:
         try:
             return int(float(str(value).replace(",", ".")))
@@ -110,6 +162,35 @@ class SheetStore:
             None,
         )
 
+    def onboarding_sources(self, email: str | None = None, limit: int = 200) -> list[OnboardingSource]:
+        rows = self._get(f"'{self.settings.google_onboarding_tab}'!A1:ZZ1000")
+        if not rows:
+            return []
+        headers = [str(value).strip() for value in rows[0]]
+        normalized_email = email.strip().lower() if email else None
+        sources: list[OnboardingSource] = []
+        seen_ids: set[str] = set()
+        for row in reversed(rows[1:]):
+            padded = row + [""] * max(0, len(headers) - len(row))
+            record = dict(zip(headers, padded, strict=False))
+            source = OnboardingSource.from_sheet_record(record)
+            if not source.record_id or source.record_id in seen_ids:
+                continue
+            seen_ids.add(source.record_id)
+            if normalized_email and source.email != normalized_email:
+                continue
+            sources.append(source)
+            if len(sources) >= limit:
+                break
+        return sources
+
+    def get_onboarding_source(self, record_id: str, email: str | None = None) -> OnboardingSource | None:
+        normalized_id = record_id.strip()
+        return next(
+            (source for source in self.onboarding_sources(email=email) if source.record_id == normalized_id),
+            None,
+        )
+
     def reserve_execution(self, email: str) -> AccessRecord:
         with _quota_lock:
             record = self.get_access(email)
@@ -134,23 +215,43 @@ class SheetStore:
         company: str,
         website: str,
         status: str,
-        gemini_model: str,
+        model: str,
         prompt_tokens: int,
         output_tokens: int,
         total_tokens: int,
         error: str = "",
+        onboarding_id: str = "",
+        productora: str = "",
+        web_search_calls: int = 0,
+        web_search_call_limit: int = 5,
+        search_queries: list[str] | None = None,
+        research_sources: list[dict] | None = None,
+        no_prospect_reason: str = "",
+        research_summary: str = "",
+        search_configuration: dict | None = None,
+        adjustments: dict | None = None,
+        research_provider: str = "OpenAI Responses API + web_search",
+        search_trace: list[dict] | None = None,
+        duplicates_discarded: int = 0,
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         self._append(
-            f"'{self.settings.google_executions_tab}'!A:K",
-            [[execution_id, now, email, company, website, status, gemini_model, prompt_tokens, output_tokens, total_tokens, error]],
+            f"'{self.settings.google_executions_tab}'!A:X",
+            [[
+                execution_id, now, email, company, website, status, model, prompt_tokens, output_tokens,
+                total_tokens, error, onboarding_id, productora, web_search_calls, web_search_call_limit,
+                json.dumps(search_queries or [], ensure_ascii=False),
+                json.dumps(research_sources or [], ensure_ascii=False), no_prospect_reason, research_summary,
+                json.dumps(search_configuration or {}, ensure_ascii=False), json.dumps(adjustments or {}, ensure_ascii=False),
+                research_provider, json.dumps(search_trace or [], ensure_ascii=False), duplicates_discarded,
+            ]],
         )
 
     def append_prospect(self, values: dict) -> None:
         evidence = values.get("evidence") or []
         social = values.get("social_links") or {}
         self._append(
-            f"'{self.settings.google_sheet_tab}'!A:X",
+            f"'{self.settings.google_sheet_tab}'!A:AS",
             [[
                 values.get("execution_id", ""),
                 values.get("email", ""),
@@ -176,12 +277,53 @@ class SheetStore:
                 "\n".join(evidence),
                 "Nuevo",
                 datetime.now(timezone.utc).isoformat(),
+                values.get("onboarding_id", ""),
+                values.get("productora", ""),
+                json.dumps(values.get("search_queries") or [], ensure_ascii=False),
+                values.get("web_search_calls", 0),
+                values.get("web_search_call_limit", self.settings.web_search_call_limit),
+                json.dumps(values.get("public_contacts") or [], ensure_ascii=False),
+                json.dumps(values.get("research_sources") or [], ensure_ascii=False),
+                values.get("no_contacts_reason", ""),
+                bool(values.get("prospect_found", True)),
+                values.get("no_prospect_reason", ""),
+                values.get("crm_owner", ""),
+                values.get("crm_notes", ""),
+                values.get("crm_next_action", ""),
+                values.get("crm_follow_up_date", ""),
+                json.dumps(values.get("public_signals") or [], ensure_ascii=False),
+                values.get("public_signals_status", "No encontrado públicamente"),
+                values.get("country", ""),
+                values.get("client_type", ""),
+                json.dumps(values.get("decision_makers") or [], ensure_ascii=False),
+                values.get("warmup_preparation", "No iniciada"),
+                values.get("warmup_approval", "Pendiente"),
             ]],
         )
 
     @staticmethod
+    def _json_list(value: object) -> list:
+        if isinstance(value, list):
+            return value
+        try:
+            parsed = json.loads(str(value or "[]"))
+        except (json.JSONDecodeError, TypeError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    @staticmethod
+    def _json_object(value: object) -> dict:
+        if isinstance(value, dict):
+            return value
+        try:
+            parsed = json.loads(str(value or "{}"))
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
     def _prospect_from_row(row: list) -> dict:
-        padded = row + [""] * (24 - len(row))
+        padded = row + [""] * (45 - len(row))
         return {
             "execution_id": padded[0],
             "email": padded[1],
@@ -209,23 +351,44 @@ class SheetStore:
             "evidence": [line for line in str(padded[21]).splitlines() if line.strip()],
             "lead_status": padded[22] or "Nuevo",
             "updated_at": padded[23] or padded[2],
+            "onboarding_id": padded[24],
+            "productora": padded[25],
+            "search_queries": SheetStore._json_list(padded[26]),
+            "web_search_calls": SheetStore._int(padded[27]),
+            "web_search_call_limit": SheetStore._int(padded[28], 5),
+            "public_contacts": SheetStore._json_list(padded[29]),
+            "research_sources": SheetStore._json_list(padded[30]),
+            "no_contacts_reason": padded[31],
+            "prospect_found": str(padded[32]).strip().lower() not in {"false", "0", "no"},
+            "no_prospect_reason": padded[33],
+            "crm_owner": padded[34],
+            "crm_notes": padded[35],
+            "crm_next_action": padded[36],
+            "crm_follow_up_date": padded[37],
+            "public_signals": SheetStore._json_list(padded[38]),
+            "public_signals_status": padded[39] or "No encontrado públicamente",
+            "country": padded[40],
+            "client_type": padded[41],
+            "decision_makers": SheetStore._json_list(padded[42]),
+            "warmup_preparation": padded[43] or "No iniciada",
+            "warmup_approval": padded[44] or "Pendiente",
         }
 
     def recent_prospects(self, email: str | None, limit: int = 50) -> list[dict]:
-        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:X1000")
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
         if email:
             normalized = email.strip().lower()
             rows = [row for row in rows if len(row) > 1 and str(row[1]).strip().lower() == normalized]
         return [self._prospect_from_row(row) for row in reversed(rows[-limit:])]
 
     def recent_executions(self, email: str | None, limit: int = 20) -> list[dict]:
-        rows = self._get(f"'{self.settings.google_executions_tab}'!A2:K1000")
+        rows = self._get(f"'{self.settings.google_executions_tab}'!A2:X1000")
         if email:
             normalized = email.strip().lower()
             rows = [row for row in rows if len(row) > 2 and str(row[2]).strip().lower() == normalized]
         output = []
         for row in reversed(rows[-limit:]):
-            padded = row + [""] * (11 - len(row))
+            padded = row + [""] * (24 - len(row))
             output.append(
                 {
                     "execution_id": padded[0],
@@ -234,11 +397,24 @@ class SheetStore:
                     "company": padded[3],
                     "website": padded[4],
                     "status": padded[5],
-                    "gemini_model": padded[6],
+                    "model": padded[6],
                     "prompt_tokens": self._int(padded[7]),
                     "output_tokens": self._int(padded[8]),
                     "total_tokens": self._int(padded[9]),
                     "error": padded[10],
+                    "onboarding_id": padded[11],
+                    "productora": padded[12],
+                    "web_search_calls": self._int(padded[13]),
+                    "web_search_call_limit": self._int(padded[14], 5),
+                    "search_queries": self._json_list(padded[15]),
+                    "research_sources": self._json_list(padded[16]),
+                    "no_prospect_reason": padded[17],
+                    "research_summary": padded[18],
+                    "search_configuration": self._json_object(padded[19]),
+                    "adjustments": self._json_object(padded[20]),
+                    "research_provider": padded[21] or "OpenAI Responses API + web_search",
+                    "search_trace": self._json_list(padded[22]),
+                    "duplicates_discarded": self._int(padded[23]),
                 }
             )
         return output
@@ -257,10 +433,10 @@ class SheetStore:
         return {"total": len(prospects), "classifications": classifications, "statuses": statuses}
 
     def update_prospect_status(self, execution_id: str, email: str, status: str, *, is_admin: bool = False) -> dict:
-        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:X1000")
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
         normalized_email = email.strip().lower()
         for row_number, row in enumerate(rows, start=2):
-            padded = row + [""] * (24 - len(row))
+            padded = row + [""] * (45 - len(row))
             if str(padded[0]).strip() != execution_id.strip():
                 continue
             if not is_admin and str(padded[1]).strip().lower() != normalized_email:
@@ -272,13 +448,79 @@ class SheetStore:
             return self._prospect_from_row(padded)
         raise LookupError("No se encontro el lead solicitado")
 
+    def update_prospect_crm(
+        self,
+        execution_id: str,
+        email: str,
+        *,
+        status: str,
+        owner: str,
+        notes: str,
+        next_action: str,
+        follow_up_date: str,
+        warmup_preparation: str,
+        warmup_approval: str,
+        is_admin: bool = False,
+    ) -> dict:
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
+        normalized_email = email.strip().lower()
+        for row_number, row in enumerate(rows, start=2):
+            padded = row + [""] * (45 - len(row))
+            if str(padded[0]).strip() != execution_id.strip():
+                continue
+            if not is_admin and str(padded[1]).strip().lower() != normalized_email:
+                raise PermissionError("No puedes modificar un lead de otra cuenta")
+            now = datetime.now(timezone.utc).isoformat()
+            self._update(f"'{self.settings.google_sheet_tab}'!W{row_number}:X{row_number}", [[status, now]])
+            self._update(
+                f"'{self.settings.google_sheet_tab}'!AI{row_number}:AL{row_number}",
+                [[owner, notes, next_action, follow_up_date]],
+            )
+            self._update(
+                f"'{self.settings.google_sheet_tab}'!AR{row_number}:AS{row_number}",
+                [[warmup_preparation, warmup_approval]],
+            )
+            padded[22:24] = [status, now]
+            padded[34:38] = [owner, notes, next_action, follow_up_date]
+            padded[43:45] = [warmup_preparation, warmup_approval]
+            return self._prospect_from_row(padded)
+        raise LookupError("No se encontro el lead solicitado")
+
+    def latest_execution_for_onboarding(self, onboarding_id: str) -> dict | None:
+        return next(
+            (item for item in self.recent_executions(None, limit=1000) if item["onboarding_id"] == onboarding_id),
+            None,
+        )
+
+    def existing_prospect_keys(self, onboarding_id: str) -> set[str]:
+        from app.dedupe import company_dedupe_key
+
+        return {
+            company_dedupe_key({"commercial_name": item.get("company", ""), "website": item.get("website", ""), "city": item.get("city", "")})
+            for item in self.recent_prospects(None, limit=1000)
+            if item.get("onboarding_id") == onboarding_id
+        }
+
+    def refresh_dashboard_summary(self) -> None:
+        metrics = self.prospect_metrics(None)
+        global_metrics = self.global_metrics()
+        statuses = metrics["statuses"]
+        row = [[
+            datetime.now(timezone.utc).isoformat(), global_metrics["active_users"], metrics["total"],
+            statuses["Nuevo"], statuses["Aprobado"], statuses["Descartado"],
+            global_metrics["openai_requests_used"], global_metrics["failed_requests"],
+            global_metrics["openai_web_search_calls_used"], bool(self.settings.openai_api_key),
+            self.settings.web_search_call_limit,
+        ]]
+        self._update(f"'{self.settings.google_dashboard_tab}'!A2:K2", row)
+
     def global_metrics(self) -> dict:
         records = [record for record in self.access_records() if record.state.lower() == "activo"]
         assigned = sum(record.assigned for record in records)
         used = sum(record.used for record in records)
         execution_rows = self._get(f"'{self.settings.google_executions_tab}'!F2:F1000")
         completed_requests = sum(
-            1 for row in execution_rows if row and str(row[0]).strip().lower() == "completado"
+            1 for row in execution_rows if row and str(row[0]).strip().lower().startswith("completado")
         )
         failed_requests = sum(
             1 for row in execution_rows if row and str(row[0]).strip().lower() == "fallido"
@@ -293,8 +535,11 @@ class SheetStore:
             "remaining": remaining,
             "remaining_ratio": ratio,
             "state": state,
-            "gemini_internal_budget": self.settings.gemini_request_budget,
-            "gemini_requests_used": completed_requests,
-            "gemini_requests_remaining": max(0, self.settings.gemini_request_budget - completed_requests),
+            "openai_internal_budget": self.settings.openai_request_budget,
+            "openai_requests_used": completed_requests,
+            "openai_requests_remaining": max(0, self.settings.openai_request_budget - completed_requests),
+            "openai_web_search_calls_used": sum(
+                self._int(row[0]) for row in self._get(f"'{self.settings.google_executions_tab}'!N2:N1000") if row
+            ),
             "failed_requests": failed_requests,
         }

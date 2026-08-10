@@ -30,11 +30,19 @@ services:
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
         sync: false
-      - key: GEMINI_API_KEY
+      - key: OPENAI_API_KEY
         sync: false
-      - key: GEMINI_MODEL
-        value: gemini-3.5-flash
-      - key: GEMINI_REQUEST_BUDGET
+      - key: OPENAI_MODEL
+        value: gpt-5.5
+      - key: OPENAI_REQUEST_BUDGET
         value: "500"
+      - key: OPENAI_WEB_SEARCH_MAX_CALLS
+        value: "5"
+      - key: AUTO_RESEARCH_ENABLED
+        value: "true"
+      - key: AUTO_RESEARCH_POLL_SECONDS
+        value: "60"
+      - key: PROSPECTION_TRIGGER_TOKEN
+        sync: false
       - key: WEB_SCRAPER_MAX_PAGES
         value: "4"

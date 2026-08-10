@@ -23,12 +23,17 @@ class Settings(BaseSettings):
     google_sheet_id: str = ""
     google_sheet_tab: str = "Prospeccion"
     google_access_tab: str = "Accesos"
+    google_onboarding_tab: str = "Onboarding"
     google_executions_tab: str = "Ejecuciones"
     google_dashboard_tab: str = "Dashboard Prospeccion"
     google_service_account_json: str = ""
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.5-flash"
-    gemini_request_budget: int = 500
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.5"
+    openai_request_budget: int = 500
+    openai_web_search_max_calls: int = 5
+    auto_research_enabled: bool = True
+    auto_research_poll_seconds: int = 60
+    prospection_trigger_token: str = ""
     web_scraper_max_pages: int = 4
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -40,6 +45,10 @@ class Settings(BaseSettings):
             for email in self.focus_admin_emails.split(",")
             if email.strip()
         }
+
+    @property
+    def web_search_call_limit(self) -> int:
+        return min(5, max(1, self.openai_web_search_max_calls))
 
 
 @lru_cache
