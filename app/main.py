@@ -90,6 +90,12 @@ class OnboardingTrigger(BaseModel):
     onboarding_id: str
 
 
+class AutomationRequest(BaseModel):
+    enabled: bool = False
+    interval_minutes: int = Field(default=1440, ge=5, le=4320)
+    adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
+
+
 def _demo_payload(identity: Identity, openai_budget: int) -> dict:
     prospects = [
         {
@@ -232,6 +238,14 @@ def _demo_payload(identity: Identity, openai_budget: int) -> dict:
                 "ready": True,
                 "blockers": [],
                 "automation_state": "Pendiente de configurar OpenAI",
+                "automation": {
+                    "enabled": False,
+                    "interval_minutes": 1440,
+                    "next_run_at": "",
+                    "last_run_at": "",
+                    "last_status": "Desactivada",
+                    "adjustments": {},
+                },
                 "openai_configured": False,
             }
         ],
@@ -245,7 +259,7 @@ def _csv_cell(value) -> str:
     return f"'{text}" if text.startswith(("=", "+", "-", "@")) else text
 
 
-def _source_view(source, settings, latest: dict | None = None) -> dict:
+def _source_view(source, settings, latest: dict | None = None, automation: dict | None = None) -> dict:
     data = source.as_dict()
     configured = bool(settings.openai_api_key)
     if latest:
@@ -256,7 +270,21 @@ def _source_view(source, settings, latest: dict | None = None) -> dict:
         automation_state = "Pendiente de configurar OpenAI"
     else:
         automation_state = "Listo para investigación automática"
-    return {**data, "automation_state": automation_state, "openai_configured": configured, "latest_execution": latest}
+    schedule = automation or {
+        "enabled": False,
+        "interval_minutes": 1440,
+        "next_run_at": "",
+        "last_run_at": "",
+        "last_status": "Desactivada",
+        "adjustments": {},
+    }
+    return {
+        **data,
+        "automation_state": automation_state,
+        "automation": schedule,
+        "openai_configured": configured,
+        "latest_execution": latest,
+    }
 
 
 def _run_onboarding_research(source, store: SheetStore, adjustments: dict | None = None) -> dict:
@@ -347,17 +375,32 @@ def _run_onboarding_research(source, store: SheetStore, adjustments: dict | None
         raise
 
 
-def _sync_onboarding_once() -> None:
+def _sync_automations_once() -> None:
     settings = get_settings()
     if not settings.auto_research_enabled or not settings.google_sheets_enabled:
         return
     store = SheetStore(settings)
     store.ensure_operational_schema()
-    for source in store.onboarding_sources():
-        try:
-            _process_onboarding_trigger(source.record_id, store)
-        except Exception:
+    for config in store.due_automation_configs():
+        source = store.get_onboarding_source(config["onboarding_id"], config["email"])
+        if not source:
+            store.mark_automation_run(config, "Bloqueada: no se encontró el Onboarding")
             continue
+        if not source.ready:
+            store.mark_automation_run(config, f"Bloqueada: {'; '.join(source.blockers)}")
+            continue
+        if not settings.openai_api_key:
+            store.mark_automation_run(config, "Pendiente: falta configurar OpenAI")
+            continue
+        try:
+            result = _run_onboarding_research(source, store, config.get("adjustments") or None)
+            store.mark_automation_run(
+                config,
+                f"Completada: {len(result['prospects'])} prospectos",
+                result["execution_id"],
+            )
+        except Exception as exc:
+            store.mark_automation_run(config, f"Falló: {str(exc)[:240]}")
 
 
 def _process_onboarding_trigger(record_id: str, store: SheetStore) -> dict:
@@ -403,8 +446,8 @@ async def lifespan(_: FastAPI):
     if settings.google_sheets_enabled and settings.auto_research_enabled:
         async def automation_loop():
             while True:
-                await asyncio.to_thread(_sync_onboarding_once)
-                await asyncio.sleep(max(30, settings.auto_research_poll_seconds))
+                await asyncio.to_thread(_sync_automations_once)
+                await asyncio.sleep(max(60, settings.auto_research_poll_seconds))
 
         automation_task = asyncio.create_task(automation_loop())
     try:
@@ -547,7 +590,15 @@ def portal_dashboard(identity: Identity = Depends(require_identity)):
     is_admin = "admin" in access.role.lower()
     scope_email = None if is_admin else identity.email
     source_records = store.onboarding_sources(scope_email)
-    sources = [_source_view(source, settings, store.latest_execution_for_onboarding(source.record_id)) for source in source_records]
+    sources = [
+        _source_view(
+            source,
+            settings,
+            store.latest_execution_for_onboarding(source.record_id),
+            store.get_automation_config(source.record_id),
+        )
+        for source in source_records
+    ]
     global_metrics = store.global_metrics() if is_admin else None
     return {
         "user": {
@@ -590,7 +641,14 @@ def onboarding_source(record_id: str, identity: Identity = Depends(require_ident
     source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
-    return {"source": _source_view(source, settings, store.latest_execution_for_onboarding(source.record_id))}
+    return {
+        "source": _source_view(
+            source,
+            settings,
+            store.latest_execution_for_onboarding(source.record_id),
+            store.get_automation_config(source.record_id),
+        )
+    }
 
 
 @app.post("/api/onboarding-sources/{record_id}/research")
@@ -627,6 +685,38 @@ def research_onboarding_source(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"No se pudo completar la investigación: {str(exc)[:300]}") from exc
+
+
+@app.post("/api/onboarding-sources/{record_id}/automation")
+def save_onboarding_automation(
+    record_id: str,
+    payload: AutomationRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="La automatización requiere Google Sheets")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = "admin" in access.role.lower()
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    if payload.enabled and not source.ready:
+        raise HTTPException(status_code=422, detail="No se puede automatizar: " + "; ".join(source.blockers))
+    store.ensure_operational_schema()
+    schedule = store.upsert_automation_config(
+        source.record_id,
+        source.email,
+        enabled=payload.enabled,
+        interval_minutes=payload.interval_minutes,
+        adjustments=payload.adjustments.model_dump(),
+    )
+    return {"ok": True, "automation": schedule}
 
 
 @app.post("/api/prospects/{execution_id}/status")

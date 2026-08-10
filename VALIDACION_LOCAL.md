@@ -6,8 +6,9 @@ Fecha: 11 de agosto de 2026
 
 - Aplicacion FastAPI importada y compilada sin errores.
 - Login local, cookie de sesion firmada y proteccion CSRF.
-- Dashboard visual cargado en navegador de escritorio y móvil.
-- Centro profesional de configuración con base recomendada desde Onboarding, cantidad objetivo y filtros múltiples.
+- Portal visual con navegación superior y módulos independientes cargado en navegador de escritorio y móvil.
+- Centro profesional de configuración por pasos con base recomendada desde Onboarding, cantidad objetivo y filtros múltiples.
+- Automatización individual por productora, persistida en Sheets, con intervalo validado entre 5 minutos y 3 días.
 - Resumen de cuota, semaforo, estados de lead e historial de ejecuciones.
 - Ficha completa con evidencia, redes publicas, copia, aprobacion y descarte.
 - Filtros y exportacion CSV por el alcance autorizado de la cuenta.
@@ -29,14 +30,14 @@ Fecha: 11 de agosto de 2026
 Resultado:
 
 ```text
-36 passed
+39 passed
 ```
 
 También se ejecutó `compileall` y `git diff --check` sin errores.
 
 ## Prueba visual
 
-Se inicio el servidor en `127.0.0.1:8765`, se accedio mediante el boton de demostracion y se confirmo en el navegador:
+Se inicio el servidor en `127.0.0.1:8767`, se accedio mediante el boton de demostracion y se confirmo en el navegador:
 
 - 8 ejecuciones disponibles de 10 en la cuenta demo.
 - bolsa global y límite interno del proveedor visibles;
@@ -51,6 +52,7 @@ La hoja externa no se modificó en esta validación. El esquema local preparado 
 
 - `Prospeccion!A:AS` (45 columnas), incluidos CRM y preparación/aprobación del calentamiento futuro;
 - `Ejecuciones!A:X` (24 columnas), incluido proveedor, trazabilidad por consulta y duplicados;
+- `Automatizaciones!A:J` (10 columnas), con intervalo, proxima ejecucion, estado y filtros reutilizables;
 - `Dashboard Prospeccion` se preserva como panel visual; el portal calcula sus indicadores en vivo sin sobrescribir esa pestaña.
 
 ## Pendiente de integracion externa
@@ -62,7 +64,7 @@ La comprobación del servicio público descrita arriba es histórica y no valida
 
 ## Validación local de la ampliación
 
-- 36 pruebas locales superadas, incluida una prueba integral simulada Onboarding → investigación → deduplicación → persistencia/trazabilidad.
+- 39 pruebas locales superadas, incluida una prueba integral simulada Onboarding → investigación → deduplicación → persistencia/trazabilidad y pruebas del nuevo programador.
 - La cantidad objetivo limita el número de prospectos aceptados por ejecución y se valida entre 1 y 50.
 - OpenAI simulado: límite de 5 llamadas, contactos y señales con fuente, sin clave en el payload.
 - Persistencia ampliada para configuración, consultas, fuentes, señales y CRM.

@@ -15,15 +15,17 @@ Formulario Onboarding
 
 - No hay captura manual de correo, productora o web en el dashboard.
 - Sin `OPENAI_API_KEY`, el registro queda visible como `Pendiente de configurar OpenAI` y no se realiza ninguna búsqueda.
-- El disparador acepta una notificación servidor-a-servidor con solo el ID de Onboarding y, como respaldo, consulta periódicamente `Onboarding`; el sondeo puede desactivarse con `AUTO_RESEARCH_ENABLED=false`.
+- Cada productora puede activar una automatización propia entre 5 minutos y 3 días. La programación y sus filtros se guardan en `Automatizaciones`; el motor puede desactivarse globalmente con `AUTO_RESEARCH_ENABLED=false`.
 - Una ejecución de OpenAI Responses API usa `web_search` y `max_tool_calls` limitado localmente a 5.
 - Solo se aceptan contactos, redes y señales con URL de evidencia. No se inicia sesión, evade CAPTCHA ni consulta contenido privado.
 - Lo que no tiene evidencia se muestra como `No encontrado públicamente`, no como cero.
 - La clave de OpenAI vive solo en el entorno del servidor. No existe input de clave ni se guarda en Sheets, UI, logs o Git.
 
-## Dashboard y CRM
+## Portal, dashboard y CRM
 
-La vista inicial mantiene el resumen sencillo y separa un centro profesional de configuración. Cada productora recibe automáticamente una configuración recomendada construida con sus respuestas de Onboarding; el botón `Configuración recomendada` restaura esa base sin modificar las respuestas originales. Para una ejecución concreta se puede ajustar y guardar localmente un borrador con:
+El portal usa una navegación superior, sin barra lateral permanente, y presenta cada módulo como una pantalla independiente: Inicio, Prospección, Leads y CRM, Ejecuciones, Metodología y Calentamiento. En móviles el menú se contrae en un botón.
+
+Cada productora recibe automáticamente una configuración recomendada construida con sus respuestas de Onboarding; el botón `Configuración recomendada` restaura esa base sin modificar las respuestas originales. Los filtros avanzados se organizan por pasos para mantener una vista sencilla. Para una ejecución concreta se puede ajustar y guardar localmente un borrador con:
 
 - cantidad objetivo de 1 a 50 leads verificables, sin superar 5 búsquedas web;
 - sectores prioritarios y excluidos, países, ciudad/región, tipo de cliente, tamaño, facturación y modelo empresarial;
@@ -67,6 +69,15 @@ no_prospect_reason, research_summary, search_configuration_json, adjustments_jso
 research_provider, search_trace_json, duplicates_discarded
 ```
 
+`Automatizaciones` usa `A:J`:
+
+```text
+onboarding_id, email, enabled, interval_minutes, next_run_at, last_run_at,
+last_status, updated_at, last_execution_id, adjustments_json
+```
+
+La automatización parte desactivada para cada productora. Al activarla, la primera investigación se agenda al finalizar el intervalo elegido y reutiliza los filtros guardados. El servidor fuerza un mínimo de 5 minutos y un máximo de 4320 minutos (3 días).
+
 `Dashboard Prospeccion` conserva su composición visual existente. El portal calcula el resumen operativo en vivo y no sobrescribe el título, las fórmulas ni los gráficos de esa pestaña.
 
 `ensure_operational_schema()` amplía exclusivamente las columnas de `Prospeccion` y `Ejecuciones`, añade encabezados finales faltantes y migra el encabezado heredado `gemini_model` a `model`; no reescribe filas de datos. La pestaña visual `Dashboard Prospeccion` queda intacta.
@@ -85,8 +96,9 @@ La deduplicación se aplica por dominio (o identidad normalizada disponible) den
 | `OPENAI_MODEL` | Modelo de Responses API; valor de ejemplo `gpt-5.5`. |
 | `OPENAI_REQUEST_BUDGET` | Contador interno visible para administración. |
 | `OPENAI_WEB_SEARCH_MAX_CALLS` | Se fuerza al intervalo 1–5. |
-| `AUTO_RESEARCH_ENABLED` | Activa el disparador automático; por seguridad parte en `false`. |
-| `AUTO_RESEARCH_POLL_SECONDS` | Intervalo de lectura de Onboarding, mínimo efectivo 30 s. |
+| `GOOGLE_AUTOMATION_TAB` | Pestaña de programaciones; valor recomendado `Automatizaciones`. |
+| `AUTO_RESEARCH_ENABLED` | Activa el motor de programaciones. Ninguna productora se ejecuta hasta habilitar su programación. |
+| `AUTO_RESEARCH_POLL_SECONDS` | Frecuencia interna con la que el servidor revisa programaciones vencidas; mínimo efectivo 60 s. |
 | `PROSPECTION_TRIGGER_TOKEN` | Secreto servidor-a-servidor para despertar/procesar un nuevo ID de Onboarding. |
 
 La interfaz muestra únicamente si OpenAI está configurado. La clave nunca se devuelve al navegador, no se guarda en Google Sheets y no debe aparecer en logs o Git.

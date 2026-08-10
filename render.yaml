@@ -39,7 +39,7 @@ services:
       - key: OPENAI_WEB_SEARCH_MAX_CALLS
         value: "5"
       - key: AUTO_RESEARCH_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTO_RESEARCH_POLL_SECONDS
         value: "60"
       - key: PROSPECTION_TRIGGER_TOKEN

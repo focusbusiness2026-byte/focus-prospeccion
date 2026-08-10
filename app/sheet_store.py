@@ -37,6 +37,10 @@ DASHBOARD_HEADERS = [
     "updated_at", "active_users", "prospects", "new", "approved", "discarded", "executions_completed",
     "executions_failed", "web_search_calls", "openai_configured", "web_search_limit_per_execution",
 ]
+AUTOMATION_HEADERS = [
+    "onboarding_id", "email", "enabled", "interval_minutes", "next_run_at", "last_run_at",
+    "last_status", "updated_at", "last_execution_id", "adjustments_json",
+]
 
 
 @dataclass(frozen=True)
@@ -182,12 +186,120 @@ class SheetStore:
         """Expand operational tabs and append missing headers without rewriting data rows."""
         self._ensure_sheet_capacity(self.settings.google_sheet_tab, len(PROSPECT_HEADERS))
         self._ensure_sheet_capacity(self.settings.google_executions_tab, len(EXECUTION_HEADERS))
+        self._ensure_sheet_capacity(self.settings.google_automation_tab, len(AUTOMATION_HEADERS))
         self._ensure_header_row(self.settings.google_sheet_tab, PROSPECT_HEADERS)
         self._ensure_header_row(
             self.settings.google_executions_tab,
             EXECUTION_HEADERS,
             legacy_aliases={"gemini_model": "model"},
         )
+        self._ensure_header_row(self.settings.google_automation_tab, AUTOMATION_HEADERS)
+
+    def automation_configs(self, email: str | None = None) -> list[dict]:
+        rows = self._get(f"'{self.settings.google_automation_tab}'!A2:J1000")
+        normalized_email = email.strip().lower() if email else None
+        configs: list[dict] = []
+        for index, row in enumerate(rows, start=2):
+            padded = row + [""] * (10 - len(row))
+            owner_email = str(padded[1]).strip().lower()
+            if normalized_email and owner_email != normalized_email:
+                continue
+            try:
+                adjustments = json.loads(str(padded[9]) or "{}")
+            except json.JSONDecodeError:
+                adjustments = {}
+            configs.append({
+                "row": index,
+                "onboarding_id": str(padded[0]).strip(),
+                "email": owner_email,
+                "enabled": str(padded[2]).strip().lower() in {"true", "1", "si", "sí"},
+                "interval_minutes": max(5, min(4320, self._int(padded[3], 1440))),
+                "next_run_at": str(padded[4]).strip(),
+                "last_run_at": str(padded[5]).strip(),
+                "last_status": str(padded[6]).strip(),
+                "updated_at": str(padded[7]).strip(),
+                "last_execution_id": str(padded[8]).strip(),
+                "adjustments": adjustments if isinstance(adjustments, dict) else {},
+            })
+        return [item for item in configs if item["onboarding_id"]]
+
+    def get_automation_config(self, onboarding_id: str) -> dict | None:
+        return next((item for item in self.automation_configs() if item["onboarding_id"] == onboarding_id), None)
+
+    @staticmethod
+    def _iso_after(minutes: int) -> str:
+        from datetime import timedelta
+
+        return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+
+    def upsert_automation_config(
+        self,
+        onboarding_id: str,
+        email: str,
+        *,
+        enabled: bool,
+        interval_minutes: int,
+        adjustments: dict | None = None,
+    ) -> dict:
+        interval = max(5, min(4320, int(interval_minutes)))
+        existing = self.get_automation_config(onboarding_id)
+        now = datetime.now(timezone.utc).isoformat()
+        next_run = self._iso_after(interval) if enabled else ""
+        values = [
+            onboarding_id,
+            email.strip().lower(),
+            enabled,
+            interval,
+            next_run,
+            existing["last_run_at"] if existing else "",
+            "Programada" if enabled else "Desactivada",
+            now,
+            existing["last_execution_id"] if existing else "",
+            json.dumps(adjustments or {}, ensure_ascii=False),
+        ]
+        if existing:
+            self._update(f"'{self.settings.google_automation_tab}'!A{existing['row']}:J{existing['row']}", [values])
+        else:
+            self._append(f"'{self.settings.google_automation_tab}'!A:J", [values])
+        return {
+            "onboarding_id": onboarding_id,
+            "email": email.strip().lower(),
+            "enabled": enabled,
+            "interval_minutes": interval,
+            "next_run_at": next_run,
+            "last_run_at": existing["last_run_at"] if existing else "",
+            "last_status": "Programada" if enabled else "Desactivada",
+            "updated_at": now,
+            "last_execution_id": existing["last_execution_id"] if existing else "",
+            "adjustments": adjustments or {},
+        }
+
+    def due_automation_configs(self) -> list[dict]:
+        now = datetime.now(timezone.utc)
+        due: list[dict] = []
+        for item in self.automation_configs():
+            if not item["enabled"]:
+                continue
+            try:
+                next_run = datetime.fromisoformat(item["next_run_at"].replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                next_run = now
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=timezone.utc)
+            if next_run <= now:
+                due.append(item)
+        return due
+
+    def mark_automation_run(self, config: dict, status: str, execution_id: str = "") -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        values = [[
+            self._iso_after(config["interval_minutes"]),
+            now,
+            status[:300],
+            now,
+            execution_id,
+        ]]
+        self._update(f"'{self.settings.google_automation_tab}'!E{config['row']}:I{config['row']}", values)
 
     @staticmethod
     def _int(value, fallback: int = 0) -> int:

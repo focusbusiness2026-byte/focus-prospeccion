@@ -5,7 +5,7 @@ from app.auth import SESSION_COOKIE, Identity, create_session
 import pytest
 from pydantic import ValidationError
 
-from app.main import ResearchAdjustments, _csv_cell, _demo_payload, app
+from app.main import AutomationRequest, ResearchAdjustments, _csv_cell, _demo_payload, app
 
 
 def test_demo_dashboard_exercises_complete_portal_shape():
@@ -45,7 +45,7 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert response.status_code == 200
     assert 'id="source-list"' in response.text
     assert "La configuración recomendada se construye automáticamente con el Onboarding" in response.text
-    assert "Máximo 5 búsquedas web públicas" in response.text
+    assert "máximo 5 búsquedas" in response.text
     assert 'name="openai_api_key"' not in response.text
     assert 'id="scrape-form"' not in response.text
     assert 'id="recommended-config"' in response.text
@@ -55,6 +55,11 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "Decisores y empresas similares" in response.text
     assert 'id="warmup"' in response.text
     assert "11-4-7" in response.text
+    assert 'class="site-header"' in response.text
+    assert 'class="sidebar"' not in response.text
+    assert 'data-view="sources"' in response.text
+    assert 'data-schedule-enabled' in response.text
+    assert 'data-builder-tab="profile"' in response.text
 
     source_response = client.get("/api/onboarding-sources/ONB-DEMO0001")
     assert source_response.status_code == 200
@@ -74,6 +79,15 @@ def test_professional_research_configuration_limits_requested_leads():
     assert ResearchAdjustments(lead_count=25).lead_count == 25
     with pytest.raises(ValidationError):
         ResearchAdjustments(lead_count=51)
+
+
+def test_automation_interval_is_limited_between_five_minutes_and_three_days():
+    assert AutomationRequest(enabled=True, interval_minutes=5).interval_minutes == 5
+    assert AutomationRequest(enabled=True, interval_minutes=4320).interval_minutes == 4320
+    with pytest.raises(ValidationError):
+        AutomationRequest(enabled=True, interval_minutes=4)
+    with pytest.raises(ValidationError):
+        AutomationRequest(enabled=True, interval_minutes=4321)
 
 
 def test_hidden_demo_badge_cannot_be_overridden_by_badge_display_rule():

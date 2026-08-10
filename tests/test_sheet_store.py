@@ -1,7 +1,7 @@
 import pytest
 
 from app.config import Settings
-from app.sheet_store import DASHBOARD_HEADERS, EXECUTION_HEADERS, PROSPECT_HEADERS, SheetStore
+from app.sheet_store import AUTOMATION_HEADERS, DASHBOARD_HEADERS, EXECUTION_HEADERS, PROSPECT_HEADERS, SheetStore
 
 
 class FakeStore(SheetStore):
@@ -173,6 +173,7 @@ def test_schema_migration_only_appends_missing_trailing_headers():
     store = HeaderStore({
         "Prospeccion": PROSPECT_HEADERS,
         "Ejecuciones": EXECUTION_HEADERS[:21],
+        "Automatizaciones": AUTOMATION_HEADERS,
         "Dashboard Prospeccion": [],
     })
 
@@ -185,7 +186,7 @@ def test_schema_migration_only_appends_missing_trailing_headers():
 def test_schema_migration_renames_legacy_gemini_header_without_touching_rows():
     legacy_headers = EXECUTION_HEADERS[:]
     legacy_headers[6] = "gemini_model"
-    store = HeaderStore({"Prospeccion": PROSPECT_HEADERS, "Ejecuciones": legacy_headers})
+    store = HeaderStore({"Prospeccion": PROSPECT_HEADERS, "Ejecuciones": legacy_headers, "Automatizaciones": AUTOMATION_HEADERS})
 
     store.ensure_operational_schema()
 
@@ -218,6 +219,41 @@ def test_sheet_capacity_expands_existing_tabs_without_recreating_them():
         {"appendDimension": {"sheetId": 10, "dimension": "COLUMNS", "length": 21}},
         {"appendDimension": {"sheetId": 11, "dimension": "COLUMNS", "length": 13}},
     ]
+
+
+class AutomationStore(SheetStore):
+    def __init__(self, rows=None):
+        super().__init__(Settings(google_sheet_id="sheet", google_service_account_json="{}"))
+        self.rows = rows or []
+        self.appends = []
+        self.updates = []
+
+    def _get(self, a1_range):
+        return self.rows if "Automatizaciones" in a1_range else []
+
+    def _append(self, a1_range, values):
+        self.appends.append((a1_range, values))
+
+    def _update(self, a1_range, values):
+        self.updates.append((a1_range, values))
+
+
+def test_automation_schedule_persists_filters_and_clamps_interval():
+    store = AutomationStore()
+
+    result = store.upsert_automation_config(
+        "ONB-001",
+        "Owner@Example.com",
+        enabled=True,
+        interval_minutes=4,
+        adjustments={"lead_count": 12, "sectors": ["Tecnología"]},
+    )
+
+    assert result["enabled"] is True
+    assert result["interval_minutes"] == 5
+    assert result["adjustments"]["lead_count"] == 12
+    assert store.appends[0][0] == "'Automatizaciones'!A:J"
+    assert store.appends[0][1][0][1] == "owner@example.com"
 
 
 def test_schema_migration_rejects_reordered_existing_columns():

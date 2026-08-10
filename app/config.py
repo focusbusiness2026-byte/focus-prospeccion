@@ -25,13 +25,14 @@ class Settings(BaseSettings):
     google_access_tab: str = "Accesos"
     google_onboarding_tab: str = "Onboarding"
     google_executions_tab: str = "Ejecuciones"
+    google_automation_tab: str = "Automatizaciones"
     google_dashboard_tab: str = "Dashboard Prospeccion"
     google_service_account_json: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-5.5"
     openai_request_budget: int = 500
     openai_web_search_max_calls: int = 5
-    auto_research_enabled: bool = False
+    auto_research_enabled: bool = True
     auto_research_poll_seconds: int = 60
     prospection_trigger_token: str = ""
     web_scraper_max_pages: int = 4
