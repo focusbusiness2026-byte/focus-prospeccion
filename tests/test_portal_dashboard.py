@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from pathlib import Path
 
 from app.auth import SESSION_COOKIE, Identity, create_session
 import pytest
@@ -73,3 +74,9 @@ def test_professional_research_configuration_limits_requested_leads():
     assert ResearchAdjustments(lead_count=25).lead_count == 25
     with pytest.raises(ValidationError):
         ResearchAdjustments(lead_count=51)
+
+
+def test_hidden_demo_badge_cannot_be_overridden_by_badge_display_rule():
+    css = (Path(__file__).parents[1] / "app" / "static" / "app.css").read_text(encoding="utf-8")
+
+    assert "[hidden] { display: none !important; }" in css
