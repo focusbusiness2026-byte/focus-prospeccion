@@ -3,102 +3,332 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Portal · Focus Prospeccion</title>
-    <link rel="stylesheet" href="/static/app.css" />
+    <title>Panel de prospección · Focus Business</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260810-2" />
   </head>
   <body>
     <div class="portal-shell">
       <aside class="sidebar">
         <a class="brand" href="/portal"><i>F</i><span>FOCUS<small>BUSINESS</small></span></a>
-        <p class="eyebrow">PROSPECCION</p>
-        <nav>
+        <p class="eyebrow sidebar-title">PROSPECCIÓN</p>
+        <nav aria-label="Secciones del panel">
           <a class="nav-step current" href="#dashboard"><b>1</b><span>Dashboard<small>Cuota y actividad</small></span></a>
-          <a class="nav-step" href="#new-search"><b>2</b><span>Nueva empresa<small>Web y redes publicas</small></span></a>
+          <a class="nav-step" href="#new-search"><b>2</b><span>Nueva empresa<small>Web y redes públicas</small></span></a>
           <a class="nav-step" href="#results"><b>3</b><span>Resultados<small>Evidencia y score</small></span></a>
-          <a class="nav-step" href="#method"><b>4</b><span>Metodologia<small>Fuentes permitidas</small></span></a>
+          <a class="nav-step" href="#activity"><b>4</b><span>Ejecuciones<small>Historial y errores</small></span></a>
+          <a class="nav-step" href="#method"><b>5</b><span>Metodología<small>Fuentes permitidas</small></span></a>
         </nav>
-        <div class="sidebar-note">Las redes se detectan desde enlaces publicos de la web corporativa. No se evaden inicios de sesion ni bloqueos.</div>
+        <div class="sidebar-note">Se consultan páginas públicas de la web corporativa. El sistema no evade accesos, CAPTCHA ni bloqueos.</div>
       </aside>
+
       <main class="content">
         <header class="portal-header">
-          <div><p class="eyebrow">PORTAL PRIVADO</p><strong>{{ identity.email }}</strong><small>{{ identity.role }}</small></div>
-          <button id="logout" class="secondary">Cerrar sesion</button>
+          <div class="account-block">
+            <p class="eyebrow">FOCUS BUSINESS · PANEL DE PROSPECCIÓN</p>
+            <strong>{{ identity.email }}</strong>
+            <small>{{ identity.role }}</small>
+          </div>
+          <div class="header-actions">
+            <span id="demo-badge" class="badge demo-badge" hidden>Vista de demostración</span>
+            <button id="logout" class="secondary">Cerrar sesión</button>
+          </div>
         </header>
 
-        <section id="dashboard">
-          <h1>Dashboard de prospeccion</h1>
-          <p class="intro">Ejecuciones disponibles, consumo global y ultimos prospectos.</p>
-          <div class="stats">
-            <article><span>Disponibles</span><b id="available">—</b><small>de <i id="assigned">—</i> asignadas</small></article>
-            <article><span>Utilizadas</span><b id="used">—</b><small>por esta cuenta</small></article>
-            <article id="global-card"><span>Bolsa global</span><b id="global-remaining">—</b><small id="global-detail">Solo visible para administradores</small></article>
-            <article id="gemini-card"><span>Limite interno Gemini</span><b id="gemini-remaining">—</b><small>No sustituye el limite real de AI Studio</small></article>
+        <section id="dashboard" class="hero-section">
+          <div class="section-heading dashboard-heading">
+            <div>
+              <p class="eyebrow">RESUMEN OPERATIVO</p>
+              <h1>Dashboard de prospección</h1>
+              <p class="intro">Controla la cuota, la calidad de los leads y las últimas ejecuciones desde un solo lugar.</p>
+            </div>
+            <button id="refresh-top" class="secondary">Actualizar datos</button>
+          </div>
+
+          <div class="stats" aria-label="Indicadores principales">
+            <article id="quota-card"><span>Raspados disponibles</span><b id="available">—</b><small>de <i id="assigned">—</i> asignados</small></article>
+            <article id="used-card"><span>Raspados utilizados</span><b id="used">—</b><small>por esta cuenta</small></article>
+            <article id="global-card"><span>Bolsa global</span><b id="global-remaining">—</b><small id="global-detail">Solo administradores</small></article>
+            <article id="gemini-card"><span>Solicitudes Gemini</span><b id="gemini-remaining">—</b><small id="gemini-detail">Presupuesto interno restante</small></article>
+          </div>
+
+          <div class="overview-grid">
+            <article class="card compact-card">
+              <div class="card-title-row"><div><p class="eyebrow">CALIDAD</p><h2>Semáforo de leads</h2></div><b id="total-prospects" class="metric-total">0</b></div>
+              <div class="distribution" aria-label="Distribución por clasificación">
+                <div><span class="dot green-dot"></span><small>Verdes</small><b id="green-count">0</b></div>
+                <div><span class="dot yellow-dot"></span><small>Amarillos</small><b id="yellow-count">0</b></div>
+                <div><span class="dot red-dot"></span><small>Rojos</small><b id="red-count">0</b></div>
+              </div>
+            </article>
+            <article class="card compact-card">
+              <div class="card-title-row"><div><p class="eyebrow">DECISIÓN</p><h2>Estado de los leads</h2></div></div>
+              <div class="distribution status-distribution" aria-label="Distribución por estado">
+                <div><small>Nuevos</small><b id="new-count">0</b></div>
+                <div><small>Aprobados</small><b id="approved-count">0</b></div>
+                <div><small>Descartados</small><b id="discarded-count">0</b></div>
+              </div>
+            </article>
           </div>
         </section>
 
         <section id="new-search" class="card search-card">
-          <p class="eyebrow">NUEVA EJECUCION</p>
+          <p class="eyebrow">NUEVO RASPADO</p>
           <h2>Investigar una empresa</h2>
-          <p class="intro">Introduce la empresa y su web oficial. El sistema consultara paginas publicas permitidas, detectara enlaces sociales y usara Gemini para normalizar la evidencia.</p>
+          <p class="intro">Indica el nombre y la web oficial. Se analizarán páginas públicas permitidas, enlaces sociales y señales verificables.</p>
           <form id="scrape-form" class="form-grid">
-            <label class="input"><span>Nombre de la empresa *</span><input name="company" required placeholder="Ej. Empresa Demo S.L." /></label>
-            <label class="input"><span>Web corporativa *</span><input name="website" type="url" required placeholder="https://empresa.es" /></label>
-            <button class="primary form-submit" type="submit">Usar 1 ejecucion</button>
+            <label class="input"><span>Nombre de la empresa *</span><input name="company" required minlength="2" maxlength="120" autocomplete="organization" placeholder="Ej. Empresa Demo S.L." /></label>
+            <label class="input"><span>Web corporativa *</span><input name="website" type="url" required inputmode="url" autocomplete="url" placeholder="https://empresa.es" /></label>
+            <button id="scrape-button" class="primary form-submit" type="submit"><span>Usar 1 raspado</span></button>
           </form>
-          <div class="source-pills"><span>Web corporativa</span><span>LinkedIn enlazado</span><span>Instagram enlazado</span><span>Facebook</span><span>X</span><span>YouTube</span><span>TikTok</span></div>
-          <p id="scrape-message" class="form-message"></p>
+          <div class="source-pills" aria-label="Fuentes que se detectan"><span>Web corporativa</span><span>LinkedIn enlazado</span><span>Instagram enlazado</span><span>Facebook</span><span>X</span><span>YouTube</span><span>TikTok</span></div>
+          <p id="scrape-message" class="form-message" role="status" aria-live="polite"></p>
         </section>
 
         <section id="results" class="results-section">
-          <div class="section-heading"><div><p class="eyebrow">HISTORIAL</p><h2>Prospectos investigados</h2></div><button id="refresh" class="secondary">Actualizar</button></div>
+          <div class="section-heading">
+            <div><p class="eyebrow">LEADS INVESTIGADOS</p><h2>Resultados y evidencia</h2></div>
+            <a id="export" class="secondary button-link" href="/api/prospects/export.csv">Descargar CSV</a>
+          </div>
+          <div class="filters" aria-label="Filtros de resultados">
+            <label class="input search-input"><span>Buscar empresa</span><input id="result-search" type="search" placeholder="Nombre, sector o ciudad" /></label>
+            <label class="input"><span>Clasificación</span><select id="classification-filter"><option value="">Todas</option><option value="green">Verde</option><option value="yellow">Amarillo</option><option value="red">Rojo</option></select></label>
+            <label class="input"><span>Estado</span><select id="status-filter"><option value="">Todos</option><option value="Nuevo">Nuevo</option><option value="Aprobado">Aprobado</option><option value="Descartado">Descartado</option></select></label>
+            <button id="refresh" class="secondary filter-button">Actualizar</button>
+          </div>
           <div id="results-list" class="result-list"><p class="empty">Cargando resultados...</p></div>
         </section>
 
+        <section id="activity" class="card activity-card">
+          <div class="section-heading"><div><p class="eyebrow">TRAZABILIDAD</p><h2>Historial de ejecuciones</h2></div><span id="execution-summary" class="muted-pill">0 ejecuciones</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Fecha</th><th>Empresa</th><th>Cuenta</th><th>Estado</th><th>Tokens</th><th>Detalle</th></tr></thead>
+              <tbody id="execution-list"><tr><td colspan="6" class="empty-cell">Cargando actividad...</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="method" class="card method-card">
-          <p class="eyebrow">METODOLOGIA Y PRIVACIDAD</p>
-          <h2>Datos publicos con evidencia</h2>
-          <div class="method-grid"><div><b>1</b><span>Consulta la web oficial y respeta robots.txt.</span></div><div><b>2</b><span>Detecta perfiles sociales enlazados, sin acceder a zonas privadas.</span></div><div><b>3</b><span>Gemini resume y clasifica solo la evidencia obtenida.</span></div><div><b>4</b><span>La hoja registra fuente, fecha, cuota y consumo.</span></div></div>
+          <p class="eyebrow">METODOLOGÍA Y PRIVACIDAD</p>
+          <h2>Datos públicos con evidencia</h2>
+          <div class="method-grid">
+            <div><b>1</b><span>Consulta la web oficial y respeta robots.txt.</span></div>
+            <div><b>2</b><span>Detecta perfiles sociales enlazados sin acceder a zonas privadas.</span></div>
+            <div><b>3</b><span>Gemini resume y clasifica únicamente la evidencia obtenida.</span></div>
+            <div><b>4</b><span>Google Sheets registra la fuente, la fecha, la cuota y el consumo.</span></div>
+          </div>
         </section>
       </main>
     </div>
+
+    <dialog id="lead-dialog" class="lead-dialog">
+      <div class="dialog-header"><div><p class="eyebrow">FICHA DEL LEAD</p><h2 id="dialog-company">Empresa</h2></div><button id="close-dialog" class="icon-button" aria-label="Cerrar ficha">×</button></div>
+      <div id="dialog-content"></div>
+    </dialog>
+
     <script>
-      const csrf = () => document.cookie.split('; ').find(v => v.startsWith('focus_csrf='))?.split('=')[1] || '';
-      const headers = {'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf())};
+      const csrf = () => document.cookie.split('; ').find(value => value.startsWith('focus_csrf='))?.split('=')[1] || '';
+      const headers = () => ({'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf())});
       const message = document.querySelector('#scrape-message');
+      const dialog = document.querySelector('#lead-dialog');
+      let dashboardData = {prospects: [], executions: [], demo: false};
+
       const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+      const safeUrl = value => { try { const url = new URL(String(value || '')); return ['http:','https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; } };
+      const formatDate = value => { if (!value) return 'Sin fecha'; const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(date); };
+      const classificationLabel = value => ({green:'Verde',yellow:'Amarillo',red:'Rojo'})[String(value).toLowerCase()] || 'Sin clasificar';
+      const normalizeClassification = value => ['green','yellow','red'].includes(String(value).toLowerCase()) ? String(value).toLowerCase() : 'yellow';
+      const setText = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
       function paint(card, state) { card.classList.remove('green','yellow','red'); card.classList.add(state || 'green'); }
+
+      function renderMetrics(data) {
+        setText('#available', data.user.available);
+        setText('#assigned', data.user.assigned);
+        setText('#used', data.user.used);
+        const userRatio = data.user.assigned ? data.user.available / data.user.assigned : 0;
+        paint(document.querySelector('#quota-card'), userRatio > .5 ? 'green' : userRatio > .2 ? 'yellow' : 'red');
+        paint(document.querySelector('#used-card'), userRatio > .5 ? 'green' : userRatio > .2 ? 'yellow' : 'red');
+        if (data.global) {
+          setText('#global-remaining', data.global.remaining);
+          setText('#global-detail', `${data.global.used} usados de ${data.global.assigned}`);
+          setText('#gemini-remaining', data.global.gemini_requests_remaining);
+          setText('#gemini-detail', `${data.global.gemini_requests_used || 0} completadas · ${data.global.failed_requests || 0} fallidas`);
+          paint(document.querySelector('#global-card'), data.global.state);
+          const ratio = data.global.gemini_internal_budget ? data.global.gemini_requests_remaining / data.global.gemini_internal_budget : 0;
+          paint(document.querySelector('#gemini-card'), ratio > .5 ? 'green' : ratio > .2 ? 'yellow' : 'red');
+        } else {
+          setText('#global-remaining', '—');
+          setText('#global-detail', 'Solo visible para administradores');
+          setText('#gemini-remaining', '—');
+          setText('#gemini-detail', 'Solo visible para administradores');
+        }
+        const metrics = data.metrics || {total:0,classifications:{},statuses:{}};
+        setText('#total-prospects', metrics.total || 0);
+        setText('#green-count', metrics.classifications?.green || 0);
+        setText('#yellow-count', metrics.classifications?.yellow || 0);
+        setText('#red-count', metrics.classifications?.red || 0);
+        setText('#new-count', metrics.statuses?.Nuevo || 0);
+        setText('#approved-count', metrics.statuses?.Aprobado || 0);
+        setText('#discarded-count', metrics.statuses?.Descartado || 0);
+      }
+
+      function filteredProspects() {
+        const query = document.querySelector('#result-search').value.trim().toLowerCase();
+        const classification = document.querySelector('#classification-filter').value;
+        const status = document.querySelector('#status-filter').value;
+        return dashboardData.prospects.filter(item => {
+          const haystack = [item.company,item.sector,item.city,item.summary,item.email].join(' ').toLowerCase();
+          return (!query || haystack.includes(query)) && (!classification || item.classification === classification) && (!status || item.lead_status === status);
+        });
+      }
+
+      function renderProspects() {
+        const list = document.querySelector('#results-list');
+        const prospects = filteredProspects();
+        if (!prospects.length) {
+          list.innerHTML = `<p class="empty">${dashboardData.prospects.length ? 'No hay resultados con estos filtros.' : 'Aún no hay investigaciones para esta cuenta.'}</p>`;
+          return;
+        }
+        list.innerHTML = prospects.map(item => {
+          const classification = normalizeClassification(item.classification);
+          const website = safeUrl(item.website);
+          return `<article class="result-card ${classification}">
+            <div class="result-main">
+              <div class="result-meta"><span class="status-badge status-${escapeHtml(String(item.lead_status || 'Nuevo').toLowerCase())}">${escapeHtml(item.lead_status || 'Nuevo')}</span><span>${escapeHtml(classificationLabel(classification))}</span><span>${escapeHtml(formatDate(item.created_at))}</span></div>
+              <h3>${escapeHtml(item.company)}</h3>
+              <p>${escapeHtml(item.sector || 'Sector pendiente')} · ${escapeHtml(item.city || 'Ubicación pendiente')}</p>
+              <small>${escapeHtml(item.summary || 'Sin resumen')}</small>
+              <div class="result-actions">
+                <button class="secondary small-button" data-action="detail" data-id="${escapeHtml(item.execution_id)}">Ver ficha completa</button>
+                ${website ? `<a class="text-link" href="${escapeHtml(website)}" target="_blank" rel="noopener">Abrir web ↗</a>` : ''}
+              </div>
+            </div>
+            <div class="result-score">${escapeHtml(item.score || '—')}<span>/10</span></div>
+            <p class="angle"><b>Ángulo de entrada:</b> ${escapeHtml(item.entry_angle || 'Pendiente')}</p>
+          </article>`;
+        }).join('');
+      }
+
+      function renderExecutions() {
+        const body = document.querySelector('#execution-list');
+        const executions = dashboardData.executions || [];
+        setText('#execution-summary', `${executions.length} ${executions.length === 1 ? 'ejecución' : 'ejecuciones'}`);
+        if (!executions.length) {
+          body.innerHTML = '<tr><td colspan="6" class="empty-cell">Aún no hay ejecuciones registradas.</td></tr>';
+          return;
+        }
+        body.innerHTML = executions.map(item => `<tr>
+          <td>${escapeHtml(formatDate(item.created_at))}</td>
+          <td><strong>${escapeHtml(item.company)}</strong><small class="table-subtext">${escapeHtml(item.execution_id)}</small></td>
+          <td>${escapeHtml(item.email || '—')}</td>
+          <td><span class="execution-status ${String(item.status).toLowerCase() === 'completado' ? 'success' : 'failure'}">${escapeHtml(item.status || 'Pendiente')}</span></td>
+          <td>${escapeHtml(item.total_tokens || 0)}</td>
+          <td>${escapeHtml(item.error || 'Sin errores')}</td>
+        </tr>`).join('');
+      }
+
+      function socialLinks(item) {
+        return Object.entries(item.social_links || {}).filter(([,value]) => safeUrl(value)).map(([network,value]) => `<a class="social-link" href="${escapeHtml(safeUrl(value))}" target="_blank" rel="noopener">${escapeHtml(network.toUpperCase())} ↗</a>`).join('') || '<span class="muted-text">No se detectaron redes enlazadas.</span>';
+      }
+
+      function openLead(executionId) {
+        const item = dashboardData.prospects.find(prospect => prospect.execution_id === executionId);
+        if (!item) return;
+        setText('#dialog-company', item.company);
+        const evidence = (item.evidence || []).map(value => safeUrl(value) ? `<a href="${escapeHtml(safeUrl(value))}" target="_blank" rel="noopener">${escapeHtml(value)} ↗</a>` : `<span>${escapeHtml(value)}</span>`).join('') || '<span class="muted-text">Sin fuentes registradas.</span>';
+        document.querySelector('#dialog-content').innerHTML = `
+          <div class="detail-grid">
+            <div><span>Estado</span><b>${escapeHtml(item.lead_status || 'Nuevo')}</b></div>
+            <div><span>Score</span><b>${escapeHtml(item.score || '—')} / 10 · ${escapeHtml(classificationLabel(item.classification))}</b></div>
+            <div><span>Sector</span><b>${escapeHtml(item.sector || 'Pendiente')}</b></div>
+            <div><span>Modelo</span><b>${escapeHtml(item.business_model || 'Pendiente')}</b></div>
+            <div><span>Ciudad</span><b>${escapeHtml(item.city || 'Pendiente')}</b></div>
+            <div><span>Empleados</span><b>${escapeHtml(item.employees || 'Pendiente')}</b></div>
+            <div class="wide"><span>Resumen</span><p>${escapeHtml(item.summary || item.description || 'Sin resumen')}</p></div>
+            <div class="wide"><span>Ángulo de entrada</span><p>${escapeHtml(item.entry_angle || 'Pendiente')}</p></div>
+            <div class="wide"><span>Redes detectadas</span><div class="social-row">${socialLinks(item)}</div></div>
+            <div class="wide"><span>Fuentes y evidencia</span><div class="evidence-list">${evidence}</div></div>
+          </div>
+          <div class="dialog-actions">
+            <button class="secondary" data-dialog-action="copy" data-id="${escapeHtml(item.execution_id)}">Copiar datos</button>
+            <button class="secondary" data-dialog-action="status" data-status="Descartado" data-id="${escapeHtml(item.execution_id)}" ${dashboardData.demo ? 'disabled' : ''}>Descartar</button>
+            <button class="primary" data-dialog-action="status" data-status="Aprobado" data-id="${escapeHtml(item.execution_id)}" ${dashboardData.demo ? 'disabled' : ''}>Aprobar lead</button>
+          </div>`;
+        dialog.showModal();
+      }
+
+      async function copyLead(executionId) {
+        const item = dashboardData.prospects.find(prospect => prospect.execution_id === executionId);
+        if (!item) return;
+        const text = [`Empresa: ${item.company}`,`Web: ${item.website}`,`Sector: ${item.sector || ''}`,`Ciudad: ${item.city || ''}`,`Score: ${item.score || ''}/10`,`Estado: ${item.lead_status || 'Nuevo'}`,`Resumen: ${item.summary || ''}`,`Ángulo de entrada: ${item.entry_angle || ''}`,`ID: ${item.execution_id}`].join('\n');
+        await navigator.clipboard.writeText(text);
+        message.textContent = `Datos de ${item.company} copiados.`;
+      }
+
+      async function updateStatus(executionId, status) {
+        const response = await fetch(`/api/prospects/${encodeURIComponent(executionId)}/status`, {method:'POST',headers:headers(),body:JSON.stringify({status})});
+        const data = await response.json();
+        if (!response.ok) { message.textContent = data.detail || 'No se pudo actualizar el estado.'; return; }
+        dialog.close();
+        message.textContent = `Lead marcado como ${status.toLowerCase()}.`;
+        await loadDashboard();
+      }
+
       async function loadDashboard() {
-        const response = await fetch('/api/portal-dashboard');
+        const response = await fetch('/api/portal-dashboard', {headers:{'Accept':'application/json'}});
         if (response.status === 401) { window.location.assign('/'); return; }
         const data = await response.json();
-        if (!response.ok) { message.textContent = data.detail || 'No se pudo cargar el dashboard'; return; }
-        document.querySelector('#available').textContent = data.user.available;
-        document.querySelector('#assigned').textContent = data.user.assigned;
-        document.querySelector('#used').textContent = data.user.used;
-        const userRatio = data.user.assigned ? data.user.available / data.user.assigned : 0;
-        paint(document.querySelector('.stats article'), userRatio > .5 ? 'green' : userRatio > .2 ? 'yellow' : 'red');
-        if (data.global) {
-          document.querySelector('#global-remaining').textContent = data.global.remaining;
-          document.querySelector('#global-detail').textContent = `${data.global.used} usadas de ${data.global.assigned}`;
-          document.querySelector('#gemini-remaining').textContent = data.global.gemini_requests_remaining;
-          paint(document.querySelector('#global-card'), data.global.state);
-          const gRatio = data.global.gemini_internal_budget ? data.global.gemini_requests_remaining / data.global.gemini_internal_budget : 0;
-          paint(document.querySelector('#gemini-card'), gRatio > .5 ? 'green' : gRatio > .2 ? 'yellow' : 'red');
-        }
-        const list = document.querySelector('#results-list');
-        list.innerHTML = data.prospects.length ? data.prospects.map(item => `<article class="result-card ${['green','yellow','red'].includes(item.classification) ? item.classification : 'yellow'}"><div><p class="result-id">${escapeHtml(item.execution_id)}</p><h3>${escapeHtml(item.company)}</h3><p>${escapeHtml(item.sector || 'Sector pendiente')} · ${escapeHtml(item.created_at || '')}</p><small>${escapeHtml(item.summary || 'Sin resumen')}</small></div><div class="result-score">${escapeHtml(item.score || '—')}<span>/10</span></div><p class="angle"><b>Angulo:</b> ${escapeHtml(item.entry_angle || 'Pendiente')}</p></article>`).join('') : '<p class="empty">Aun no hay investigaciones para esta cuenta.</p>';
+        if (!response.ok) { message.textContent = data.detail || 'No se pudo cargar el dashboard.'; return; }
+        dashboardData = data;
+        document.querySelector('#demo-badge').hidden = !data.demo;
+        renderMetrics(data);
+        renderProspects();
+        renderExecutions();
       }
+
       document.querySelector('#scrape-form').addEventListener('submit', async event => {
         event.preventDefault();
+        if (!event.currentTarget.reportValidity()) return;
+        const button = document.querySelector('#scrape-button');
         const values = Object.fromEntries(new FormData(event.currentTarget));
-        message.textContent = 'Consultando fuentes publicas y analizando evidencia...';
-        const response = await fetch('/api/scrape',{method:'POST',headers,body:JSON.stringify(values)});
-        const data = await response.json();
-        message.textContent = response.ok ? `Investigacion completada: ${data.execution_id}` : (data.detail || 'No se pudo completar.');
-        if (response.ok) { event.currentTarget.reset(); await loadDashboard(); }
+        button.disabled = true;
+        button.classList.add('loading');
+        button.querySelector('span').textContent = 'Analizando...';
+        message.className = 'form-message';
+        message.textContent = 'Consultando fuentes públicas y analizando evidencia. Esto puede tardar unos segundos...';
+        try {
+          const response = await fetch('/api/scrape',{method:'POST',headers:headers(),body:JSON.stringify(values)});
+          const data = await response.json();
+          message.classList.toggle('error-message', !response.ok);
+          message.classList.toggle('success-message', response.ok);
+          message.textContent = response.ok ? `Investigación completada: ${data.execution_id}` : (data.detail || 'No se pudo completar el raspado.');
+          if (response.ok) { event.currentTarget.reset(); await loadDashboard(); }
+        } catch {
+          message.classList.add('error-message');
+          message.textContent = 'No se pudo conectar con el servidor. Inténtalo de nuevo.';
+        } finally {
+          button.disabled = false;
+          button.classList.remove('loading');
+          button.querySelector('span').textContent = 'Usar 1 raspado';
+        }
       });
-      document.querySelector('#refresh').addEventListener('click',loadDashboard);
-      document.querySelector('#logout').addEventListener('click',async()=>{const response=await fetch('/auth/logout',{method:'POST',headers});const data=await response.json();window.location.assign(data.redirect||'/');});
+
+      document.querySelector('#results-list').addEventListener('click', event => {
+        const button = event.target.closest('[data-action="detail"]');
+        if (button) openLead(button.dataset.id);
+      });
+      document.querySelector('#dialog-content').addEventListener('click', async event => {
+        const button = event.target.closest('[data-dialog-action]');
+        if (!button) return;
+        if (button.dataset.dialogAction === 'copy') await copyLead(button.dataset.id);
+        if (button.dataset.dialogAction === 'status') await updateStatus(button.dataset.id, button.dataset.status);
+      });
+      ['#result-search','#classification-filter','#status-filter'].forEach(selector => document.querySelector(selector).addEventListener('input', renderProspects));
+      document.querySelector('#refresh').addEventListener('click', loadDashboard);
+      document.querySelector('#refresh-top').addEventListener('click', loadDashboard);
+      document.querySelector('#close-dialog').addEventListener('click', () => dialog.close());
+      dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+      document.querySelector('#logout').addEventListener('click',async()=>{const response=await fetch('/auth/logout',{method:'POST',headers:headers()});const data=await response.json();window.location.assign(data.redirect||'/');});
       loadDashboard();
     </script>
   </body>

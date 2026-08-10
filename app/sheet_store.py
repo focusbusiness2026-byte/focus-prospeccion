@@ -150,7 +150,7 @@ class SheetStore:
         evidence = values.get("evidence") or []
         social = values.get("social_links") or {}
         self._append(
-            f"'{self.settings.google_sheet_tab}'!A:V",
+            f"'{self.settings.google_sheet_tab}'!A:X",
             [[
                 values.get("execution_id", ""),
                 values.get("email", ""),
@@ -174,29 +174,103 @@ class SheetStore:
                 social.get("youtube", ""),
                 social.get("tiktok", ""),
                 "\n".join(evidence),
+                "Nuevo",
+                datetime.now(timezone.utc).isoformat(),
             ]],
         )
 
-    def recent_prospects(self, email: str, limit: int = 20) -> list[dict]:
-        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:V500")
-        matches = [row for row in rows if len(row) > 1 and str(row[1]).strip().lower() == email.strip().lower()]
+    @staticmethod
+    def _prospect_from_row(row: list) -> dict:
+        padded = row + [""] * (24 - len(row))
+        return {
+            "execution_id": padded[0],
+            "email": padded[1],
+            "created_at": padded[2],
+            "company": padded[3],
+            "website": padded[4],
+            "title": padded[5],
+            "description": padded[6],
+            "sector": padded[7],
+            "business_model": padded[8],
+            "city": padded[9],
+            "employees": padded[10],
+            "score": padded[11],
+            "classification": padded[12],
+            "summary": padded[13],
+            "entry_angle": padded[14],
+            "social_links": {
+                "linkedin": padded[15],
+                "instagram": padded[16],
+                "facebook": padded[17],
+                "x": padded[18],
+                "youtube": padded[19],
+                "tiktok": padded[20],
+            },
+            "evidence": [line for line in str(padded[21]).splitlines() if line.strip()],
+            "lead_status": padded[22] or "Nuevo",
+            "updated_at": padded[23] or padded[2],
+        }
+
+    def recent_prospects(self, email: str | None, limit: int = 50) -> list[dict]:
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:X1000")
+        if email:
+            normalized = email.strip().lower()
+            rows = [row for row in rows if len(row) > 1 and str(row[1]).strip().lower() == normalized]
+        return [self._prospect_from_row(row) for row in reversed(rows[-limit:])]
+
+    def recent_executions(self, email: str | None, limit: int = 20) -> list[dict]:
+        rows = self._get(f"'{self.settings.google_executions_tab}'!A2:K1000")
+        if email:
+            normalized = email.strip().lower()
+            rows = [row for row in rows if len(row) > 2 and str(row[2]).strip().lower() == normalized]
         output = []
-        for row in reversed(matches[-limit:]):
-            padded = row + [""] * (22 - len(row))
+        for row in reversed(rows[-limit:]):
+            padded = row + [""] * (11 - len(row))
             output.append(
                 {
                     "execution_id": padded[0],
-                    "created_at": padded[2],
+                    "created_at": padded[1],
+                    "email": padded[2],
                     "company": padded[3],
                     "website": padded[4],
-                    "sector": padded[7],
-                    "score": padded[11],
-                    "classification": padded[12],
-                    "summary": padded[13],
-                    "entry_angle": padded[14],
+                    "status": padded[5],
+                    "gemini_model": padded[6],
+                    "prompt_tokens": self._int(padded[7]),
+                    "output_tokens": self._int(padded[8]),
+                    "total_tokens": self._int(padded[9]),
+                    "error": padded[10],
                 }
             )
         return output
+
+    def prospect_metrics(self, email: str | None) -> dict:
+        prospects = self.recent_prospects(email, limit=1000)
+        classifications = {"green": 0, "yellow": 0, "red": 0}
+        statuses = {"Nuevo": 0, "Aprobado": 0, "Descartado": 0}
+        for prospect in prospects:
+            classification = str(prospect["classification"]).strip().lower()
+            if classification in classifications:
+                classifications[classification] += 1
+            status = str(prospect["lead_status"]).strip().capitalize() or "Nuevo"
+            if status in statuses:
+                statuses[status] += 1
+        return {"total": len(prospects), "classifications": classifications, "statuses": statuses}
+
+    def update_prospect_status(self, execution_id: str, email: str, status: str, *, is_admin: bool = False) -> dict:
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:X1000")
+        normalized_email = email.strip().lower()
+        for row_number, row in enumerate(rows, start=2):
+            padded = row + [""] * (24 - len(row))
+            if str(padded[0]).strip() != execution_id.strip():
+                continue
+            if not is_admin and str(padded[1]).strip().lower() != normalized_email:
+                raise PermissionError("No puedes modificar un lead de otra cuenta")
+            now = datetime.now(timezone.utc).isoformat()
+            self._update(f"'{self.settings.google_sheet_tab}'!W{row_number}:X{row_number}", [[status, now]])
+            padded[22] = status
+            padded[23] = now
+            return self._prospect_from_row(padded)
+        raise LookupError("No se encontro el lead solicitado")
 
     def global_metrics(self) -> dict:
         records = [record for record in self.access_records() if record.state.lower() == "activo"]
@@ -205,6 +279,9 @@ class SheetStore:
         execution_rows = self._get(f"'{self.settings.google_executions_tab}'!F2:F1000")
         completed_requests = sum(
             1 for row in execution_rows if row and str(row[0]).strip().lower() == "completado"
+        )
+        failed_requests = sum(
+            1 for row in execution_rows if row and str(row[0]).strip().lower() == "fallido"
         )
         remaining = max(0, assigned - used)
         ratio = remaining / assigned if assigned else 0
@@ -219,4 +296,5 @@ class SheetStore:
             "gemini_internal_budget": self.settings.gemini_request_budget,
             "gemini_requests_used": completed_requests,
             "gemini_requests_remaining": max(0, self.settings.gemini_request_budget - completed_requests),
+            "failed_requests": failed_requests,
         }

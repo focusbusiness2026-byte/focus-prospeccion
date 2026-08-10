@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
@@ -35,6 +38,84 @@ class ScrapeRequest(BaseModel):
     website: HttpUrl
 
 
+class LeadStatusRequest(BaseModel):
+    status: Literal["Nuevo", "Aprobado", "Descartado"]
+
+
+def _demo_payload(identity: Identity, gemini_budget: int) -> dict:
+    prospects = [
+        {
+            "execution_id": "DEMO-VERDE-001",
+            "email": identity.email,
+            "created_at": "2026-08-10T09:30:00+00:00",
+            "company": "Estudio Horizonte",
+            "website": "https://example.com",
+            "title": "Estudio Horizonte",
+            "description": "Productora audiovisual B2B con proyectos corporativos.",
+            "sector": "Produccion audiovisual",
+            "business_model": "B2B",
+            "city": "Madrid",
+            "employees": 42,
+            "score": 8.4,
+            "classification": "green",
+            "summary": "Empresa con web activa, equipo consolidado y senales de crecimiento.",
+            "entry_angle": "Proponer una estrategia de captacion para sus servicios corporativos.",
+            "social_links": {"linkedin": "https://www.linkedin.com", "instagram": "https://www.instagram.com"},
+            "evidence": ["https://example.com", "https://example.com/contacto"],
+            "lead_status": "Aprobado",
+            "updated_at": "2026-08-10T09:35:00+00:00",
+        },
+        {
+            "execution_id": "DEMO-AMARILLO-002",
+            "email": identity.email,
+            "created_at": "2026-08-09T16:10:00+00:00",
+            "company": "Norte Visual",
+            "website": "https://example.org",
+            "title": "Norte Visual",
+            "description": "Agencia creativa con servicios de video y contenido.",
+            "sector": "Agencia creativa",
+            "business_model": "B2B",
+            "city": "Barcelona",
+            "employees": 18,
+            "score": 5.8,
+            "classification": "yellow",
+            "summary": "Encaje posible, aunque faltan senales recientes de compra.",
+            "entry_angle": "Validar volumen de proyectos y necesidad de apoyo comercial.",
+            "social_links": {"linkedin": "https://www.linkedin.com"},
+            "evidence": ["https://example.org"],
+            "lead_status": "Nuevo",
+            "updated_at": "2026-08-09T16:10:00+00:00",
+        },
+    ]
+    return {
+        "user": {"email": identity.email, "role": identity.role, "assigned": 10, "used": 2, "available": 8},
+        "global": {
+            "active_users": 1,
+            "assigned": 10,
+            "used": 2,
+            "remaining": 8,
+            "remaining_ratio": 0.8,
+            "state": "green",
+            "gemini_internal_budget": gemini_budget,
+            "gemini_requests_used": 2,
+            "gemini_requests_remaining": max(0, gemini_budget - 2),
+            "failed_requests": 0,
+        },
+        "metrics": {"total": 2, "classifications": {"green": 1, "yellow": 1, "red": 0}, "statuses": {"Nuevo": 1, "Aprobado": 1, "Descartado": 0}},
+        "prospects": prospects,
+        "executions": [
+            {"execution_id": item["execution_id"], "created_at": item["created_at"], "email": identity.email, "company": item["company"], "website": item["website"], "status": "Completado", "gemini_model": "demo", "prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0, "error": ""}
+            for item in prospects
+        ],
+        "demo": True,
+    }
+
+
+def _csv_cell(value) -> str:
+    text = str(value if value is not None else "")
+    return f"'{text}" if text.startswith(("=", "+", "-", "@")) else text
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -45,7 +126,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Focus Prospeccion", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Focus Prospeccion", version="0.3.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
@@ -148,17 +229,14 @@ def logout(request: Request):
 def portal_dashboard(identity: Identity = Depends(require_identity)):
     settings = get_settings()
     if not settings.google_sheets_enabled:
-        return {
-            "user": {"email": identity.email, "role": identity.role, "assigned": 10, "used": 0, "available": 10},
-            "global": {"active_users": 1, "assigned": 10, "used": 0, "remaining": 10, "state": "green", "gemini_internal_budget": settings.gemini_request_budget, "gemini_requests_remaining": settings.gemini_request_budget},
-            "prospects": [],
-            "demo": True,
-        }
+        return _demo_payload(identity, settings.gemini_request_budget)
     store = SheetStore()
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    global_metrics = store.global_metrics() if "admin" in access.role.lower() else None
+    is_admin = "admin" in access.role.lower()
+    scope_email = None if is_admin else identity.email
+    global_metrics = store.global_metrics() if is_admin else None
     return {
         "user": {
             "email": access.email,
@@ -168,9 +246,68 @@ def portal_dashboard(identity: Identity = Depends(require_identity)):
             "available": access.available,
         },
         "global": global_metrics,
-        "prospects": store.recent_prospects(identity.email),
+        "metrics": store.prospect_metrics(scope_email),
+        "prospects": store.recent_prospects(scope_email),
+        "executions": store.recent_executions(scope_email),
         "demo": False,
     }
+
+
+@app.post("/api/prospects/{execution_id}/status")
+def update_prospect_status(
+    execution_id: str,
+    payload: LeadStatusRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
+    store = SheetStore()
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    try:
+        prospect = store.update_prospect_status(
+            execution_id,
+            identity.email,
+            payload.status,
+            is_admin="admin" in access.role.lower(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "prospect": prospect}
+
+
+@app.get("/api/prospects/export.csv")
+def export_prospects(identity: Identity = Depends(require_identity)):
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        prospects = _demo_payload(identity, settings.gemini_request_budget)["prospects"]
+    else:
+        store = SheetStore()
+        access = store.get_access(identity.email)
+        if not access:
+            raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+        prospects = store.recent_prospects(None if "admin" in access.role.lower() else identity.email, limit=1000)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Empresa", "Web", "Sector", "Ciudad", "Empleados", "Score", "Clasificacion", "Estado", "Resumen", "Angulo de entrada", "Correo de cuenta", "Fecha", "ID ejecucion"])
+    for item in prospects:
+        writer.writerow([_csv_cell(value) for value in [
+            item["company"], item["website"], item["sector"], item["city"], item["employees"],
+            item["score"], item["classification"], item["lead_status"], item["summary"], item["entry_angle"],
+            item["email"], item["created_at"], item["execution_id"],
+        ]])
+    content = "\ufeff" + buffer.getvalue()
+    return StreamingResponse(
+        iter([content]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=focus-prospeccion-leads.csv"},
+    )
 
 
 @app.post("/api/scrape")
