@@ -10,7 +10,10 @@ Portal privado de Focus Business para investigar empresas a partir de su web cor
 - Deteccion de enlaces publicos a LinkedIn, Instagram, Facebook, X, YouTube y TikTok desde la web corporativa. No inicia sesion, no evade CAPTCHA y no extrae zonas privadas de esas redes.
 - Analisis estructurado, scoring Focus y consumo de tokens con Gemini.
 - Historial en las pestanas `Prospeccion` y `Ejecuciones`.
-- Dashboard web y dashboard de control en la hoja, con estados verde, amarillo y rojo.
+- Dashboard web con cuotas, semaforo, estado de leads, actividad y vista global para administradores.
+- Ficha completa de cada lead con evidencia, redes detectadas, copia independiente, aprobacion o descarte.
+- Filtros por empresa, clasificacion y estado, mas exportacion CSV de los resultados visibles para la cuenta.
+- Dashboard de control en la hoja, con estados verde, amarillo y rojo y conteos de leads y ejecuciones.
 - Despliegue en un unico servicio web gratuito de Render mediante `render.yaml`.
 
 ## Arquitectura
@@ -23,6 +26,8 @@ Google Sign-In -> Accesos (Sheets) -> cuota -> web publica -> Gemini
                                       +-> Ejecuciones <-------+
                                       +-> Prospeccion -> dashboard
 ```
+
+La pestana `Prospeccion` usa 24 columnas (`A:X`). `lead_status` admite `Nuevo`, `Aprobado` o `Descartado`; `updated_at` registra el ultimo cambio. Los usuarios cliente solo reciben sus propios resultados. Un rol cuyo nombre contiene `admin` recibe el resumen y los resultados globales.
 
 ## Desarrollo local
 
