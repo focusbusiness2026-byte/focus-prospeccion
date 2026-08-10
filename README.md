@@ -67,9 +67,9 @@ no_prospect_reason, research_summary, search_configuration_json, adjustments_jso
 research_provider, search_trace_json, duplicates_discarded
 ```
 
-`Dashboard Prospeccion` usa `A:K` para un resumen operativo: fecha de actualización, usuarios activos, prospectos, estados CRM, ejecuciones completadas/fallidas, llamadas web, estado de configuración de OpenAI y límite por ejecución.
+`Dashboard Prospeccion` conserva su composición visual existente. El portal calcula el resumen operativo en vivo y no sobrescribe el título, las fórmulas ni los gráficos de esa pestaña.
 
-`ensure_operational_schema()` solo añade encabezados finales faltantes y rechaza cualquier orden incompatible; no reescribe filas existentes. Se ejecutará al procesar el primer onboarding después de una futura publicación. El código de esta entrega no modifica la hoja externa ni despliega servicios.
+`ensure_operational_schema()` amplía exclusivamente las columnas de `Prospeccion` y `Ejecuciones`, añade encabezados finales faltantes y migra el encabezado heredado `gemini_model` a `model`; no reescribe filas de datos. La pestaña visual `Dashboard Prospeccion` queda intacta.
 
 La deduplicación se aplica por dominio (o identidad normalizada disponible) dentro de cada `onboarding_id` antes de guardar en CRM. El número descartado queda en `Ejecuciones.duplicates_discarded`.
 
@@ -85,7 +85,7 @@ La deduplicación se aplica por dominio (o identidad normalizada disponible) den
 | `OPENAI_MODEL` | Modelo de Responses API; valor de ejemplo `gpt-5.5`. |
 | `OPENAI_REQUEST_BUDGET` | Contador interno visible para administración. |
 | `OPENAI_WEB_SEARCH_MAX_CALLS` | Se fuerza al intervalo 1–5. |
-| `AUTO_RESEARCH_ENABLED` | Activa el disparador automático. |
+| `AUTO_RESEARCH_ENABLED` | Activa el disparador automático; por seguridad parte en `false`. |
 | `AUTO_RESEARCH_POLL_SECONDS` | Intervalo de lectura de Onboarding, mínimo efectivo 30 s. |
 | `PROSPECTION_TRIGGER_TOKEN` | Secreto servidor-a-servidor para despertar/procesar un nuevo ID de Onboarding. |
 
@@ -93,7 +93,7 @@ La interfaz muestra únicamente si OpenAI está configurado. La clave nunca se d
 
 ## Activación pendiente de autorización
 
-1. Revisar en una copia de la hoja que `Prospeccion` tenga 45 columnas, `Ejecuciones` 24 y `Dashboard Prospeccion` 11.
+1. Verificar que la migración conservadora haya ampliado `Prospeccion` a 45 columnas y `Ejecuciones` a 24, manteniendo intacto el panel visual `Dashboard Prospeccion`.
 2. Cargar `OPENAI_API_KEY` exclusivamente como secreto del servidor y conservar `OPENAI_WEB_SEARCH_MAX_CALLS=5`.
 3. Configurar los secretos Google/trigger indicados en `.env.example`.
 4. Publicar una nueva versión solo tras aprobación; entonces verificar primero una ejecución controlada.

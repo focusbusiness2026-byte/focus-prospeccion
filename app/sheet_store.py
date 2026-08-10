@@ -73,6 +73,10 @@ class SheetStore:
     def _base(self) -> str:
         return f"https://sheets.googleapis.com/v4/spreadsheets/{self.settings.google_sheet_id}/values"
 
+    @property
+    def _spreadsheet_base(self) -> str:
+        return f"https://sheets.googleapis.com/v4/spreadsheets/{self.settings.google_sheet_id}"
+
     def _get(self, a1_range: str) -> list[list]:
         session = self._session()
         response = session.get(f"{self._base}/{quote(a1_range, safe='')}", timeout=30)
@@ -99,6 +103,51 @@ class SheetStore:
         )
         response.raise_for_status()
 
+    def _sheet_properties(self) -> list[dict]:
+        session = self._session()
+        response = session.get(
+            self._spreadsheet_base,
+            params={"fields": "sheets.properties(sheetId,title,gridProperties(columnCount,rowCount))"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        return [item.get("properties", {}) for item in response.json().get("sheets", [])]
+
+    def _batch_update(self, requests: list[dict]) -> None:
+        session = self._session()
+        response = session.post(
+            f"{self._spreadsheet_base}:batchUpdate",
+            json={"requests": requests},
+            timeout=30,
+        )
+        response.raise_for_status()
+
+    def _ensure_sheet_capacity(self, tab: str, minimum_columns: int) -> None:
+        properties = next((item for item in self._sheet_properties() if item.get("title") == tab), None)
+        if properties is None:
+            self._batch_update([
+                {
+                    "addSheet": {
+                        "properties": {
+                            "title": tab,
+                            "gridProperties": {"rowCount": 1000, "columnCount": minimum_columns},
+                        }
+                    }
+                }
+            ])
+            return
+        current_columns = int(properties.get("gridProperties", {}).get("columnCount") or 0)
+        if current_columns < minimum_columns:
+            self._batch_update([
+                {
+                    "appendDimension": {
+                        "sheetId": properties["sheetId"],
+                        "dimension": "COLUMNS",
+                        "length": minimum_columns - current_columns,
+                    }
+                }
+            ])
+
     @staticmethod
     def _column_name(index: int) -> str:
         output = ""
@@ -107,11 +156,18 @@ class SheetStore:
             output = chr(65 + remainder) + output
         return output
 
-    def _ensure_header_row(self, tab: str, expected: list[str]) -> None:
+    def _ensure_header_row(self, tab: str, expected: list[str], legacy_aliases: dict[str, str] | None = None) -> None:
         current_rows = self._get(f"'{tab}'!A1:{self._column_name(len(expected))}1")
         current = [str(value).strip() for value in (current_rows[0] if current_rows else [])]
         while current and not current[-1]:
             current.pop()
+        aliases = legacy_aliases or {}
+        normalized = [aliases.get(value, value) for value in current]
+        for index, (old, new) in enumerate(zip(current, normalized, strict=False), start=1):
+            if old != new:
+                column = self._column_name(index)
+                self._update(f"'{tab}'!{column}1", [[new]])
+        current = normalized
         if current == expected:
             return
         if current and current != expected[: len(current)]:
@@ -123,10 +179,15 @@ class SheetStore:
             self._update(f"'{tab}'!{start}1:{end}1", [missing])
 
     def ensure_operational_schema(self) -> None:
-        """Add only missing trailing headers; never rewrites existing rows."""
+        """Expand operational tabs and append missing headers without rewriting data rows."""
+        self._ensure_sheet_capacity(self.settings.google_sheet_tab, len(PROSPECT_HEADERS))
+        self._ensure_sheet_capacity(self.settings.google_executions_tab, len(EXECUTION_HEADERS))
         self._ensure_header_row(self.settings.google_sheet_tab, PROSPECT_HEADERS)
-        self._ensure_header_row(self.settings.google_executions_tab, EXECUTION_HEADERS)
-        self._ensure_header_row(self.settings.google_dashboard_tab, DASHBOARD_HEADERS)
+        self._ensure_header_row(
+            self.settings.google_executions_tab,
+            EXECUTION_HEADERS,
+            legacy_aliases={"gemini_model": "model"},
+        )
 
     @staticmethod
     def _int(value, fallback: int = 0) -> int:
@@ -501,18 +562,24 @@ class SheetStore:
             if item.get("onboarding_id") == onboarding_id
         }
 
-    def refresh_dashboard_summary(self) -> None:
+    def refresh_dashboard_summary(self) -> dict:
+        """Return the live summary without overwriting the formatted Sheets dashboard."""
         metrics = self.prospect_metrics(None)
         global_metrics = self.global_metrics()
         statuses = metrics["statuses"]
-        row = [[
-            datetime.now(timezone.utc).isoformat(), global_metrics["active_users"], metrics["total"],
-            statuses["Nuevo"], statuses["Aprobado"], statuses["Descartado"],
-            global_metrics["openai_requests_used"], global_metrics["failed_requests"],
-            global_metrics["openai_web_search_calls_used"], bool(self.settings.openai_api_key),
-            self.settings.web_search_call_limit,
-        ]]
-        self._update(f"'{self.settings.google_dashboard_tab}'!A2:K2", row)
+        return {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "active_users": global_metrics["active_users"],
+            "prospects": metrics["total"],
+            "new": statuses["Nuevo"],
+            "approved": statuses["Aprobado"],
+            "discarded": statuses["Descartado"],
+            "executions_completed": global_metrics["openai_requests_used"],
+            "executions_failed": global_metrics["failed_requests"],
+            "web_search_calls": global_metrics["openai_web_search_calls_used"],
+            "openai_configured": bool(self.settings.openai_api_key),
+            "web_search_limit_per_execution": self.settings.web_search_call_limit,
+        }
 
     def global_metrics(self) -> dict:
         records = [record for record in self.access_records() if record.state.lower() == "activo"]

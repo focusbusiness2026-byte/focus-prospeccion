@@ -155,6 +155,12 @@ class HeaderStore(SheetStore):
         self.headers_by_tab = headers_by_tab
         self.updates = []
 
+    def _sheet_properties(self):
+        return [
+            {"sheetId": index, "title": tab, "gridProperties": {"columnCount": max(len(headers), 100)}}
+            for index, (tab, headers) in enumerate(self.headers_by_tab.items(), start=1)
+        ]
+
     def _get(self, a1_range):
         tab = a1_range.split("'!")[0].strip("'")
         return [self.headers_by_tab.get(tab, [])]
@@ -173,7 +179,45 @@ def test_schema_migration_only_appends_missing_trailing_headers():
     store.ensure_operational_schema()
 
     assert store.updates[0] == ("'Ejecuciones'!V1:X1", [EXECUTION_HEADERS[21:]])
-    assert store.updates[1] == ("'Dashboard Prospeccion'!A1:K1", [DASHBOARD_HEADERS])
+    assert len(store.updates) == 1
+
+
+def test_schema_migration_renames_legacy_gemini_header_without_touching_rows():
+    legacy_headers = EXECUTION_HEADERS[:]
+    legacy_headers[6] = "gemini_model"
+    store = HeaderStore({"Prospeccion": PROSPECT_HEADERS, "Ejecuciones": legacy_headers})
+
+    store.ensure_operational_schema()
+
+    assert store.updates == [("'Ejecuciones'!G1", [["model"]])]
+
+
+class CapacityStore(SheetStore):
+    def __init__(self):
+        super().__init__(Settings(google_sheet_id="sheet", google_service_account_json="{}"))
+        self.properties = [
+            {"sheetId": 10, "title": "Prospeccion", "gridProperties": {"columnCount": 24}},
+            {"sheetId": 11, "title": "Ejecuciones", "gridProperties": {"columnCount": 11}},
+        ]
+        self.requests = []
+
+    def _sheet_properties(self):
+        return self.properties
+
+    def _batch_update(self, requests):
+        self.requests.extend(requests)
+
+
+def test_sheet_capacity_expands_existing_tabs_without_recreating_them():
+    store = CapacityStore()
+
+    store._ensure_sheet_capacity("Prospeccion", len(PROSPECT_HEADERS))
+    store._ensure_sheet_capacity("Ejecuciones", len(EXECUTION_HEADERS))
+
+    assert store.requests == [
+        {"appendDimension": {"sheetId": 10, "dimension": "COLUMNS", "length": 21}},
+        {"appendDimension": {"sheetId": 11, "dimension": "COLUMNS", "length": 13}},
+    ]
 
 
 def test_schema_migration_rejects_reordered_existing_columns():

@@ -543,6 +543,7 @@ def portal_dashboard(identity: Identity = Depends(require_identity)):
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    store.ensure_operational_schema()
     is_admin = "admin" in access.role.lower()
     scope_email = None if is_admin else identity.email
     source_records = store.onboarding_sources(scope_email)

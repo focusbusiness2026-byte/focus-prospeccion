@@ -29,7 +29,7 @@ Fecha: 11 de agosto de 2026
 Resultado:
 
 ```text
-34 passed
+36 passed
 ```
 
 También se ejecutó `compileall` y `git diff --check` sin errores.
@@ -51,7 +51,7 @@ La hoja externa no se modificó en esta validación. El esquema local preparado 
 
 - `Prospeccion!A:AS` (45 columnas), incluidos CRM y preparación/aprobación del calentamiento futuro;
 - `Ejecuciones!A:X` (24 columnas), incluido proveedor, trazabilidad por consulta y duplicados;
-- `Dashboard Prospeccion!A:K` (11 columnas) para el resumen operativo.
+- `Dashboard Prospeccion` se preserva como panel visual; el portal calcula sus indicadores en vivo sin sobrescribir esa pestaña.
 
 ## Pendiente de integracion externa
 
@@ -62,7 +62,7 @@ La comprobación del servicio público descrita arriba es histórica y no valida
 
 ## Validación local de la ampliación
 
-- 34 pruebas locales superadas, incluida una prueba integral simulada Onboarding → investigación → deduplicación → persistencia/trazabilidad.
+- 36 pruebas locales superadas, incluida una prueba integral simulada Onboarding → investigación → deduplicación → persistencia/trazabilidad.
 - La cantidad objetivo limita el número de prospectos aceptados por ejecución y se valida entre 1 y 50.
 - OpenAI simulado: límite de 5 llamadas, contactos y señales con fuente, sin clave en el payload.
 - Persistencia ampliada para configuración, consultas, fuentes, señales y CRM.
