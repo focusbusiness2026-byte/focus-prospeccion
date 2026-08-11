@@ -103,6 +103,12 @@ La deduplicación se aplica por dominio (o identidad normalizada disponible) den
 
 La interfaz muestra únicamente si OpenAI está configurado. La clave nunca se devuelve al navegador, no se guarda en Google Sheets y no debe aparecer en logs o Git.
 
+## Keep-alive de Render preparado
+
+`.github/workflows/keep-render-awake.yml` contiene un workflow programado cada 10 minutos y ejecutable manualmente. Solo realiza un `GET` sin credenciales a `https://focus-prospeccion-fb.onrender.com/health`; no llama al trigger de Onboarding, al scraping, a OpenAI ni a ninguna automatización de negocio.
+
+El workflow queda inactivo mientras este cambio no se publique en la rama predeterminada de GitHub. La programación de GitHub Actions puede sufrir retrasos y cada ejecución consume recursos de Actions conforme al plan y las políticas vigentes de GitHub. Render puede aplicar límites o cambiar las condiciones de su plan gratuito; este ping no garantiza disponibilidad continua.
+
 ## Activación pendiente de autorización
 
 1. Verificar que la migración conservadora haya ampliado `Prospeccion` a 45 columnas y `Ejecuciones` a 24, manteniendo intacto el panel visual `Dashboard Prospeccion`.
