@@ -2,7 +2,8 @@ name: Keep Render service awake
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Every 10 minutes, offset from :00 to reduce GitHub scheduler congestion.
+    - cron: "3-59/10 * * * *"
   workflow_dispatch:
 
 permissions:
