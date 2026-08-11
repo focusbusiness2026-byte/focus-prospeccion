@@ -94,3 +94,18 @@ def test_hidden_demo_badge_cannot_be_overridden_by_badge_display_rule():
     css = (Path(__file__).parents[1] / "app" / "static" / "app.css").read_text(encoding="utf-8")
 
     assert "[hidden] { display: none !important; }" in css
+
+
+def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
+    root = Path(__file__).parents[1]
+    html = (root / "app" / "templates" / "login.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
+
+    assert "google.accounts.id.initialize" in html
+    assert "callback:response => postLogin('/auth/google'" in html
+    assert "theme:'filled_black'" in html
+    assert "shape:'pill'" in html
+    assert "Math.min(360" in html
+    assert "#google-button" in css
+    assert "overflow: hidden" in css
+    assert "border-radius: 999px" in css

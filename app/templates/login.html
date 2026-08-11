@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Acceso · Focus Prospeccion</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260810-2" />
+    <link rel="stylesheet" href="/static/app.css?v=20260812-1" />
     {% if google_oauth_client_id %}<script src="https://accounts.google.com/gsi/client" async defer></script>{% endif %}
   </head>
   <body class="access-page">
@@ -14,7 +14,7 @@
       <h1>Acceso privado</h1>
       <p class="intro">Entra con la cuenta de Google cuyo correo figura como activo en la hoja de calculo de Focus Business.</p>
       {% if google_oauth_client_id %}
-        <div id="google-button"></div>
+        <div id="google-button" aria-label="Acceso con Google"></div>
       {% else %}
         <div class="notice warning">El acceso de Google quedara disponible al configurar <code>GOOGLE_OAUTH_CLIENT_ID</code> en Render.</div>
       {% endif %}
@@ -36,7 +36,9 @@
       window.addEventListener('load', () => {
         if (clientId && window.google) {
           google.accounts.id.initialize({client_id:clientId, callback:response => postLogin('/auth/google',{credential:response.credential}), use_fedcm_for_prompt:true});
-          google.accounts.id.renderButton(document.querySelector('#google-button'), {theme:'filled_black',size:'large',shape:'pill',text:'signin_with',width:360});
+          const googleButton = document.querySelector('#google-button');
+          const googleButtonWidth = Math.min(360, Math.floor(googleButton.getBoundingClientRect().width));
+          google.accounts.id.renderButton(googleButton, {theme:'filled_black',size:'large',shape:'pill',text:'signin_with',width:googleButtonWidth});
         }
       });
       document.querySelector('#demo-login')?.addEventListener('click', () => postLogin('/auth/demo'));
