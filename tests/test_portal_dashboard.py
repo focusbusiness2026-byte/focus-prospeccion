@@ -109,6 +109,9 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "NO ejecutes ciegamente" in response.text
     assert 'id="demo-role"' in response.text
     assert 'id="demo-role-email"' in response.text
+    assert "const sessionEmail=" in response.text
+    assert "const sessionRole=" in response.text
+    assert "sessionEmail===authorizedDeliveryEmail&&sessionRole.includes('admin')" in response.text
     assert "servicemanagerbossio@gmail.com" in response.text
     assert "previewEmail()===authorizedDeliveryEmail" in response.text
     assert "Administrador" in response.text

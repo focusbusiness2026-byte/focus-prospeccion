@@ -17,7 +17,7 @@
         <a class="top-link" href="#results" data-view="results">Leads y CRM</a>
         <a class="top-link" href="#activity" data-view="activity">Ejecuciones</a>
         <a class="top-link" href="#automation-preview" data-view="automation-preview">Automatizaciones</a>
-        <details class="more-menu"><summary>Más</summary><div><a href="#method" data-view="method">Metodología</a><a href="#warmup" data-view="warmup">Calentamiento</a><a href="#codex-delivery" data-view="codex-delivery">Entrega a Codex</a></div></details>
+        <details class="more-menu"><summary>Más</summary><div><a href="#method" data-view="method">Metodología</a><a href="#warmup" data-view="warmup">Calentamiento</a><a href="#codex-delivery" data-view="codex-delivery" hidden>Entrega a Codex</a></div></details>
       </nav>
       <div class="header-actions"><div id="demo-role-control" class="demo-role-control" hidden><label><span>Correo demo</span><input id="demo-role-email" type="email" value="servicemanagerbossio@gmail.com" aria-label="Correo del rol simulado" /></label><label><span>Rol demo</span><select id="demo-role"><option value="admin">Administrador</option><option value="client">Cliente</option></select></label></div><span id="demo-badge" class="badge demo-badge" hidden>Vista de demostración</span><details class="account-menu"><summary><span>{{ identity.email }}</span><i>{{ identity.role }}</i></summary><div><button id="logout" type="button">Cerrar sesión</button></div></details></div>
     </header>
@@ -279,10 +279,14 @@
     const demoRoleKey='focus-prospeccion:demo-role:v1';
     const demoRoleEmailKey='focus-prospeccion:demo-role-email:v1';
     const authorizedDeliveryEmail='servicemanagerbossio@gmail.com';
+    const sessionEmail={{ identity.email|lower|tojson }};
+    const sessionRole={{ identity.role|lower|tojson }};
     let currentAdminDeliveryLeadId='';
     const previewRole=()=>localStorage.getItem(demoRoleKey)==='client'?'client':'admin';
     const previewEmail=()=>String(localStorage.getItem(demoRoleEmailKey)||authorizedDeliveryEmail).trim().toLowerCase();
-    const isPreviewAdmin=()=>previewRole()==='admin'&&previewEmail()===authorizedDeliveryEmail;
+    const isPreviewAdmin=()=>dashboardData?.demo
+      ? previewRole()==='admin'&&previewEmail()===authorizedDeliveryEmail
+      : sessionEmail===authorizedDeliveryEmail&&sessionRole.includes('admin');
     function applyPreviewRole(){const role=previewRole(),email=previewEmail(),allowed=isPreviewAdmin(),control=document.querySelector('#demo-role-control'),select=document.querySelector('#demo-role'),emailInput=document.querySelector('#demo-role-email'),deliveryLink=document.querySelector('[data-view="codex-delivery"]'),delivery=document.querySelector('#codex-delivery');if(control)control.hidden=!dashboardData.demo;if(select)select.value=role;if(emailInput)emailInput.value=email;if(deliveryLink)deliveryLink.hidden=!allowed;if(delivery)delivery.dataset.roleAllowed=String(allowed);if(!allowed&&delivery?.classList.contains('active'))showView('dashboard',true);}
     const crmPresentationKey='focus-prospeccion:crm-presentation:v1';
     const crmBoardSeed=()=>({columns:[{id:'new',name:'Nuevos'},{id:'review',name:'En revisión'},{id:'contact',name:'Contactar'},{id:'followup',name:'En seguimiento'},{id:'closed',name:'Cerrado'}],assignments:{}});
