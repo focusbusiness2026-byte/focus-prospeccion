@@ -60,6 +60,64 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'data-view="sources"' in response.text
     assert 'data-schedule-enabled' in response.text
     assert 'data-builder-tab="profile"' in response.text
+    assert 'id="automation-preview"' in response.text
+    assert "No activa scraping" in response.text
+    assert 'id="preview-countdown"' in response.text
+    assert 'name="postal_code"' in response.text
+    assert 'name="activity"' in response.text
+    assert "focus-prospeccion:automation-preview:v1" in response.text
+    assert 'id="dashboard-automation-quick"' in response.text
+    assert 'class="dashboard-automation-dock"' in response.text
+    assert 'id="favorite-automation-select"' in response.text
+    assert 'id="dashboard-automation-filters"' in response.text
+    assert 'id="quick-toggle-automation"' in response.text
+    assert 'id="module-info-dialog"' in response.text
+    assert response.text.count('class="info-button') >= 7
+    assert 'id="search-prompt"' in response.text
+    assert "Preparar búsqueda" in response.text
+    assert "no activa raspado, APIs, créditos, mensajes" in response.text
+    assert "hasta 5 resultados con mayor ajuste a los filtros" in response.text
+    assert 'max="5" data-number="lead_count"' in response.text
+    assert 'id="crm-presentation"' in response.text
+    assert "Tablero · columnas Kanban" in response.text
+    assert "Tarjetas · estilo Trello" in response.text
+    assert "Tabla · hoja de cálculo" in response.text
+    assert 'id="crm-preview-board"' in response.text
+    assert 'id="crm-preview-table"' in response.text
+    assert "data-copy-value" in response.text
+    assert "draggable=\"true\"" in response.text
+    assert "crm-drag-handle" in response.text
+    assert "drop-target" in response.text
+    assert "draggedProspectId" in response.text
+    assert 'id="warmup-action-form"' in response.text
+    assert "Email con consentimiento" in response.text
+    assert "Tarea manual · LinkedIn" in response.text
+    assert "Conectar GoHighLevel" in response.text
+    assert "autorización OAuth oficial" in response.text
+    assert "PhantomBuster" in response.text
+    assert "Descargar audiencia para Meta" in response.text
+    assert 'id="audience-legal-confirmation"' in response.text
+    assert 'id="briefing-dialog"' in response.text
+    assert "No llama a Codex" in response.text
+    assert 'id="codex-delivery"' in response.text
+    assert 'id="download-ghl-contacts"' in response.text
+    assert "Mapeo para importar contactos a GoHighLevel" in response.text
+    assert 'id="preview-ghl-master"' in response.text
+    assert 'id="ghl-master-preview"' in response.text
+    assert "CARPETA MAESTRA GOHIGHLEVEL" in response.text
+    assert "08_PROMPT_PARA_CODEX.txt" in response.text
+    assert "NO ejecutes ciegamente" in response.text
+    assert 'id="demo-role"' in response.text
+    assert 'id="demo-role-email"' in response.text
+    assert "servicemanagerbossio@gmail.com" in response.text
+    assert "previewEmail()===authorizedDeliveryEmail" in response.text
+    assert "Administrador" in response.text
+    assert "Cliente" in response.text
+    assert 'id="admin-lead-delivery-dialog"' in response.text
+    assert "sesión real, correo autorizado y permisos del servidor" in response.text
+    assert "lead-focus-mark" in response.text
+    assert "data-admin-delivery-id" in response.text
+    assert "if(id==='codex-delivery'&&!isPreviewAdmin())" in response.text
 
     source_response = client.get("/api/onboarding-sources/ONB-DEMO0001")
     assert source_response.status_code == 200
@@ -106,6 +164,13 @@ def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
     assert "theme:'filled_black'" in html
     assert "shape:'pill'" in html
     assert "Math.min(360" in html
+    assert "googleButton.clientWidth - 16" in html
     assert "#google-button" in css
-    assert "overflow: hidden" in css
+    assert "overflow: visible" in css
+    assert "justify-content: center" in css
+    assert "margin: 24px auto 0" in css
+    assert "padding: 8px" in css
+    assert "Continuar con correo" in html
+    assert "No se ha enviado ningún email" in html
+    assert "postLogin('/auth/demo')" in html
     assert "border-radius: 999px" in css

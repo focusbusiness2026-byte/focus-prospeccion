@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Acceso · Focus Prospeccion</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260812-1" />
+    <link rel="stylesheet" href="/static/app.css?v=20260812-2" />
     {% if google_oauth_client_id %}<script src="https://accounts.google.com/gsi/client" async defer></script>{% endif %}
   </head>
   <body class="access-page">
@@ -19,6 +19,23 @@
         <div class="notice warning">El acceso de Google quedara disponible al configurar <code>GOOGLE_OAUTH_CLIENT_ID</code> en Render.</div>
       {% endif %}
       {% if demo_enabled %}<button id="demo-login" class="primary full-button">Entrar en modo demo local</button>{% endif %}
+      {% if demo_enabled %}
+        <div class="email-preview-access">
+          <div class="access-divider"><span>o</span></div>
+          <button id="show-email-preview" class="secondary full-button" type="button" aria-expanded="false">Continuar con correo</button>
+          <form id="email-preview-form" hidden>
+            <label class="input"><span>Correo</span><input id="preview-email" type="email" required autocomplete="email" placeholder="nombre@empresa.com" /></label>
+            <p>En el acceso real se enviaría un código o enlace temporal a este mismo correo. Escribir una dirección autorizada no concede acceso por sí solo.</p>
+            <button class="secondary full-button" type="submit">Simular envío de código</button>
+          </form>
+          <form id="email-code-form" hidden>
+            <label class="input"><span>Código de vista previa</span><input id="preview-code" inputmode="numeric" pattern="123456" required placeholder="123456" /></label>
+            <small>Para esta demostración local usa <strong>123456</strong>. No se ha enviado ningún email.</small>
+            <button class="primary full-button" type="submit">Verificar y entrar en demo</button>
+          </form>
+          <p class="email-provider-note">Las cuentas corporativas de Google Workspace pueden continuar con Google. Los correos de otros proveedores podrían usar un enlace o código temporal cuando ese servicio real sea aprobado y configurado.</p>
+        </div>
+      {% endif %}
       <p id="login-message" class="form-message"></p>
       <p class="access-note">El portal no almacena contrasenas. Google verifica la identidad y la hoja controla el permiso y las ejecuciones disponibles.</p>
     </main>
@@ -37,11 +54,14 @@
         if (clientId && window.google) {
           google.accounts.id.initialize({client_id:clientId, callback:response => postLogin('/auth/google',{credential:response.credential}), use_fedcm_for_prompt:true});
           const googleButton = document.querySelector('#google-button');
-          const googleButtonWidth = Math.min(360, Math.floor(googleButton.getBoundingClientRect().width));
+          const googleButtonWidth = Math.min(360, Math.max(180, Math.floor(googleButton.clientWidth - 16)));
           google.accounts.id.renderButton(googleButton, {theme:'filled_black',size:'large',shape:'pill',text:'signin_with',width:googleButtonWidth});
         }
       });
       document.querySelector('#demo-login')?.addEventListener('click', () => postLogin('/auth/demo'));
+      document.querySelector('#show-email-preview')?.addEventListener('click', event => {const form=document.querySelector('#email-preview-form'),open=form.hidden;form.hidden=!open;document.querySelector('#email-code-form').hidden=true;event.currentTarget.setAttribute('aria-expanded',String(open));});
+      document.querySelector('#email-preview-form')?.addEventListener('submit', event => {event.preventDefault();const email=document.querySelector('#preview-email');if(!email.reportValidity())return;event.currentTarget.hidden=true;document.querySelector('#email-code-form').hidden=false;message.textContent=`Vista previa: código preparado para ${email.value}. No se envió ningún email.`;});
+      document.querySelector('#email-code-form')?.addEventListener('submit', event => {event.preventDefault();const code=document.querySelector('#preview-code');if(!code.reportValidity())return;message.textContent='Código de vista previa verificado. Entrando al entorno demo…';postLogin('/auth/demo');});
     </script>
   </body>
 </html>
