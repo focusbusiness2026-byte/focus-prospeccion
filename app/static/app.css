@@ -85,13 +85,30 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 }
 .access-card .brand { margin-bottom: 38px; }
 .access-card h1 { font-size: 36px; }
-#google-button {
+.google-access-control {
   display: flex;
   width: min(360px, 100%);
-  min-height: 32px;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 24px auto 0;
+  padding: 5px 6px 5px 18px;
+  border: 1px solid #42536a;
+  border-radius: 999px;
+  background: #202124;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+#google-button {
+  display: flex;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
-  margin: 24px auto 0;
+  margin: 0;
   padding: 0;
   overflow: visible;
   border: 0;
@@ -99,13 +116,11 @@ h2 { margin: 0 0 10px; font-size: 26px; }
   line-height: 0;
 }
 #google-button > div {
-  max-width: 100% !important;
-  margin: 0 auto !important;
+  margin: 0 !important;
 }
 #google-button iframe {
   display: block !important;
-  max-width: 100% !important;
-  margin: 0 auto !important;
+  margin: 0 !important;
   border: 0 !important;
 }
 .full-button { width: 100%; margin-top: 18px; }

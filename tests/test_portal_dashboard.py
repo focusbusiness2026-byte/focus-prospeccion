@@ -167,16 +167,15 @@ def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
     assert "google.accounts.id.initialize" in html
     assert "callback:response => postLogin('/auth/google'" in html
     assert "theme:'filled_black'" in html
-    assert "type:'standard'" in html
-    assert "size:'medium'" in html
-    assert "shape:'pill'" in html
-    assert "logo_alignment:'left'" in html
-    assert "Math.min(360" in html
-    assert "googleButton.clientWidth" in html
+    assert "type:'icon'" in html
+    assert "size:'large'" in html
+    assert "shape:'circle'" in html
+    assert 'class="google-access-control"' in html
+    assert "Continuar con Google" in html
     assert "#google-button" in css
     assert "overflow: visible" in css
     assert "justify-content: center" in css
-    assert "margin: 24px auto 0" in css
+    assert ".google-access-control" in css
     assert "padding: 0" in css
     assert "Continuar con correo" in html
     assert "No se ha enviado ningún email" in html

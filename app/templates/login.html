@@ -14,7 +14,7 @@
       <h1>Acceso privado</h1>
       <p class="intro">Entra con la cuenta de Google cuyo correo figura como activo en la hoja de calculo de Focus Business.</p>
       {% if google_oauth_client_id %}
-        <div id="google-button" aria-label="Acceso con Google"></div>
+        <div class="google-access-control"><span>Continuar con Google</span><div id="google-button" aria-label="Acceso con Google"></div></div>
       {% else %}
         <div class="notice warning">El acceso de Google quedara disponible al configurar <code>GOOGLE_OAUTH_CLIENT_ID</code> en Render.</div>
       {% endif %}
@@ -54,8 +54,7 @@
         if (clientId && window.google) {
           google.accounts.id.initialize({client_id:clientId, callback:response => postLogin('/auth/google',{credential:response.credential}), use_fedcm_for_prompt:true});
           const googleButton = document.querySelector('#google-button');
-          const googleButtonWidth = Math.min(360, Math.max(180, Math.floor(googleButton.clientWidth)));
-          google.accounts.id.renderButton(googleButton, {type:'standard',theme:'filled_black',size:'medium',shape:'pill',text:'signin_with',logo_alignment:'left',width:googleButtonWidth});
+          google.accounts.id.renderButton(googleButton, {type:'icon',theme:'filled_black',size:'large',shape:'circle',text:'signin_with'});
         }
       });
       document.querySelector('#demo-login')?.addEventListener('click', () => postLogin('/auth/demo'));
