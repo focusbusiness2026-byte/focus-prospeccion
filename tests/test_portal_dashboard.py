@@ -164,12 +164,12 @@ def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
     assert "theme:'filled_black'" in html
     assert "shape:'pill'" in html
     assert "Math.min(360" in html
-    assert "googleButton.clientWidth - 16" in html
+    assert "googleButton.clientWidth" in html
     assert "#google-button" in css
-    assert "overflow: visible" in css
+    assert "overflow: hidden" in css
     assert "justify-content: center" in css
     assert "margin: 24px auto 0" in css
-    assert "padding: 8px" in css
+    assert "padding: 0" in css
     assert "Continuar con correo" in html
     assert "No se ha enviado ningún email" in html
     assert "postLogin('/auth/demo')" in html

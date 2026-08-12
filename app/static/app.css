@@ -87,14 +87,15 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .access-card h1 { font-size: 36px; }
 #google-button {
   display: flex;
-  width: min(376px, 100%);
-  min-height: 60px;
+  width: min(360px, 100%);
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   margin: 24px auto 0;
-  padding: 8px;
-  overflow: visible;
+  padding: 0;
+  overflow: hidden;
   border: 0;
+  border-radius: 999px;
   background: transparent;
   isolation: isolate;
   line-height: 0;
@@ -108,6 +109,7 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 }
 #google-button iframe {
   display: block !important;
+  width: 100% !important;
   max-width: 100% !important;
   margin: 0 !important;
   border: 0 !important;

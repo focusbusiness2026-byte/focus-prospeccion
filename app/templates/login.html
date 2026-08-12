@@ -54,7 +54,7 @@
         if (clientId && window.google) {
           google.accounts.id.initialize({client_id:clientId, callback:response => postLogin('/auth/google',{credential:response.credential}), use_fedcm_for_prompt:true});
           const googleButton = document.querySelector('#google-button');
-          const googleButtonWidth = Math.min(360, Math.max(180, Math.floor(googleButton.clientWidth - 16)));
+          const googleButtonWidth = Math.min(360, Math.max(180, Math.floor(googleButton.clientWidth)));
           google.accounts.id.renderButton(googleButton, {theme:'filled_black',size:'large',shape:'pill',text:'signin_with',width:googleButtonWidth});
         }
       });
