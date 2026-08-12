@@ -70,6 +70,8 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .secondary { border: 1px solid #63748a; background: transparent; color: #e7ebf2; }
 .secondary:hover { border-color: var(--gold); color: var(--gold-soft); }
+.danger-button { min-height: 44px; padding: 11px 21px; border: 1px solid #a84d55; border-radius: 24px; background: #32161b; color: #ffb6bc; font-weight: 700; }
+.danger-button:hover { border-color: #ef6a72; background: #461c23; color: #fff; }
 .small-button { min-height: 36px; padding: 7px 14px; font-size: 12px; }
 .text-link { color: var(--gold-soft); font-size: 12px; font-weight: 700; text-decoration: none; }
 .text-link:hover { text-decoration: underline; }
@@ -103,15 +105,17 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 }
 #google-button {
   display: flex;
-  width: 40px;
-  min-width: 40px;
-  min-height: 40px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   margin: 0;
   padding: 0;
-  overflow: visible;
+  overflow: hidden;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   line-height: 0;
 }
@@ -616,7 +620,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .top-link:hover, .top-link.current, .more-menu > summary:hover { border-color: #4c5c70; background: #101d2d; color: #fff; }
 .top-link.current { border-color: #6f5b29; color: var(--gold-soft); }
 .more-menu { position: relative; }
-.more-menu:not(:has(a:not([hidden]))) { display: none; }
 .more-menu > summary { padding: 0 16px; list-style: none; }
 .more-menu > summary::-webkit-details-marker { display: none; }
 .more-menu > div { position: absolute; top: calc(100% + 8px); right: 0; display: grid; min-width: 190px; padding: 7px; border: 1px solid #34465b; border-radius: 11px; background: #0a1421; box-shadow: 0 18px 50px #0009; }
@@ -702,7 +705,6 @@ tbody tr:last-child td { border-bottom: 0; }
   .top-navigation { position: absolute; top: calc(100% + 1px); right: 14px; left: 14px; display: none; grid-template-columns: 1fr 1fr; padding: 10px; border: 1px solid #34465b; border-radius: 12px; background: #07111ef8; box-shadow: 0 22px 50px #000b; }
   .top-navigation.open { display: grid; }
   .more-menu { grid-column: 1 / -1; }
-  .more-menu:not(:has(a:not([hidden]))) { display: none; }
   .more-menu > summary { min-height: 42px; }
   .more-menu > div { position: static; grid-template-columns: 1fr 1fr; margin-top: 5px; box-shadow: none; }
   .site-header .header-actions { grid-column: 3; grid-row: 1; }

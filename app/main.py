@@ -4,8 +4,10 @@ import csv
 import asyncio
 import io
 import json
+import re
 import secrets
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -38,11 +40,15 @@ class GoogleCredential(BaseModel):
 
 
 class LeadStatusRequest(BaseModel):
-    status: Literal["Nuevo", "Aprobado", "Descartado"]
+    status: Literal["Nuevo", "Aprobado", "Descartado", "Cerrado"]
+
+
+class DeleteLeadRequest(BaseModel):
+    confirmation: Literal["ELIMINAR"]
 
 
 class CRMRequest(BaseModel):
-    status: Literal["Nuevo", "Aprobado", "Descartado"]
+    status: Literal["Nuevo", "Aprobado", "Descartado", "Cerrado"]
     owner: str = ""
     notes: str = ""
     next_action: str = ""
@@ -94,6 +100,74 @@ class AutomationRequest(BaseModel):
     enabled: bool = False
     interval_minutes: int = Field(default=1440, ge=5, le=4320)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
+
+
+def _is_authorized_admin(identity: Identity, access, settings) -> bool:
+    allowed = settings.admin_emails or {"servicemanagerbossio@gmail.com"}
+    return "admin" in access.role.lower() and identity.email.strip().lower() in allowed
+
+
+def _safe_package_name(value: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-.")
+    return normalized[:80] or "cliente"
+
+
+def _build_client_package(source, prospect: dict) -> bytes:
+    form = {key: value for key, value in source.raw_form.items() if str(value).strip()}
+    missing = [key for key, value in source.raw_form.items() if not str(value).strip()]
+    profile = source.as_dict()
+    instructions = f"""INSTRUCCIONES PARA EL EQUIPO DE IMPLEMENTACION
+
+Cliente: {source.company or 'Pendiente'}
+Registro de onboarding: {source.record_id or 'Pendiente'}
+Lead relacionado: {prospect.get('company') or 'Pendiente'} ({prospect.get('execution_id') or 'sin ID'})
+
+OBJETIVO
+Preparar y validar la configuracion solicitada por el cliente en su subcuenta de GoHighLevel usando exclusivamente la informacion confirmada de este paquete.
+
+PROCEDIMIENTO OBLIGATORIO
+1. Inspeccionar primero la subcuenta autorizada en modo lectura: campos, contactos, pipeline, calendarios, usuarios, integraciones y workflows existentes.
+2. Comparar esa evidencia con datos_formulario.json, perfil_normalizado.json y datos_lead.json.
+3. Presentar el mapeo de campos estandar y personalizados, los flujos propuestos, conexiones necesarias, conflictos, duplicados, costes y campos faltantes.
+4. No crear, actualizar, conectar, activar, enviar ni consumir nada sin aprobacion final explicita.
+5. Usar OAuth o el mecanismo oficial solo en el momento autorizado. No pedir, copiar ni guardar contraseñas, tokens, claves API o secretos dentro del paquete.
+
+CONFIGURACION A PREPARAR
+- Contactos y campos: nombre, email, telefono, empresa, cargo, web, LinkedIn, ciudad, pais, fuente, busqueda, etapa, score y campos confirmados del formulario.
+- Pipeline: proponer etapas y reglas basadas en las solicitudes confirmadas; no inventar estados ausentes.
+- Calendarios y reuniones: configurar solo si el formulario contiene requisitos suficientes.
+- Workflows: documentar disparador, condiciones, esperas, responsables, mensajes y salida; cualquier mensajeria o accion con coste requiere aprobacion final.
+- Conexiones: enumerar solo las confirmadas. Marcar las demas como pendientes de autorizacion o credenciales en la plataforma correspondiente.
+
+CAMPOS FALTANTES
+{chr(10).join('- ' + item for item in missing) if missing else '- No se detectaron campos vacios en el registro disponible.'}
+
+RESTRICCIONES
+No contiene secretos. No asumir conexiones, permisos, presupuestos, remitentes, dominios, numeros o credenciales. Detener la ejecucion ante cualquier dato material no confirmado y pedir la decision exacta.
+"""
+    readme = f"""PAQUETE DEL CLIENTE - FOCUS BUSINESS
+
+Cliente: {source.company or 'Pendiente'}
+Generado para revision e implementacion controlada.
+
+Contenido:
+- datos_formulario.json: respuestas disponibles del onboarding, sin secretos.
+- perfil_normalizado.json: resumen estructurado y campos pendientes.
+- datos_lead.json: datos publicos y CRM del lead seleccionado.
+- INSTRUCCIONES_EQUIPO_TECNICO.txt: procedimiento para preparar GoHighLevel.
+- CAMPOS_FALTANTES.txt: valores que deben confirmarse antes de ejecutar.
+
+Este paquete no conecta servicios ni ejecuta cambios. Toda accion posterior requiere cuentas autorizadas y aprobacion final.
+"""
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("README.txt", readme)
+        archive.writestr("datos_formulario.json", json.dumps(form, ensure_ascii=False, indent=2))
+        archive.writestr("perfil_normalizado.json", json.dumps(profile, ensure_ascii=False, indent=2))
+        archive.writestr("datos_lead.json", json.dumps(prospect, ensure_ascii=False, indent=2))
+        archive.writestr("INSTRUCCIONES_EQUIPO_TECNICO.txt", instructions)
+        archive.writestr("CAMPOS_FALTANTES.txt", "\n".join(missing) if missing else "Sin campos vacios detectados.")
+    return output.getvalue()
 
 
 def _demo_payload(identity: Identity, openai_budget: int) -> dict:
@@ -785,6 +859,72 @@ def update_prospect_crm(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True, "prospect": prospect}
+
+
+@app.get("/api/prospects/{execution_id}/client-package.zip")
+def download_client_package(execution_id: str, identity: Identity = Depends(require_identity)):
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="La descarga real requiere Google Sheets")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    prospect = store.get_prospect(execution_id, None if is_admin else identity.email)
+    if not prospect:
+        raise HTTPException(status_code=404, detail="No se encontro el lead solicitado")
+    source = store.get_onboarding_source(prospect.get("onboarding_id", ""), None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontro el formulario asociado al lead")
+    package = _build_client_package(source, prospect)
+    filename = f"paquete-cliente-{_safe_package_name(source.company)}-{_safe_package_name(source.record_id)}.zip"
+    return StreamingResponse(
+        io.BytesIO(package),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/prospects/{execution_id}/close")
+def close_prospect(execution_id: str, request: Request, identity: Identity = Depends(require_identity)):
+    validate_csrf(request)
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access or not _is_authorized_admin(identity, access, settings):
+        raise HTTPException(status_code=403, detail="Solo la administracion autorizada puede cerrar leads")
+    try:
+        prospect = store.update_prospect_status(execution_id, identity.email, "Cerrado", is_admin=True)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "prospect": prospect}
+
+
+@app.delete("/api/prospects/{execution_id}")
+def delete_prospect(
+    execution_id: str,
+    payload: DeleteLeadRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access or not _is_authorized_admin(identity, access, settings):
+        raise HTTPException(status_code=403, detail="Solo la administracion autorizada puede eliminar leads")
+    try:
+        prospect = store.delete_prospect(execution_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "deleted": prospect["execution_id"]}
 
 
 @app.get("/api/prospects/export.csv")

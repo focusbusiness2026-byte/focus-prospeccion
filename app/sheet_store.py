@@ -554,6 +554,44 @@ class SheetStore:
             rows = [row for row in rows if len(row) > 1 and str(row[1]).strip().lower() == normalized]
         return [self._prospect_from_row(row) for row in reversed(rows[-limit:])]
 
+    def get_prospect(self, execution_id: str, email: str | None = None) -> dict | None:
+        normalized_id = execution_id.strip()
+        return next(
+            (item for item in self.recent_prospects(email, limit=1000) if str(item["execution_id"]).strip() == normalized_id),
+            None,
+        )
+
+    def delete_prospect(self, execution_id: str) -> dict:
+        """Delete one exact prospect row. Callers must enforce administrator authorization."""
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
+        matches = [
+            (row_number, row)
+            for row_number, row in enumerate(rows, start=2)
+            if row and str(row[0]).strip() == execution_id.strip()
+        ]
+        if not matches:
+            raise LookupError("No se encontro el lead solicitado")
+        if len(matches) != 1:
+            raise RuntimeError("El identificador del lead no es unico; no se elimino ninguna fila")
+        row_number, row = matches[0]
+        properties = next(
+            (item for item in self._sheet_properties() if item.get("title") == self.settings.google_sheet_tab),
+            None,
+        )
+        if not properties:
+            raise RuntimeError("No se encontro la pestaña de prospectos")
+        self._batch_update([{
+            "deleteDimension": {
+                "range": {
+                    "sheetId": properties["sheetId"],
+                    "dimension": "ROWS",
+                    "startIndex": row_number - 1,
+                    "endIndex": row_number,
+                }
+            }
+        }])
+        return self._prospect_from_row(row)
+
     def recent_executions(self, email: str | None, limit: int = 20) -> list[dict]:
         rows = self._get(f"'{self.settings.google_executions_tab}'!A2:X1000")
         if email:

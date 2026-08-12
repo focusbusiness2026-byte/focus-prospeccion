@@ -59,9 +59,16 @@ class OnboardingSource:
     prospect_preferences: str
     objectives: tuple[str, ...]
     authorized: bool
+    raw_form: dict[str, str]
 
     @classmethod
     def from_sheet_record(cls, record: dict[str, object]) -> "OnboardingSource":
+        forbidden = ("contrase", "password", "token", "api key", "clave api", "secret", "oauth", "credencial", "documento de identidad")
+        raw_form = {
+            _text(key): _text(value)
+            for key, value in record.items()
+            if _text(key) and not any(term in _text(key).lower() for term in forbidden)
+        }
         return cls(
             record_id=_text(record.get("ID registro")),
             submitted_at=_text(record.get("Fecha envío")),
@@ -92,6 +99,7 @@ class OnboardingSource:
             prospect_preferences=_text(record.get("Preferencias de prospección")),
             objectives=tuple(_items(record.get("Objetivos"))),
             authorized=_accepted(record.get("Autorización")),
+            raw_form=raw_form,
         )
 
     @property
@@ -169,4 +177,5 @@ class OnboardingSource:
             "status": self.status,
             "ready": self.ready,
             "blockers": self.blockers,
+            "formulario": self.raw_form,
         }

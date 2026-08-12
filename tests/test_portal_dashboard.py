@@ -1,11 +1,15 @@
 from fastapi.testclient import TestClient
 from pathlib import Path
+import io
+import json
+import zipfile
 
 from app.auth import SESSION_COOKIE, Identity, create_session
 import pytest
 from pydantic import ValidationError
 
-from app.main import AutomationRequest, ResearchAdjustments, _csv_cell, _demo_payload, app
+from app.main import AutomationRequest, ResearchAdjustments, _build_client_package, _csv_cell, _demo_payload, app
+from app.onboarding import OnboardingSource
 
 
 def test_demo_dashboard_exercises_complete_portal_shape():
@@ -100,14 +104,14 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "Descargar audiencia para Meta" in response.text
     assert 'id="audience-legal-confirmation"' in response.text
     assert 'id="briefing-dialog"' in response.text
-    assert "No llama a Codex" in response.text
+    assert "No llama a servicios externos" in response.text
     assert 'id="codex-delivery"' in response.text
     assert 'id="download-ghl-contacts"' in response.text
     assert "Mapeo para importar contactos a GoHighLevel" in response.text
     assert 'id="preview-ghl-master"' in response.text
     assert 'id="ghl-master-preview"' in response.text
     assert "CARPETA MAESTRA GOHIGHLEVEL" in response.text
-    assert "08_PROMPT_PARA_CODEX.txt" in response.text
+    assert "08_INSTRUCCIONES_EQUIPO_TECNICO.txt" in response.text
     assert "NO ejecutes ciegamente" in response.text
     assert 'id="demo-role"' in response.text
     assert 'id="demo-role-email"' in response.text
@@ -121,8 +125,8 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'id="admin-lead-delivery-dialog"' in response.text
     assert "sesión real, correo autorizado y permisos del servidor" in response.text
     assert "lead-focus-mark" in response.text
-    assert "data-admin-delivery-id" in response.text
-    assert "if(id==='codex-delivery'&&!isPreviewAdmin())" in response.text
+    assert "Descargar paquete del cliente" in response.text
+    assert "Paquete del cliente" in response.text
 
     source_response = client.get("/api/onboarding-sources/ONB-DEMO0001")
     assert source_response.status_code == 200
@@ -173,7 +177,8 @@ def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
     assert 'class="google-access-control"' in html
     assert "Continuar con Google" in html
     assert "#google-button" in css
-    assert "overflow: visible" in css
+    assert "overflow: hidden" in css
+    assert "border-radius: 50%" in css
     assert "justify-content: center" in css
     assert ".google-access-control" in css
     assert "padding: 0" in css
@@ -183,12 +188,57 @@ def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
     assert "#google-button iframe" in css
 
 
-def test_desktop_navigation_allows_two_rows_before_more_menu():
+def test_desktop_navigation_uses_two_rows_without_single_item_more_menu():
     root = Path(__file__).parents[1]
     html = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
     css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
 
-    assert html.count('class="top-link') == 7
+    assert html.count('class="top-link') == 8
     assert 'grid-template-columns: repeat(4, minmax(105px, 1fr))' in css
     assert 'grid-auto-rows: 42px' in css
-    assert '.more-menu:not(:has(a:not([hidden])))' in css
+    assert '<summary>MÃ¡s</summary>' not in html
+    assert '>Paquete del cliente</a>' in html
+
+
+def test_client_package_contains_confirmed_form_data_and_excludes_secrets():
+    source = OnboardingSource.from_sheet_record({
+        "ID registro": "ONB-CLIENTE-1",
+        "Empresa": "Cliente Ejemplo",
+        "Email responsable": "cliente@example.com",
+        "Web": "https://example.com",
+        "Actividad": "Servicios B2B",
+        "Servicio prioritario": "ConsultorÃ­a",
+        "Sectores": "TecnologÃ­a",
+        "PaÃ­ses objetivo": "EspaÃ±a",
+        "Tipos de cliente objetivo": "Empresa B2B",
+        "Perfil ideal detallado": "Equipos de 10 a 50 personas",
+        "AutorizaciÃ³n": "SÃ­",
+        "Campo pendiente": "",
+        "Token API": "no-debe-salir",
+        "ContraseÃ±a": "no-debe-salir",
+    })
+
+    payload = _build_client_package(source, {"execution_id": "LEAD-1", "company": "Lead Ejemplo"})
+
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        names = set(archive.namelist())
+        assert names == {
+            "README.txt",
+            "datos_formulario.json",
+            "perfil_normalizado.json",
+            "datos_lead.json",
+            "INSTRUCCIONES_EQUIPO_TECNICO.txt",
+            "CAMPOS_FALTANTES.txt",
+        }
+        form = json.loads(archive.read("datos_formulario.json"))
+        assert form["Empresa"] == "Cliente Ejemplo"
+        assert "Token API" not in form
+        assert "ContraseÃ±a" not in form
+        assert "Campo pendiente" in archive.read("CAMPOS_FALTANTES.txt").decode("utf-8")
+        all_text = "\n".join(
+            archive.read(name).decode("utf-8")
+            for name in names
+            if name.endswith((".txt", ".json"))
+        )
+        assert "Codex" not in all_text
+        assert "equipo" in all_text.lower()
