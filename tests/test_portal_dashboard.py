@@ -58,6 +58,8 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'class="site-header"' in response.text
     assert 'class="sidebar"' not in response.text
     assert 'data-view="sources"' in response.text
+    assert '<a class="top-link" href="#method" data-view="method">' in response.text
+    assert '<a class="top-link" href="#warmup" data-view="warmup">' in response.text
     assert 'data-schedule-enabled' in response.text
     assert 'data-builder-tab="profile"' in response.text
     assert 'id="automation-preview"' in response.text
@@ -165,15 +167,29 @@ def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
     assert "google.accounts.id.initialize" in html
     assert "callback:response => postLogin('/auth/google'" in html
     assert "theme:'filled_black'" in html
+    assert "type:'standard'" in html
+    assert "size:'medium'" in html
     assert "shape:'pill'" in html
+    assert "logo_alignment:'left'" in html
     assert "Math.min(360" in html
     assert "googleButton.clientWidth" in html
     assert "#google-button" in css
-    assert "overflow: hidden" in css
+    assert "overflow: visible" in css
     assert "justify-content: center" in css
     assert "margin: 24px auto 0" in css
     assert "padding: 0" in css
     assert "Continuar con correo" in html
     assert "No se ha enviado ningún email" in html
     assert "postLogin('/auth/demo')" in html
-    assert "border-radius: 999px" in css
+    assert "#google-button iframe" in css
+
+
+def test_desktop_navigation_allows_two_rows_before_more_menu():
+    root = Path(__file__).parents[1]
+    html = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
+
+    assert html.count('class="top-link') == 7
+    assert 'grid-template-columns: repeat(4, minmax(105px, 1fr))' in css
+    assert 'grid-auto-rows: 42px' in css
+    assert '.more-menu:not(:has(a:not([hidden])))' in css
