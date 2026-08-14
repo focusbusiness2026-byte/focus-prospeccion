@@ -631,6 +631,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .demo-role-control label { display: grid; gap: 2px; }
 .demo-role-control select, .demo-role-control input { min-width: 125px; padding: 7px 9px; border: 1px solid #3b4d63; border-radius: 8px; background: #101c2b; color: #edf3fa; }
 .demo-role-control input { min-width: 245px; text-transform: none; }
+.admin-client-view { display: grid; gap: 3px; min-width: 230px; color: #8293a7; font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.admin-client-view label { display: grid; gap: 3px; }
+.admin-client-view select { width: 100%; padding: 7px 9px; border: 1px solid #6f5b29; border-radius: 8px; background: #101c2b; color: #edf3fa; text-transform: none; }
+.admin-client-view small { max-width: 280px; overflow: hidden; color: var(--gold); font-size: 9px; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
 .account-menu { position: relative; }
 .account-menu > summary { display: grid; min-width: 180px; padding: 8px 34px 8px 13px; border: 1px solid #34465b; border-radius: 10px; list-style: none; cursor: pointer; }
 .account-menu > summary::-webkit-details-marker { display: none; }
@@ -711,6 +715,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .site-header .demo-badge { display: none; }
   .demo-role-control span, .demo-role-control label:first-child { display: none; }
   .demo-role-control select { min-width: 105px; max-width: 120px; }
+  .admin-client-view { grid-column: 1 / -1; min-width: 100%; }
+  .admin-client-view small { max-width: 100%; }
   .portal-app > .content { padding: 24px 16px 40px; }
   .portal-view { min-height: calc(100vh - 125px); }
   .builder-tabs { grid-template-columns: 1fr 1fr; }

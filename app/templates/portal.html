@@ -21,7 +21,7 @@
         <a class="top-link" href="#warmup" data-view="warmup">Calentamiento</a>
         <a class="top-link" href="#codex-delivery" data-view="codex-delivery">Paquete del cliente</a>
       </nav>
-      <div class="header-actions"><div id="demo-role-control" class="demo-role-control" hidden><label><span>Correo demo</span><input id="demo-role-email" type="email" value="servicemanagerbossio@gmail.com" aria-label="Correo del rol simulado" /></label><label><span>Rol demo</span><select id="demo-role"><option value="admin">Administrador</option><option value="client">Cliente</option></select></label></div><span id="demo-badge" class="badge demo-badge" hidden>Vista de demostración</span><details class="account-menu"><summary><span>{{ identity.email }}</span><i>{{ identity.role }}</i></summary><div><button id="logout" type="button">Cerrar sesión</button></div></details></div>
+      <div class="header-actions"><div id="admin-client-view" class="admin-client-view" hidden><label><span>Vista administrativa</span><select id="admin-view-as"><option value="">Todas las cuentas</option></select></label><small id="admin-view-status">Control total · vista global</small></div><div id="demo-role-control" class="demo-role-control" hidden><label><span>Correo demo</span><input id="demo-role-email" type="email" value="servicemanagerbossio@gmail.com" aria-label="Correo del rol simulado" /></label><label><span>Rol demo</span><select id="demo-role"><option value="admin">Administrador</option><option value="client">Cliente</option></select></label></div><span id="demo-badge" class="badge demo-badge" hidden>Vista de demostración</span><details class="account-menu"><summary><span>{{ identity.email }}</span><i>{{ identity.role }}</i></summary><div><button id="logout" type="button">Cerrar sesión</button></div></details></div>
     </header>
 
     <main class="content">
@@ -169,6 +169,7 @@
     const message = document.querySelector('#scrape-message');
     const dialog = document.querySelector('#lead-dialog');
     let dashboardData = {prospects:[], executions:[], sources:[], demo:false};
+    let adminViewAs = '';
     let selectedSourceId = "";
     let draggedProspectId = "";
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -199,6 +200,17 @@
       const ratio=data.user.assigned?data.user.available/data.user.assigned:0;paint(document.querySelector('#quota-card'),ratio>.5?'green':ratio>.2?'yellow':'red');paint(document.querySelector('#used-card'),ratio>.5?'green':ratio>.2?'yellow':'red');
       if(data.global){setText('#global-remaining',data.global.remaining);setText('#global-detail',`${data.global.used} usadas de ${data.global.assigned}`);setText('#openai-remaining',data.global.openai_requests_remaining);setText('#openai-detail',`${data.global.openai_web_search_calls_used||0} búsquedas acumuladas · máx. 5/ejecución`);paint(document.querySelector('#global-card'),data.global.state);}else{setText('#global-remaining','—');setText('#global-detail','Solo administradores');setText('#openai-remaining','—');setText('#openai-detail','Máximo 5 por ejecución');}
       const m=data.metrics||{total:0,classifications:{},statuses:{}};setText('#total-prospects',m.total||0);setText('#green-count',m.classifications?.green||0);setText('#yellow-count',m.classifications?.yellow||0);setText('#red-count',m.classifications?.red||0);setText('#new-count',m.statuses?.Nuevo||0);setText('#approved-count',m.statuses?.Aprobado||0);setText('#discarded-count',m.statuses?.Descartado||0);
+    }
+
+    function renderAdminContext(data){
+      const context=data.admin_context||{},control=document.querySelector('#admin-client-view'),select=document.querySelector('#admin-view-as'),status=document.querySelector('#admin-view-status');
+      if(!control||!select||!status)return;
+      control.hidden=!context.is_admin;
+      if(!context.is_admin)return;
+      select.innerHTML='<option value="">Todas las cuentas</option>'+(context.available_users||[]).map(item=>`<option value="${esc(item.email)}">${esc(item.email)} · ${esc(item.role)}</option>`).join('');
+      select.value=context.viewing_as||'';
+      adminViewAs=context.viewing_as||'';
+      status.textContent=adminViewAs?`Control administrador · viendo la cuenta como ${adminViewAs}`:'Control administrador completo · vista global';
     }
 
     const filterOptions={
@@ -362,7 +374,7 @@
     async function saveAutomation(workspace){const button=workspace.querySelector('[data-action="save-automation"]'),enabled=workspace.querySelector('[data-schedule-enabled]').checked,interval_minutes=scheduleMinutes(workspace),adjustments=collectResearchConfig(workspace);button.disabled=true;message.textContent=enabled?'Guardando programación automática...':'Desactivando programación...';const r=await fetch(`/api/onboarding-sources/${encodeURIComponent(workspace.dataset.source)}/automation`,{method:'POST',headers:headers(),body:JSON.stringify({enabled,interval_minutes,adjustments})}),d=await r.json();message.textContent=r.ok?(enabled?`Automatización activa cada ${interval_minutes} minutos.`:'Automatización desactivada.'):(d.detail||'No se pudo guardar la automatización.');button.disabled=false;if(r.ok)await loadDashboard();}
     async function saveCRM(form){const body=Object.fromEntries(new FormData(form).entries()),r=await fetch(`/api/prospects/${encodeURIComponent(form.dataset.id)}/crm`,{method:'POST',headers:headers(),body:JSON.stringify(body)}),d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo guardar el CRM.';return;}dialog.close();message.textContent='Seguimiento CRM guardado en Google Sheets.';await loadDashboard();}
     async function copyLead(id){const x=dashboardData.prospects.find(p=>p.execution_id===id);if(!x)return;await navigator.clipboard.writeText([`Empresa: ${x.company}`,`Web: ${x.website}`,`Productora: ${x.productora||''}`,`Resumen: ${x.summary||''}`,`Contactos: ${(x.public_contacts||[]).map(c=>c.value).join(', ')}`,`Fuentes: ${(x.research_sources||[]).map(s=>s.url).join(', ')}`].join('\n'));message.textContent='Resumen copiado.';}
-    async function loadDashboard(){const r=await fetch('/api/portal-dashboard',{headers:{Accept:'application/json'}});if(r.status===401){location.assign('/');return;}const d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo cargar el dashboard.';return;}dashboardData=d;document.querySelector('#demo-badge').hidden=!d.demo;renderMetrics(d);renderSources();optionize('#productora-filter','productora');optionize('#country-filter','country');optionize('#sector-filter','sector');optionize('#client-type-filter','client_type');renderProspects();renderExecutions();}
+    async function loadDashboard(){const endpoint=adminViewAs?`/api/portal-dashboard?view_as=${encodeURIComponent(adminViewAs)}`:'/api/portal-dashboard',r=await fetch(endpoint,{headers:{Accept:'application/json'}});if(r.status===401){location.assign('/');return;}const d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo cargar el dashboard.';return;}dashboardData=d;document.querySelector('#demo-badge').hidden=!d.demo;renderAdminContext(d);renderMetrics(d);renderSources();optionize('#productora-filter','productora');optionize('#country-filter','country');optionize('#sector-filter','sector');optionize('#client-type-filter','client_type');renderProspects();renderExecutions();applyPreviewRole();}
     const loadDashboardWithoutCrmPreview=loadDashboard;
     loadDashboard=async function(){await loadDashboardWithoutCrmPreview();applyCrmPresentation(localStorage.getItem(crmPresentationKey)||'list');renderWarmupPreview();applyPreviewRole();};
 
@@ -385,6 +397,7 @@
     document.addEventListener('click',e=>{const button=e.target.closest('[data-info-title]');if(!button)return;setText('#module-info-title',button.dataset.infoTitle);document.querySelector('#module-info-copy').innerHTML=renderModuleHelp(button.dataset.infoTitle);document.querySelector('#module-info-dialog').showModal();});
     document.querySelector('#close-module-info').addEventListener('click',()=>document.querySelector('#module-info-dialog').close());
     document.querySelector('#source-selector').addEventListener('change',e=>{selectedSourceId=e.target.value;renderSources();});
+    document.querySelector('#admin-view-as').addEventListener('change',e=>{adminViewAs=e.target.value.trim().toLowerCase();selectedSourceId='';loadDashboard();});
     document.querySelector('#recommended-config').addEventListener('click',()=>{if(!selectedSourceId)return;localStorage.removeItem(draftKey(selectedSourceId));renderSources(true);message.textContent='Configuración recomendada restaurada desde las respuestas del Onboarding.';});
     document.querySelector('#save-config').addEventListener('click',()=>persistResearchDraft(false));
     document.querySelector('#results-list').addEventListener('click',e=>{const b=e.target.closest('[data-action="detail"]');if(b)openLead(b.dataset.id);});

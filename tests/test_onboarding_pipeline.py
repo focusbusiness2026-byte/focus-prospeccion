@@ -1,5 +1,5 @@
 from app.config import Settings
-from app.main import _run_onboarding_research
+from app.main import _process_onboarding_trigger, _run_onboarding_research
 from app.onboarding import OnboardingSource
 
 
@@ -77,3 +77,36 @@ def test_onboarding_pipeline_uses_profile_deduplicates_and_persists_trace(monkey
     assert store.execution["web_search_calls"] == 2
     assert store.execution["search_trace"][0]["status"] == "Completada"
     assert store.dashboard_refreshed is True
+
+
+class PreparationStore:
+    def __init__(self):
+        self.saved = None
+
+    def ensure_operational_schema(self):
+        pass
+
+    def get_onboarding_source(self, record_id):
+        assert record_id == "ONB-PIPELINE"
+        return source()
+
+    def get_automation_config(self, onboarding_id):
+        return None
+
+    def upsert_automation_config(self, onboarding_id, email, **values):
+        self.saved = {"onboarding_id": onboarding_id, "email": email, **values}
+        return self.saved
+
+
+def test_onboarding_trigger_prepares_profile_without_starting_search():
+    store = PreparationStore()
+
+    result = _process_onboarding_trigger("ONB-PIPELINE", store)
+
+    assert result["state"] == "prepared"
+    assert result["external_search_started"] is False
+    assert result["credits_consumed"] is False
+    assert result["automation"]["enabled"] is False
+    assert result["automation"]["adjustments"]["lead_count"] == 5
+    assert "No ejecutar búsquedas" in result["prompt_preview"]
+    assert result["viral_radar_profile"]["client_key"] == "onb-pipeline"

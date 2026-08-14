@@ -11,7 +11,7 @@ import zipfile
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -59,7 +59,7 @@ class CRMRequest(BaseModel):
 
 
 class ResearchAdjustments(BaseModel):
-    lead_count: int = Field(default=25, ge=1, le=50)
+    lead_count: int = Field(default=5, ge=1, le=5)
     target_city: str = ""
     target_region: str = ""
     target_countries: list[str] = Field(default_factory=list)
@@ -95,6 +95,7 @@ class ResearchAdjustments(BaseModel):
 
 class OnboardingTrigger(BaseModel):
     onboarding_id: str
+    prepare_only: bool = True
 
 
 class AutomationRequest(BaseModel):
@@ -479,35 +480,33 @@ def _sync_automations_once() -> None:
 
 
 def _process_onboarding_trigger(record_id: str, store: SheetStore) -> dict:
-    settings = get_settings()
+    """Prepare a connected search draft without running any provider."""
     store.ensure_operational_schema()
     source = store.get_onboarding_source(record_id)
     if not source:
         raise LookupError("El registro de Onboarding todavía no está disponible en Google Sheets")
-    latest = store.latest_execution_for_onboarding(source.record_id)
-    if not source.ready:
-        if not latest or latest["status"] != "Bloqueado por datos incompletos":
-            store.append_execution(
-                execution_id=str(uuid.uuid4()), email=source.email, company=source.company, website=source.website,
-                status="Bloqueado por datos incompletos", model=settings.openai_model, prompt_tokens=0,
-                output_tokens=0, total_tokens=0, error="; ".join(source.blockers), onboarding_id=source.record_id,
-                productora=source.company, web_search_call_limit=settings.web_search_call_limit,
-            )
-        return {"ok": True, "state": "blocked", "blockers": source.blockers}
-    if not settings.openai_api_key:
-        if not latest or latest["status"] != "Pendiente de configurar OpenAI":
-            store.append_execution(
-                execution_id=str(uuid.uuid4()), email=source.email, company=source.company, website=source.website,
-                status="Pendiente de configurar OpenAI", model=settings.openai_model, prompt_tokens=0,
-                output_tokens=0, total_tokens=0, error="Falta OPENAI_API_KEY en el entorno del servidor",
-                onboarding_id=source.record_id, productora=source.company,
-                web_search_call_limit=settings.web_search_call_limit,
-            )
-        return {"ok": True, "state": "pending_openai_configuration"}
-    if latest and latest["status"] not in {"Pendiente de configurar OpenAI", "Bloqueado por datos incompletos"}:
-        return {"ok": True, "state": "already_processed", "execution": latest}
-    result = _run_onboarding_research(source, store)
-    return {"ok": True, "state": "completed", "execution_id": result["execution_id"], "prospects": len(result["prospects"])}
+    automation = store.get_automation_config(source.record_id)
+    if automation is None:
+        automation = store.upsert_automation_config(
+            source.record_id,
+            source.email,
+            enabled=False,
+            interval_minutes=1440,
+            adjustments=source.recommended_adjustments(),
+        )
+    return {
+        "ok": True,
+        "state": "prepared" if source.ready else "prepared_with_missing_fields",
+        "onboarding_id": source.record_id,
+        "ready": source.ready,
+        "blockers": source.blockers,
+        "prompt_preview": source.prompt_preview(),
+        "profile": source.prospecting_profile(),
+        "viral_radar_profile": source.viral_radar_profile(),
+        "automation": automation,
+        "external_search_started": False,
+        "credits_consumed": False,
+    }
 
 
 @asynccontextmanager
@@ -660,7 +659,10 @@ def logout(request: Request):
 
 
 @app.get("/api/portal-dashboard")
-def portal_dashboard(identity: Identity = Depends(require_identity)):
+def portal_dashboard(
+    view_as: str = Query(default="", max_length=320),
+    identity: Identity = Depends(require_identity),
+):
     settings = get_settings()
     if not settings.google_sheets_enabled:
         return _demo_payload(identity, settings.openai_request_budget)
@@ -670,7 +672,14 @@ def portal_dashboard(identity: Identity = Depends(require_identity)):
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     store.ensure_operational_schema()
     is_admin = "admin" in access.role.lower()
-    scope_email = None if is_admin else identity.email
+    requested_scope = view_as.strip().lower()
+    if requested_scope and not is_admin:
+        raise HTTPException(status_code=403, detail="Solo la administración puede usar la vista como cliente")
+    scoped_access = store.get_access(requested_scope) if requested_scope else None
+    if requested_scope and not scoped_access:
+        raise HTTPException(status_code=404, detail="El cliente solicitado no está activo en Accesos")
+    scope_email = requested_scope or (None if is_admin else identity.email)
+    visible_access = scoped_access or access
     source_records = store.onboarding_sources(scope_email)
     sources = [
         _source_view(
@@ -681,14 +690,14 @@ def portal_dashboard(identity: Identity = Depends(require_identity)):
         )
         for source in source_records
     ]
-    global_metrics = store.global_metrics() if is_admin else None
+    global_metrics = store.global_metrics() if is_admin and not requested_scope else None
     return {
         "user": {
-            "email": access.email,
-            "role": access.role,
-            "assigned": access.assigned,
-            "used": access.used,
-            "available": access.available,
+            "email": visible_access.email,
+            "role": visible_access.role,
+            "assigned": visible_access.assigned,
+            "used": visible_access.used,
+            "available": visible_access.available,
         },
         "global": global_metrics,
         "metrics": store.prospect_metrics(scope_email),
@@ -699,6 +708,16 @@ def portal_dashboard(identity: Identity = Depends(require_identity)):
             "total": len(sources),
             "ready": sum(1 for source in sources if source["ready"]),
             "blocked": sum(1 for source in sources if not source["ready"]),
+        },
+        "admin_context": {
+            "is_admin": is_admin,
+            "authenticated_email": identity.email,
+            "viewing_as": requested_scope,
+            "available_users": [
+                {"email": item.email, "role": item.role}
+                for item in store.access_records()
+                if item.state.lower() == "activo" and "admin" not in item.role.lower()
+            ] if is_admin else [],
         },
         "demo": False,
     }

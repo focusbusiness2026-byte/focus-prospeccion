@@ -143,9 +143,9 @@ def test_internal_onboarding_trigger_is_closed_without_server_secret():
 
 
 def test_professional_research_configuration_limits_requested_leads():
-    assert ResearchAdjustments(lead_count=25).lead_count == 25
+    assert ResearchAdjustments(lead_count=5).lead_count == 5
     with pytest.raises(ValidationError):
-        ResearchAdjustments(lead_count=51)
+        ResearchAdjustments(lead_count=6)
 
 
 def test_automation_interval_is_limited_between_five_minutes_and_three_days():

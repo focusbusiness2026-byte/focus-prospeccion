@@ -137,6 +137,32 @@ class OnboardingSource:
         This method performs no network request and does not invent missing
         targeting criteria. A provider may only run when ``ready`` is true.
         """
+        campaign = {
+            "objective": self.raw_form.get("Objetivo campaña", ""),
+            "conversion": self.raw_form.get("Conversión campaña", ""),
+            "audience": self.raw_form.get("Público campaña", ""),
+            "destination": self.raw_form.get("Destino campaña", ""),
+            "channels": _items(self.raw_form.get("Canales", "")),
+            "lead_fields": _items(self.raw_form.get("Campos del lead", "")),
+            "lead_questions": self.raw_form.get("Preguntas adicionales", ""),
+            "qualification": self.raw_form.get("Criterio de cualificación", ""),
+        }
+        landing = {
+            "goal": self.raw_form.get("Objetivo landing", ""),
+            "content": self.raw_form.get("Contenido landing", ""),
+            "vsl": self.raw_form.get("Uso VSL", ""),
+            "vsl_url": self.raw_form.get("Enlace VSL", ""),
+            "vsl_notes": self.raw_form.get("Indicaciones VSL", ""),
+            "copy_owner": self.raw_form.get("Responsable copy landing", ""),
+            "copy_brief": self.raw_form.get("Copy / referencias / CTA landing", ""),
+        }
+        brand = {
+            "tone": self.raw_form.get("Tono marca", ""),
+            "communication_tone": self.raw_form.get("Tono comunicación", ""),
+            "language": self.raw_form.get("Idioma principal", ""),
+            "social_links": self.raw_form.get("Redes oficiales", ""),
+            "portfolio": self.portfolio_highlights,
+        }
         return {
             "onboarding_id": self.record_id,
             "productora": {
@@ -155,6 +181,7 @@ class OnboardingSource:
                 "markets": list(self.markets),
                 "target_city": self.target_city,
                 "target_region": self.target_region,
+                "target_regions": _items(self.raw_form.get("Regiones objetivo", "")),
                 "target_countries": list(self.target_countries),
                 "target_client_types": list(self.target_client_types),
                 "ideal_company_size": self.ideal_company_size,
@@ -168,6 +195,71 @@ class OnboardingSource:
                 "prospect_preferences": self.prospect_preferences,
                 "objectives": list(self.objectives),
             },
+            "campaign": campaign,
+            "landing": landing,
+            "brand": brand,
+        }
+
+    def recommended_adjustments(self) -> dict:
+        """Prepare a safe search draft without starting a provider call."""
+        return {
+            "lead_count": 5,
+            "target_city": self.target_city,
+            "target_region": ", ".join(
+                dict.fromkeys([self.target_region, *_items(self.raw_form.get("Regiones objetivo", ""))])
+            ).strip(", "),
+            "target_countries": list(self.target_countries or self.markets),
+            "sectors": list(self.sectors),
+            "client_types": list(self.target_client_types or self.audience),
+            "decision_roles": [self.decision_maker] if self.decision_maker else [],
+            "lookalike_companies": list(self.reference_companies),
+            "ideal_company_size": self.ideal_company_size,
+            "minimum_budget": self.minimum_budget,
+            "exclusions": self.prospect_exclusions,
+            "preferences": self.prospect_preferences,
+            "exclude_current_clients": True,
+            "exclude_contacted_companies": True,
+            "exclude_competitors": True,
+        }
+
+    def prompt_preview(self) -> str:
+        profile = self.prospecting_profile()
+        targeting = profile["targeting"]
+        return (
+            f"Preparar una búsqueda de hasta 5 empresas para {self.company or 'el cliente'}, "
+            f"priorizando {', '.join(targeting['sectors']) or 'los sectores confirmados'} en "
+            f"{', '.join(targeting['target_countries'] or targeting['markets']) or 'las ubicaciones confirmadas'}. "
+            f"Oferta: {targeting['main_service'] or ', '.join(targeting['services']) or 'por confirmar'}. "
+            f"Cliente ideal: {targeting['ideal_profile_detail'] or targeting['ideal_company_size'] or 'por confirmar'}. "
+            f"Decisor: {targeting['decision_maker'] or 'por confirmar'}. "
+            f"Excluir: {targeting['prospect_exclusions'] or 'clientes actuales, empresas ya contactadas y competidores'}. "
+            "No ejecutar búsquedas ni consumir créditos hasta recibir una orden explícita."
+        )
+
+    def viral_radar_profile(self) -> dict:
+        """Return a sanitized strategy brief; it never starts a social search."""
+        profile = self.prospecting_profile()
+        return {
+            "schema_version": 1,
+            "onboarding_id": self.record_id,
+            "client_key": re.sub(r"[^a-z0-9._-]+", "-", self.record_id.lower()).strip("-"),
+            "client_name": self.company,
+            "sector": self.activity or (self.sectors[0] if self.sectors else ""),
+            "offer": self.main_service or (self.services[0] if self.services else ""),
+            "audience": list(self.audience or self.target_client_types),
+            "markets": list(self.target_countries or self.markets),
+            "campaign": profile["campaign"],
+            "landing": profile["landing"],
+            "brand": profile["brand"],
+            "content_search_brief": (
+                f"Buscar referencias de contenido viral aplicables a {self.company or 'el cliente'}; "
+                f"sector {self.activity or ', '.join(self.sectors) or 'por confirmar'}; "
+                f"oferta {self.main_service or ', '.join(self.services) or 'por confirmar'}; "
+                f"público {', '.join(self.audience or self.target_client_types) or 'por confirmar'}. "
+                "No copiar piezas ni ejecutar búsquedas externas sin autorización."
+            ),
+            "ready": self.ready,
+            "blockers": self.blockers,
         }
 
     def as_dict(self) -> dict:
