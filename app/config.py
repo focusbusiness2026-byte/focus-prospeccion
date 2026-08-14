@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     openai_web_search_max_calls: int = 5
     auto_research_enabled: bool = True
     auto_research_poll_seconds: int = 60
+    render_keepalive_enabled: bool = False
+    render_keepalive_url: str = ""
+    render_keepalive_interval_seconds: int = 600
     prospection_trigger_token: str = ""
     web_scraper_max_pages: int = 4
 

@@ -31,6 +31,7 @@ from app.config import get_settings
 from app.db import create_schema, session_scope
 from app.dedupe import company_dedupe_key
 from app.enrichment import OpenAIProspectDiscovery
+from app.keepalive import render_keepalive_loop, render_keepalive_ready
 from app.services import ensure_demo_client
 from app.sheet_store import SheetStore
 
@@ -517,6 +518,7 @@ async def lifespan(_: FastAPI):
         with session_scope() as session:
             ensure_demo_client(session)
     automation_task = None
+    keepalive_task = None
     if settings.google_sheets_enabled and settings.auto_research_enabled:
         async def automation_loop():
             while True:
@@ -524,11 +526,16 @@ async def lifespan(_: FastAPI):
                 await asyncio.sleep(max(60, settings.auto_research_poll_seconds))
 
         automation_task = asyncio.create_task(automation_loop())
+    if render_keepalive_ready(settings):
+        keepalive_task = asyncio.create_task(render_keepalive_loop(settings))
     try:
         yield
     finally:
-        if automation_task:
-            automation_task.cancel()
+        tasks = [task for task in (automation_task, keepalive_task) if task]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app = FastAPI(title="Focus Prospeccion", version="0.3.0", lifespan=lifespan)
@@ -578,6 +585,7 @@ def health():
         "openai_configured": bool(settings.openai_api_key),
         "openai_web_search_call_limit": settings.web_search_call_limit,
         "auto_research_enabled": settings.auto_research_enabled,
+        "render_keepalive_enabled": render_keepalive_ready(settings),
     }
 
 

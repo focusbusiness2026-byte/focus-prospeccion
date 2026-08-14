@@ -107,7 +107,9 @@ La interfaz muestra únicamente si OpenAI está configurado. La clave nunca se d
 
 `.github/workflows/keep-render-awake.yml` contiene un workflow programado cada 10 minutos y ejecutable manualmente. Solo realiza un `GET` sin credenciales a `https://focus-prospeccion-fb.onrender.com/health`; no llama al trigger de Onboarding, al scraping, a OpenAI ni a ninguna automatización de negocio.
 
-El workflow queda inactivo mientras este cambio no se publique en la rama predeterminada de GitHub. La programación de GitHub Actions puede sufrir retrasos y cada ejecución consume recursos de Actions conforme al plan y las políticas vigentes de GitHub. Render puede aplicar límites o cambiar las condiciones de su plan gratuito; este ping no garantiza disponibilidad continua.
+En producción, la aplicación mantiene además un bucle interno explícito mediante `RENDER_KEEPALIVE_ENABLED=true`. Cada 10 minutos solicita exclusivamente su propio endpoint HTTPS `/health`. El intervalo se limita en código a 5-14 minutos, el destino no admite credenciales, consultas ni rutas distintas de `/health`, y el bucle se cancela de forma limpia al detener el proceso. El workflow de GitHub queda como respaldo independiente ante un reinicio.
+
+La programación de GitHub Actions puede sufrir retrasos y cada ejecución consume recursos de Actions conforme al plan y las políticas vigentes de GitHub. Render puede aplicar límites o cambiar las condiciones de su plan gratuito; estos pings no sustituyen las garantías de un plan de pago.
 
 ## Activación pendiente de autorización
 
