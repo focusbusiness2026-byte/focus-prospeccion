@@ -42,6 +42,12 @@ services:
         value: "true"
       - key: AUTO_RESEARCH_POLL_SECONDS
         value: "60"
+      - key: RENDER_KEEPALIVE_ENABLED
+        value: "true"
+      - key: RENDER_KEEPALIVE_URL
+        value: https://focus-prospeccion-fb.onrender.com/health
+      - key: RENDER_KEEPALIVE_INTERVAL_SECONDS
+        value: "600"
       - key: PROSPECTION_TRIGGER_TOKEN
         sync: false
       - key: WEB_SCRAPER_MAX_PAGES
