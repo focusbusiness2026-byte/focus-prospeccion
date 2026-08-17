@@ -200,6 +200,20 @@ def test_desktop_navigation_uses_two_rows_without_single_item_more_menu():
     assert '>Paquete del cliente</a>' in html
 
 
+def test_prospecting_filter_grid_can_shrink_without_overlapping_summary_panel():
+    css = (Path(__file__).parents[1] / "app" / "static" / "app.css").read_text(encoding="utf-8")
+    portal = (Path(__file__).parents[1] / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
+
+    assert ".research-builder { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr);" in css
+    assert ".research-builder > * { min-width: 0; }" in css
+    assert ".builder-card { min-width: 0;" in css
+    assert ".professional-grid { display: grid; min-width: 0;" in css
+    assert ".professional-grid .input input," in css
+    assert ".professional-grid .input textarea { min-width: 0; }" in css
+    assert "@media (max-width: 1380px)" in css
+    assert '/static/app.css?v=20260817-1' in portal
+
+
 def test_client_package_contains_confirmed_form_data_and_excludes_secrets():
     source = OnboardingSource.from_sheet_record({
         "ID registro": "ONB-CLIENTE-1",
