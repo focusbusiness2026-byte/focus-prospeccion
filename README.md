@@ -25,9 +25,9 @@ Formulario Onboarding
 
 El portal usa una navegación superior, sin barra lateral permanente, y presenta cada módulo como una pantalla independiente: Inicio, Prospección, Leads y CRM, Ejecuciones, Metodología y Calentamiento. En móviles el menú se contrae en un botón.
 
-Cada productora recibe automáticamente una configuración recomendada construida con sus respuestas de Onboarding; el botón `Configuración recomendada` restaura esa base sin modificar las respuestas originales. Los filtros avanzados se organizan por pasos para mantener una vista sencilla. Para una ejecución concreta se puede ajustar y guardar localmente un borrador con:
+Cada productora recibe automáticamente una configuración recomendada construida con sus respuestas de Onboarding; el botón `Configuración recomendada` restaura esa base sin modificar las respuestas originales. Los filtros avanzados se organizan por pasos para mantener una vista sencilla. La configuración puede guardarse con un nombre, marcarse como favorita y reutilizarse desde Inicio o Automatizaciones. Para una ejecución concreta se puede ajustar:
 
-- cantidad objetivo de 1 a 50 leads verificables, sin superar 5 búsquedas web;
+- una cantidad objetivo de hasta 5 resultados verificables y ajustados a los filtros;
 - sectores prioritarios y excluidos, países, ciudad/región, tipo de cliente, tamaño, facturación y modelo empresarial;
 - madurez comercial y digital, tecnologías y señales de oportunidad;
 - decisores, empresas similares, presupuesto mínimo, preferencias y exclusiones avanzadas.
@@ -59,7 +59,7 @@ public_signals_json, public_signals_status, country, client_type, decision_maker
 warmup_preparation, warmup_approval
 ```
 
-`Ejecuciones` usa `A:X`:
+`Ejecuciones` usa `A:AA`:
 
 ```text
 execution_id, created_at, email, company, website, status, model, prompt_tokens,
@@ -67,20 +67,24 @@ output_tokens, total_tokens, error, onboarding_id, productora, web_search_calls,
 web_search_call_limit, search_queries_json, research_sources_json,
 no_prospect_reason, research_summary, search_configuration_json, adjustments_json,
 research_provider, search_trace_json, duplicates_discarded
+actor_email, actor_role, execution_origin
 ```
 
-`Automatizaciones` usa `A:J`:
+`Automatizaciones` usa `A:N`:
 
 ```text
 onboarding_id, email, enabled, interval_minutes, next_run_at, last_run_at,
 last_status, updated_at, last_execution_id, adjustments_json
+name, favorite, created_by_email, created_by_role
 ```
 
-La automatización parte desactivada para cada productora. Al activarla, la primera investigación se agenda al finalizar el intervalo elegido y reutiliza los filtros guardados. El servidor fuerza un mínimo de 5 minutos y un máximo de 4320 minutos (3 días).
+La automatización parte desactivada para cada productora. Al activarla, la primera investigación se agenda al finalizar el intervalo elegido y reutiliza los filtros guardados. El servidor fuerza un mínimo de 5 minutos y un máximo de 4320 minutos (3 días). El nombre es obligatorio y solo puede existir una favorita por cuenta.
+
+La administración puede ejecutar las veces necesarias sin consumir la cuota individual del cliente. Este privilegio no elimina los límites técnicos por ejecución, el presupuesto global ni las salvaguardas del proveedor. El historial registra quién ejecutó y desde qué origen: la administración puede revisar actividad de cliente y administrativa, mientras la vista de cliente excluye las ejecuciones identificadas como administrativas.
 
 `Dashboard Prospeccion` conserva su composición visual existente. El portal calcula el resumen operativo en vivo y no sobrescribe el título, las fórmulas ni los gráficos de esa pestaña.
 
-`ensure_operational_schema()` amplía exclusivamente las columnas de `Prospeccion` y `Ejecuciones`, añade encabezados finales faltantes y migra el encabezado heredado `gemini_model` a `model`; no reescribe filas de datos. La pestaña visual `Dashboard Prospeccion` queda intacta.
+`ensure_operational_schema()` amplía exclusivamente las columnas operativas de `Prospeccion`, `Ejecuciones` y `Automatizaciones`, añade encabezados finales faltantes y migra el encabezado heredado `gemini_model` a `model`; no reescribe filas de datos. La pestaña visual `Dashboard Prospeccion` queda intacta.
 
 La deduplicación se aplica por dominio (o identidad normalizada disponible) dentro de cada `onboarding_id` antes de guardar en CRM. El número descartado queda en `Ejecuciones.duplicates_discarded`.
 
@@ -113,7 +117,7 @@ La programación de GitHub Actions puede sufrir retrasos y cada ejecución consu
 
 ## Activación pendiente de autorización
 
-1. Verificar que la migración conservadora haya ampliado `Prospeccion` a 45 columnas y `Ejecuciones` a 24, manteniendo intacto el panel visual `Dashboard Prospeccion`.
+1. Verificar que la migración conservadora mantenga `Prospeccion` en 45 columnas, amplíe `Ejecuciones` a 27 y `Automatizaciones` a 14, manteniendo intacto el panel visual `Dashboard Prospeccion`.
 2. Cargar `OPENAI_API_KEY` exclusivamente como secreto del servidor y conservar `OPENAI_WEB_SEARCH_MAX_CALLS=5`.
 3. Configurar los secretos Google/trigger indicados en `.env.example`.
 4. Publicar una nueva versión solo tras aprobación; entonces verificar primero una ejecución controlada.
@@ -132,4 +136,4 @@ El modo demo no usa OpenAI ni realiza investigación real.
 
 ## Calentamiento de lead: alcance futuro documentado
 
-La documentación de Focus Business propone seleccionar y limpiar primero los prospectos, luego generar reconocimiento mediante contenido, web, vídeo, publicidad y retargeting, y finalmente hacer contacto personalizado y seguimiento. La referencia 11-4-7 significa impactos de contenido en varios canales antes del contacto; no once mensajes automáticos. LinkedIn e Instagram deben operarse manualmente o con control estricto para evitar automatización agresiva. Esta aplicación no ejecuta calentamiento, mensajes ni integración con GoHighLevel.
+La documentación de Focus Business propone seleccionar y limpiar primero los prospectos, luego generar reconocimiento mediante contenido, web, vídeo, publicidad y retargeting, y finalmente hacer contacto personalizado y seguimiento. La referencia 11-4-7 significa impactos de contenido en varios canales antes del contacto; no once mensajes automáticos. LinkedIn e Instagram deben operarse manualmente o con control estricto para evitar automatización agresiva. El planificador actual organiza localmente lead aprobado, base legal, canal, fecha, responsable, nota y estado, pero no ejecuta calentamiento ni mensajes. GoHighLevel continúa sin conexión: una futura integración requerirá OAuth oficial, permisos mínimos, mapeo, prueba controlada y aprobación separada antes de activar Workflows, mensajería o funciones con coste.

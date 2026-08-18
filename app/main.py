@@ -100,7 +100,9 @@ class OnboardingTrigger(BaseModel):
 
 
 class AutomationRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
     enabled: bool = False
+    favorite: bool = False
     interval_minutes: int = Field(default=1440, ge=5, le=4320)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
 
@@ -342,6 +344,7 @@ def _demo_payload(identity: Identity, openai_budget: int) -> dict:
             }
         ],
         "source_metrics": {"total": 1, "ready": 1, "blocked": 0},
+        "automation_engine_enabled": False,
         "demo": True,
     }
 
@@ -363,6 +366,8 @@ def _source_view(source, settings, latest: dict | None = None, automation: dict 
     else:
         automation_state = "Listo para investigación automática"
     schedule = automation or {
+        "name": f"Prospección · {source.company}",
+        "favorite": False,
         "enabled": False,
         "interval_minutes": 1440,
         "next_run_at": "",
@@ -379,7 +384,16 @@ def _source_view(source, settings, latest: dict | None = None, automation: dict 
     }
 
 
-def _run_onboarding_research(source, store: SheetStore, adjustments: dict | None = None) -> dict:
+def _run_onboarding_research(
+    source,
+    store: SheetStore,
+    adjustments: dict | None = None,
+    *,
+    actor_email: str = "",
+    actor_role: str = "Cliente",
+    execution_origin: str = "manual",
+    bypass_user_limit: bool = False,
+) -> dict:
     settings = get_settings()
     if not source.ready:
         raise ValueError("; ".join(source.blockers))
@@ -389,8 +403,9 @@ def _run_onboarding_research(source, store: SheetStore, adjustments: dict | None
     reserved = False
     try:
         store.ensure_operational_schema()
-        store.reserve_execution(source.email)
-        reserved = True
+        if not bypass_user_limit:
+            store.reserve_execution(source.email)
+            reserved = True
         prospects, trace = OpenAIProspectDiscovery(settings).discover(source.prospecting_profile(), adjustments)
         existing_keys = store.existing_prospect_keys(source.record_id)
         discovered_count = len(prospects)
@@ -434,6 +449,9 @@ def _run_onboarding_research(source, store: SheetStore, adjustments: dict | None
             research_provider=trace["research_provider"],
             search_trace=trace["search_trace"],
             duplicates_discarded=duplicates_discarded,
+            actor_email=actor_email or source.email,
+            actor_role=actor_role,
+            execution_origin=execution_origin,
         )
         try:
             store.refresh_dashboard_summary()
@@ -461,6 +479,9 @@ def _run_onboarding_research(source, store: SheetStore, adjustments: dict | None
                 onboarding_id=source.record_id,
                 productora=source.company,
                 web_search_call_limit=settings.web_search_call_limit,
+                actor_email=actor_email or source.email,
+                actor_role=actor_role,
+                execution_origin=execution_origin,
             )
         except Exception:
             pass
@@ -485,7 +506,22 @@ def _sync_automations_once() -> None:
             store.mark_automation_run(config, "Pendiente: falta configurar OpenAI")
             continue
         try:
-            result = _run_onboarding_research(source, store, config.get("adjustments") or None)
+            creator_email = str(config.get("created_by_email") or config.get("email") or "").strip().lower()
+            creator_access = store.get_access(creator_email) if creator_email else None
+            creator_is_admin = bool(
+                creator_access
+                and "admin" in creator_access.role.lower()
+                and creator_email in (settings.admin_emails or {"servicemanagerbossio@gmail.com"})
+            )
+            result = _run_onboarding_research(
+                source,
+                store,
+                config.get("adjustments") or None,
+                actor_email=creator_email or source.email,
+                actor_role=creator_access.role if creator_access else "Cliente",
+                execution_origin="automation",
+                bypass_user_limit=creator_is_admin,
+            )
             store.mark_automation_run(
                 config,
                 f"Completada: {len(result['prospects'])} prospectos",
@@ -732,7 +768,7 @@ def portal_dashboard(
         "global": global_metrics,
         "metrics": store.prospect_metrics(scope_email),
         "prospects": store.recent_prospects(scope_email),
-        "executions": store.recent_executions(scope_email),
+        "executions": store.recent_executions(scope_email, hide_admin=not is_admin),
         "sources": sources,
         "source_metrics": {
             "total": len(sources),
@@ -745,6 +781,7 @@ def portal_dashboard(
             "viewing_as": requested_scope,
             "available_users": _admin_available_users(store, all_sources) if is_admin else [],
         },
+        "automation_engine_enabled": settings.auto_research_enabled,
         "demo": False,
     }
 
@@ -764,7 +801,7 @@ def onboarding_source(record_id: str, identity: Identity = Depends(require_ident
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    is_admin = "admin" in access.role.lower()
+    is_admin = _is_authorized_admin(identity, access, settings)
     source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
@@ -793,12 +830,20 @@ def research_onboarding_source(
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    is_admin = "admin" in access.role.lower()
+    is_admin = _is_authorized_admin(identity, access, settings)
     source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     try:
-        return _run_onboarding_research(source, store, payload.model_dump())
+        return _run_onboarding_research(
+            source,
+            store,
+            payload.model_dump(),
+            actor_email=identity.email,
+            actor_role=access.role,
+            execution_origin="manual",
+            bypass_user_limit=is_admin,
+        )
     except RuntimeError as exc:
         if str(exc) == "OPENAI_API_KEY_REQUIRED":
             raise HTTPException(
@@ -829,7 +874,7 @@ def save_onboarding_automation(
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    is_admin = "admin" in access.role.lower()
+    is_admin = _is_authorized_admin(identity, access, settings)
     source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
@@ -842,6 +887,10 @@ def save_onboarding_automation(
         enabled=payload.enabled,
         interval_minutes=payload.interval_minutes,
         adjustments=payload.adjustments.model_dump(),
+        name=payload.name,
+        favorite=payload.favorite,
+        created_by_email=identity.email,
+        created_by_role=access.role,
     )
     return {"ok": True, "automation": schedule}
 

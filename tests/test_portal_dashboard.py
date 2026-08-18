@@ -68,11 +68,10 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'data-schedule-enabled' in response.text
     assert 'data-builder-tab="profile"' in response.text
     assert 'id="automation-preview"' in response.text
-    assert "No activa scraping" in response.text
+    assert "PROGRAMACIÓN OPERATIVA" in response.text
+    assert "Acciones reales" in response.text
     assert 'id="preview-countdown"' in response.text
-    assert 'name="postal_code"' in response.text
-    assert 'name="activity"' in response.text
-    assert "focus-prospeccion:automation-preview:v1" in response.text
+    assert "focus-prospeccion:automation-preview:v1" not in response.text
     assert 'id="dashboard-automation-quick"' in response.text
     assert 'class="dashboard-automation-dock"' in response.text
     assert 'id="favorite-automation-select"' in response.text
@@ -80,10 +79,10 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'id="quick-toggle-automation"' in response.text
     assert 'id="module-info-dialog"' in response.text
     assert response.text.count('class="info-button') >= 7
-    assert 'id="search-prompt"' in response.text
-    assert "Preparar búsqueda" in response.text
-    assert "no activa raspado, APIs, créditos, mensajes" in response.text
-    assert "hasta 5 resultados con mayor ajuste a los filtros" in response.text
+    assert 'data-schedule-name' in response.text
+    assert "Nombre del guardado" in response.text
+    assert "Automatizaciones reales" in response.text
+    assert "Hasta 5 resultados" in response.text
     assert 'max="5" data-number="lead_count"' in response.text
     assert 'id="crm-presentation"' in response.text
     assert "Tablero · columnas Kanban" in response.text
@@ -99,8 +98,8 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'id="warmup-action-form"' in response.text
     assert "Email con consentimiento" in response.text
     assert "Tarea manual · LinkedIn" in response.text
-    assert "Conectar GoHighLevel" in response.text
-    assert "autorización OAuth oficial" in response.text
+    assert "Cómo se conectará GoHighLevel" in response.text
+    assert "flujo oficial de autorización de GoHighLevel" in response.text
     assert "PhantomBuster" in response.text
     assert "Descargar audiencia para Meta" in response.text
     assert 'id="audience-legal-confirmation"' in response.text
@@ -166,12 +165,14 @@ def test_professional_research_configuration_limits_requested_leads():
 
 
 def test_automation_interval_is_limited_between_five_minutes_and_three_days():
-    assert AutomationRequest(enabled=True, interval_minutes=5).interval_minutes == 5
-    assert AutomationRequest(enabled=True, interval_minutes=4320).interval_minutes == 4320
+    assert AutomationRequest(name="Diaria", enabled=True, interval_minutes=5).interval_minutes == 5
+    assert AutomationRequest(name="Semanal", enabled=True, interval_minutes=4320).interval_minutes == 4320
     with pytest.raises(ValidationError):
-        AutomationRequest(enabled=True, interval_minutes=4)
+        AutomationRequest(name="Inválida", enabled=True, interval_minutes=4)
     with pytest.raises(ValidationError):
-        AutomationRequest(enabled=True, interval_minutes=4321)
+        AutomationRequest(name="Inválida", enabled=True, interval_minutes=4321)
+    with pytest.raises(ValidationError):
+        AutomationRequest(name="", enabled=False)
 
 
 def test_hidden_demo_badge_cannot_be_overridden_by_badge_display_rule():
@@ -266,7 +267,21 @@ def test_prospecting_filter_grid_can_shrink_without_overlapping_summary_panel():
     assert ".professional-grid .input input," in css
     assert ".professional-grid .input textarea { min-width: 0; }" in css
     assert "@media (max-width: 1380px)" in css
-    assert '/static/app.css?v=20260817-1' in portal
+    assert '/static/app.css?v=20260818-1' in portal
+
+
+def test_real_automation_controls_and_admin_execution_visibility_are_present():
+    portal = (Path(__file__).parents[1] / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
+    css = (Path(__file__).parents[1] / "app" / "static" / "app.css").read_text(encoding="utf-8")
+
+    assert "persistAutomation" in portal
+    assert "runSavedAutomation" in portal
+    assert 'id="quick-run-automation"' in portal
+    assert 'class="admin-execution-column" hidden' in portal
+    assert "Tu historial excluye las ejecuciones internas realizadas por administración" in portal
+    assert "Sin límite" in portal
+    assert "@media (max-width: 1180px)" in css
+    assert ".studio-toolbar-actions { width: 100%; min-width: 0; grid-template-columns: 1fr; }" in css
 
 
 def test_client_package_contains_confirmed_form_data_and_excludes_secrets():

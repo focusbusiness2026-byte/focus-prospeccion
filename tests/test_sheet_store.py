@@ -128,7 +128,7 @@ def test_results_keep_the_onboarding_productora_link():
 
     assert store.appends[0][0] == "'Prospeccion'!A:AS"
     assert store.appends[0][1][0][24:26] == ["ONB-UNO", "Productora Norte"]
-    assert store.appends[1][0] == "'Ejecuciones'!A:X"
+    assert store.appends[1][0] == "'Ejecuciones'!A:AA"
     assert store.appends[1][1][0][11:13] == ["ONB-UNO", "Productora Norte"]
     assert store.appends[1][1][0][21] == "OpenAI Responses API + web_search"
 
@@ -179,7 +179,7 @@ def test_schema_migration_only_appends_missing_trailing_headers():
 
     store.ensure_operational_schema()
 
-    assert store.updates[0] == ("'Ejecuciones'!V1:X1", [EXECUTION_HEADERS[21:]])
+    assert store.updates[0] == ("'Ejecuciones'!V1:AA1", [EXECUTION_HEADERS[21:]])
     assert len(store.updates) == 1
 
 
@@ -217,7 +217,7 @@ def test_sheet_capacity_expands_existing_tabs_without_recreating_them():
 
     assert store.requests == [
         {"appendDimension": {"sheetId": 10, "dimension": "COLUMNS", "length": 21}},
-        {"appendDimension": {"sheetId": 11, "dimension": "COLUMNS", "length": 13}},
+        {"appendDimension": {"sheetId": 11, "dimension": "COLUMNS", "length": 16}},
     ]
 
 
@@ -247,13 +247,33 @@ def test_automation_schedule_persists_filters_and_clamps_interval():
         enabled=True,
         interval_minutes=4,
         adjustments={"lead_count": 12, "sectors": ["Tecnología"]},
+        name="Tecnología · Madrid",
+        favorite=True,
+        created_by_email="admin@example.com",
+        created_by_role="Administrador",
     )
 
     assert result["enabled"] is True
     assert result["interval_minutes"] == 5
     assert result["adjustments"]["lead_count"] == 12
-    assert store.appends[0][0] == "'Automatizaciones'!A:J"
+    assert result["name"] == "Tecnología · Madrid"
+    assert result["favorite"] is True
+    assert store.appends[0][0] == "'Automatizaciones'!A:N"
     assert store.appends[0][1][0][1] == "owner@example.com"
+
+
+def test_client_execution_history_hides_explicit_admin_runs():
+    store = ProspectStore()
+    store.executions = [
+        ["client-run", "2026-08-10T10:00:00Z", "owner@example.com", "Empresa", "", "Completado", "model", 0, 0, 0, "", "ONB", "Productora", 1, 5, "[]", "[]", "", "", "{}", "{}", "provider", "[]", 0, "owner@example.com", "Cliente", "manual"],
+        ["admin-run", "2026-08-10T11:00:00Z", "owner@example.com", "Empresa", "", "Completado", "model", 0, 0, 0, "", "ONB", "Productora", 1, 5, "[]", "[]", "", "", "{}", "{}", "provider", "[]", 0, "admin@example.com", "Administrador", "manual"],
+    ]
+
+    client_items = store.recent_executions("owner@example.com", hide_admin=True)
+    admin_items = store.recent_executions("owner@example.com")
+
+    assert [item["execution_id"] for item in client_items] == ["client-run"]
+    assert {item["execution_id"] for item in admin_items} == {"client-run", "admin-run"}
 
 
 def test_schema_migration_rejects_reordered_existing_columns():

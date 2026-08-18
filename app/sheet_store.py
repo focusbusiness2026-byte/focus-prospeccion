@@ -31,7 +31,7 @@ EXECUTION_HEADERS = [
     "output_tokens", "total_tokens", "error", "onboarding_id", "productora", "web_search_calls",
     "web_search_call_limit", "search_queries_json", "research_sources_json", "no_prospect_reason",
     "research_summary", "search_configuration_json", "adjustments_json", "research_provider",
-    "search_trace_json", "duplicates_discarded",
+    "search_trace_json", "duplicates_discarded", "actor_email", "actor_role", "execution_origin",
 ]
 DASHBOARD_HEADERS = [
     "updated_at", "active_users", "prospects", "new", "approved", "discarded", "executions_completed",
@@ -39,7 +39,8 @@ DASHBOARD_HEADERS = [
 ]
 AUTOMATION_HEADERS = [
     "onboarding_id", "email", "enabled", "interval_minutes", "next_run_at", "last_run_at",
-    "last_status", "updated_at", "last_execution_id", "adjustments_json",
+    "last_status", "updated_at", "last_execution_id", "adjustments_json", "name", "favorite",
+    "created_by_email", "created_by_role",
 ]
 
 
@@ -196,11 +197,11 @@ class SheetStore:
         self._ensure_header_row(self.settings.google_automation_tab, AUTOMATION_HEADERS)
 
     def automation_configs(self, email: str | None = None) -> list[dict]:
-        rows = self._get(f"'{self.settings.google_automation_tab}'!A2:J1000")
+        rows = self._get(f"'{self.settings.google_automation_tab}'!A2:N1000")
         normalized_email = email.strip().lower() if email else None
         configs: list[dict] = []
         for index, row in enumerate(rows, start=2):
-            padded = row + [""] * (10 - len(row))
+            padded = row + [""] * (14 - len(row))
             owner_email = str(padded[1]).strip().lower()
             if normalized_email and owner_email != normalized_email:
                 continue
@@ -220,6 +221,10 @@ class SheetStore:
                 "updated_at": str(padded[7]).strip(),
                 "last_execution_id": str(padded[8]).strip(),
                 "adjustments": adjustments if isinstance(adjustments, dict) else {},
+                "name": str(padded[10]).strip() or "Automatización de prospección",
+                "favorite": str(padded[11]).strip().lower() in {"true", "1", "si", "sí"},
+                "created_by_email": str(padded[12]).strip().lower(),
+                "created_by_role": str(padded[13]).strip(),
             })
         return [item for item in configs if item["onboarding_id"]]
 
@@ -240,6 +245,10 @@ class SheetStore:
         enabled: bool,
         interval_minutes: int,
         adjustments: dict | None = None,
+        name: str = "Automatización de prospección",
+        favorite: bool = False,
+        created_by_email: str = "",
+        created_by_role: str = "",
     ) -> dict:
         interval = max(5, min(4320, int(interval_minutes)))
         existing = self.get_automation_config(onboarding_id)
@@ -256,11 +265,19 @@ class SheetStore:
             now,
             existing["last_execution_id"] if existing else "",
             json.dumps(adjustments or {}, ensure_ascii=False),
+            name.strip()[:80] or "Automatización de prospección",
+            favorite,
+            created_by_email.strip().lower(),
+            created_by_role.strip(),
         ]
+        if favorite:
+            for config in self.automation_configs(email):
+                if config["onboarding_id"] != onboarding_id and config["favorite"]:
+                    self._update(f"'{self.settings.google_automation_tab}'!L{config['row']}", [[False]])
         if existing:
-            self._update(f"'{self.settings.google_automation_tab}'!A{existing['row']}:J{existing['row']}", [values])
+            self._update(f"'{self.settings.google_automation_tab}'!A{existing['row']}:N{existing['row']}", [values])
         else:
-            self._append(f"'{self.settings.google_automation_tab}'!A:J", [values])
+            self._append(f"'{self.settings.google_automation_tab}'!A:N", [values])
         return {
             "onboarding_id": onboarding_id,
             "email": email.strip().lower(),
@@ -272,6 +289,10 @@ class SheetStore:
             "updated_at": now,
             "last_execution_id": existing["last_execution_id"] if existing else "",
             "adjustments": adjustments or {},
+            "name": name.strip()[:80] or "Automatización de prospección",
+            "favorite": favorite,
+            "created_by_email": created_by_email.strip().lower(),
+            "created_by_role": created_by_role.strip(),
         }
 
     def due_automation_configs(self) -> list[dict]:
@@ -406,10 +427,13 @@ class SheetStore:
         research_provider: str = "OpenAI Responses API + web_search",
         search_trace: list[dict] | None = None,
         duplicates_discarded: int = 0,
+        actor_email: str = "",
+        actor_role: str = "",
+        execution_origin: str = "manual",
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         self._append(
-            f"'{self.settings.google_executions_tab}'!A:X",
+            f"'{self.settings.google_executions_tab}'!A:AA",
             [[
                 execution_id, now, email, company, website, status, model, prompt_tokens, output_tokens,
                 total_tokens, error, onboarding_id, productora, web_search_calls, web_search_call_limit,
@@ -417,6 +441,7 @@ class SheetStore:
                 json.dumps(research_sources or [], ensure_ascii=False), no_prospect_reason, research_summary,
                 json.dumps(search_configuration or {}, ensure_ascii=False), json.dumps(adjustments or {}, ensure_ascii=False),
                 research_provider, json.dumps(search_trace or [], ensure_ascii=False), duplicates_discarded,
+                actor_email.strip().lower(), actor_role.strip(), execution_origin.strip() or "manual",
             ]],
         )
 
@@ -592,14 +617,19 @@ class SheetStore:
         }])
         return self._prospect_from_row(row)
 
-    def recent_executions(self, email: str | None, limit: int = 20) -> list[dict]:
-        rows = self._get(f"'{self.settings.google_executions_tab}'!A2:X1000")
+    def recent_executions(self, email: str | None, limit: int = 20, *, hide_admin: bool = False) -> list[dict]:
+        rows = self._get(f"'{self.settings.google_executions_tab}'!A2:AA1000")
         if email:
             normalized = email.strip().lower()
             rows = [row for row in rows if len(row) > 2 and str(row[2]).strip().lower() == normalized]
+        if hide_admin:
+            rows = [
+                row for row in rows
+                if "admin" not in str((row + [""] * 27)[25]).strip().lower()
+            ]
         output = []
         for row in reversed(rows[-limit:]):
-            padded = row + [""] * (24 - len(row))
+            padded = row + [""] * (27 - len(row))
             output.append(
                 {
                     "execution_id": padded[0],
@@ -626,6 +656,9 @@ class SheetStore:
                     "research_provider": padded[21] or "OpenAI Responses API + web_search",
                     "search_trace": self._json_list(padded[22]),
                     "duplicates_discarded": self._int(padded[23]),
+                    "actor_email": str(padded[24]).strip().lower(),
+                    "actor_role": str(padded[25]).strip(),
+                    "execution_origin": str(padded[26]).strip() or "manual",
                 }
             )
         return output

@@ -9,12 +9,14 @@ class PipelineStore:
         self.execution = None
         self.schema_checked = False
         self.dashboard_refreshed = False
+        self.reservations = 0
 
     def ensure_operational_schema(self):
         self.schema_checked = True
 
     def reserve_execution(self, email):
         assert email == "owner@example.test"
+        self.reservations += 1
 
     def existing_prospect_keys(self, onboarding_id):
         assert onboarding_id == "ONB-PIPELINE"
@@ -76,7 +78,30 @@ def test_onboarding_pipeline_uses_profile_deduplicates_and_persists_trace(monkey
     assert store.execution["duplicates_discarded"] == 1
     assert store.execution["web_search_calls"] == 2
     assert store.execution["search_trace"][0]["status"] == "Completada"
+    assert store.reservations == 1
     assert store.dashboard_refreshed is True
+
+
+def test_administrator_execution_bypasses_client_quota_and_records_actor(monkeypatch):
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True)
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
+    store = PipelineStore()
+
+    _run_onboarding_research(
+        source(),
+        store,
+        {"target_city": "Madrid"},
+        actor_email="admin@example.test",
+        actor_role="Administrador",
+        execution_origin="manual",
+        bypass_user_limit=True,
+    )
+
+    assert store.reservations == 0
+    assert store.execution["actor_email"] == "admin@example.test"
+    assert store.execution["actor_role"] == "Administrador"
+    assert store.execution["execution_origin"] == "manual"
 
 
 class PreparationStore:
