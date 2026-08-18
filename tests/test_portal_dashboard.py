@@ -267,7 +267,7 @@ def test_prospecting_filter_grid_can_shrink_without_overlapping_summary_panel():
     assert ".professional-grid .input input," in css
     assert ".professional-grid .input textarea { min-width: 0; }" in css
     assert "@media (max-width: 1380px)" in css
-    assert '/static/app.css?v=20260818-1' in portal
+    assert '/static/app.css?v=20260818-2' in portal
 
 
 def test_real_automation_controls_and_admin_execution_visibility_are_present():
@@ -282,6 +282,21 @@ def test_real_automation_controls_and_admin_execution_visibility_are_present():
     assert "Sin límite" in portal
     assert "@media (max-width: 1180px)" in css
     assert ".studio-toolbar-actions { width: 100%; min-width: 0; grid-template-columns: 1fr; }" in css
+
+
+def test_real_research_progress_updates_leads_and_crm_while_running():
+    root = Path(__file__).parents[1]
+    portal = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
+
+    assert 'data-research-progress' in portal
+    assert 'data-research-bar' in portal
+    assert 'leads guardados en Leads y CRM durante esta ejecución' in portal
+    assert '/research-jobs`' in portal
+    assert 'pollResearchJob' in portal
+    assert 'if(savedMore)await loadDashboard()' in portal
+    assert '.research-progress {' in css
+    assert '.research-live-dot' in css
 
 
 def test_client_package_contains_confirmed_form_data_and_excludes_secrets():

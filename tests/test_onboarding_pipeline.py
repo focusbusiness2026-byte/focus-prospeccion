@@ -104,6 +104,37 @@ def test_administrator_execution_bypasses_client_quota_and_records_actor(monkeyp
     assert store.execution["execution_origin"] == "manual"
 
 
+def test_research_reports_real_phases_and_each_persisted_lead(monkeypatch):
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True)
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
+    store = PipelineStore()
+    progress = []
+
+    result = _run_onboarding_research(
+        source(),
+        store,
+        {"target_city": "Madrid"},
+        progress_callback=progress.append,
+    )
+
+    assert result["ok"] is True
+    assert [item["phase"] for item in progress] == [
+        "preparing",
+        "searching",
+        "validating",
+        "saving",
+        "finalizing",
+        "completed",
+    ]
+    saved = next(item for item in progress if item["phase"] == "saving")
+    assert saved["leads_found"] == 1
+    assert saved["latest_lead"]["company"] == "Prospecto Nuevo"
+    assert saved["latest_lead"]["execution_id"] == store.prospects[0]["execution_id"]
+    assert progress[-1]["progress"] == 100
+    assert progress[-1]["leads_found"] == 1
+
+
 class PreparationStore:
     def __init__(self):
         self.saved = None

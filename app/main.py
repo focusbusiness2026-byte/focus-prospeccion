@@ -6,13 +6,16 @@ import io
 import json
 import re
 import secrets
+import time
 import uuid
 import zipfile
 from contextlib import asynccontextmanager
-from typing import Literal
+from datetime import datetime, timezone
+from threading import Lock
+from typing import Callable, Literal
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -105,6 +108,76 @@ class AutomationRequest(BaseModel):
     favorite: bool = False
     interval_minutes: int = Field(default=1440, ge=5, le=4320)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
+
+
+_RESEARCH_JOBS: dict[str, dict] = {}
+_ACTIVE_RESEARCH_JOBS: dict[tuple[str, str], str] = {}
+_RESEARCH_JOBS_LOCK = Lock()
+_RESEARCH_JOB_LIMIT = 100
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _public_research_job(job: dict) -> dict:
+    return {
+        key: job.get(key)
+        for key in (
+            "job_id",
+            "source_id",
+            "status",
+            "phase",
+            "progress",
+            "message",
+            "leads_found",
+            "saved_leads",
+            "execution_id",
+            "created_at",
+            "updated_at",
+        )
+    }
+
+
+def _cleanup_research_jobs_locked() -> None:
+    if len(_RESEARCH_JOBS) <= _RESEARCH_JOB_LIMIT:
+        return
+    removable = sorted(
+        (
+            job for job in _RESEARCH_JOBS.values()
+            if job.get("status") in {"completed", "failed"}
+        ),
+        key=lambda item: item.get("_updated_epoch", 0),
+    )
+    for job in removable[: max(0, len(_RESEARCH_JOBS) - _RESEARCH_JOB_LIMIT)]:
+        _RESEARCH_JOBS.pop(job["job_id"], None)
+
+
+def _update_research_job(job_id: str, **changes) -> dict | None:
+    with _RESEARCH_JOBS_LOCK:
+        job = _RESEARCH_JOBS.get(job_id)
+        if not job:
+            return None
+        latest_lead = changes.pop("latest_lead", None)
+        if latest_lead:
+            saved = list(job.get("saved_leads") or [])
+            if not any(item.get("execution_id") == latest_lead.get("execution_id") for item in saved):
+                saved.append(latest_lead)
+            changes["saved_leads"] = saved[-5:]
+        job.update(changes)
+        job["updated_at"] = _utc_now()
+        job["_updated_epoch"] = time.time()
+        return dict(job)
+
+
+def _safe_research_failure(exc: Exception) -> str:
+    if str(exc) == "OPENAI_API_KEY_REQUIRED":
+        return "La investigación no pudo iniciarse porque el proveedor no está configurado."
+    if isinstance(exc, PermissionError):
+        return "La investigación fue bloqueada por los límites o permisos de la cuenta."
+    if isinstance(exc, ValueError):
+        return str(exc)[:240]
+    return "La investigación no pudo completarse. Revisa Ejecuciones o inténtalo de nuevo."
 
 
 def _is_authorized_admin(identity: Identity, access, settings) -> bool:
@@ -393,7 +466,12 @@ def _run_onboarding_research(
     actor_role: str = "Cliente",
     execution_origin: str = "manual",
     bypass_user_limit: bool = False,
+    progress_callback: Callable[[dict], None] | None = None,
 ) -> dict:
+    def report(**update) -> None:
+        if progress_callback:
+            progress_callback(update)
+
     settings = get_settings()
     if not source.ready:
         raise ValueError("; ".join(source.blockers))
@@ -402,11 +480,26 @@ def _run_onboarding_research(
     execution_id = str(uuid.uuid4())
     reserved = False
     try:
+        report(
+            phase="preparing",
+            progress=5,
+            message="Validando la configuración y los límites de la cuenta…",
+        )
         store.ensure_operational_schema()
         if not bypass_user_limit:
             store.reserve_execution(source.email)
             reserved = True
+        report(
+            phase="searching",
+            progress=20,
+            message="Buscando empresas reales en fuentes públicas verificables…",
+        )
         prospects, trace = OpenAIProspectDiscovery(settings).discover(source.prospecting_profile(), adjustments)
+        report(
+            phase="validating",
+            progress=65,
+            message="Validando evidencia pública y descartando resultados duplicados…",
+        )
         existing_keys = store.existing_prospect_keys(source.record_id)
         discovered_count = len(prospects)
         prospects = [
@@ -416,16 +509,34 @@ def _run_onboarding_research(
         duplicates_discarded = discovered_count - len(prospects)
         if not prospects and duplicates_discarded:
             trace["no_prospect_reason"] = "Los resultados encontrados ya existían para esta productora y se descartaron como duplicados."
+        total_to_save = len(prospects)
         for index, prospect in enumerate(prospects, start=1):
+            prospect_execution_id = f"{execution_id}-{index:03d}"
             store.append_prospect(
                 {
                     **prospect,
-                    "execution_id": f"{execution_id}-{index:03d}",
+                    "execution_id": prospect_execution_id,
                     "email": source.email,
                     "onboarding_id": source.record_id,
                     "productora": source.company,
                 }
             )
+            report(
+                phase="saving",
+                progress=65 + round((index / max(total_to_save, 1)) * 25),
+                message=f"Lead {index} de {total_to_save} guardado en Leads y CRM.",
+                leads_found=index,
+                latest_lead={
+                    "company": str(prospect.get("company") or "Empresa verificada")[:120],
+                    "execution_id": prospect_execution_id,
+                },
+            )
+        report(
+            phase="finalizing",
+            progress=95,
+            message="Registrando la ejecución y actualizando el panel…",
+            leads_found=total_to_save,
+        )
         store.append_execution(
             execution_id=execution_id,
             email=source.email,
@@ -457,6 +568,17 @@ def _run_onboarding_research(
             store.refresh_dashboard_summary()
         except Exception:
             pass
+        report(
+            phase="completed",
+            progress=100,
+            message=(
+                f"Investigación completada: {len(prospects)} leads guardados en Leads y CRM."
+                if prospects
+                else "Investigación completada sin nuevos leads verificables."
+            ),
+            leads_found=len(prospects),
+            execution_id=execution_id,
+        )
         return {"ok": True, "execution_id": execution_id, "prospects": prospects, "trace": trace}
     except Exception as exc:
         if reserved and settings.refund_failed_searches:
@@ -486,6 +608,52 @@ def _run_onboarding_research(
         except Exception:
             pass
         raise
+
+
+def _execute_research_job(
+    job_id: str,
+    source,
+    adjustments: dict,
+    actor_email: str,
+    actor_role: str,
+    bypass_user_limit: bool,
+) -> None:
+    def on_progress(update: dict) -> None:
+        _update_research_job(job_id, **update)
+
+    try:
+        result = _run_onboarding_research(
+            source,
+            SheetStore(get_settings()),
+            adjustments,
+            actor_email=actor_email,
+            actor_role=actor_role,
+            execution_origin="manual",
+            bypass_user_limit=bypass_user_limit,
+            progress_callback=on_progress,
+        )
+        _update_research_job(
+            job_id,
+            status="completed",
+            phase="completed",
+            progress=100,
+            leads_found=len(result["prospects"]),
+            execution_id=result["execution_id"],
+        )
+    except Exception as exc:
+        _update_research_job(
+            job_id,
+            status="failed",
+            phase="failed",
+            progress=100,
+            message=_safe_research_failure(exc),
+        )
+    finally:
+        key = (source.record_id, actor_email.strip().lower())
+        with _RESEARCH_JOBS_LOCK:
+            if _ACTIVE_RESEARCH_JOBS.get(key) == job_id:
+                _ACTIVE_RESEARCH_JOBS.pop(key, None)
+            _cleanup_research_jobs_locked()
 
 
 def _sync_automations_once() -> None:
@@ -813,6 +981,96 @@ def onboarding_source(record_id: str, identity: Identity = Depends(require_ident
             store.get_automation_config(source.record_id),
         )
     }
+
+
+@app.post("/api/onboarding-sources/{record_id}/research-jobs", status_code=202)
+def start_research_job(
+    record_id: str,
+    payload: ResearchAdjustments,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="Google Sheets no está activado")
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Investigación pendiente: configura OPENAI_API_KEY como secreto del servidor.",
+        )
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    if not source.ready:
+        raise HTTPException(status_code=422, detail="; ".join(source.blockers))
+
+    actor_email = identity.email.strip().lower()
+    active_key = (source.record_id, actor_email)
+    with _RESEARCH_JOBS_LOCK:
+        active_id = _ACTIVE_RESEARCH_JOBS.get(active_key)
+        active_job = _RESEARCH_JOBS.get(active_id) if active_id else None
+        if active_job and active_job.get("status") in {"queued", "running"}:
+            return JSONResponse(_public_research_job(active_job), status_code=200)
+        job_id = str(uuid.uuid4())
+        now = _utc_now()
+        job = {
+            "job_id": job_id,
+            "source_id": source.record_id,
+            "owner_email": actor_email,
+            "status": "queued",
+            "phase": "queued",
+            "progress": 0,
+            "message": "Investigación en cola. Preparando la búsqueda real…",
+            "leads_found": 0,
+            "saved_leads": [],
+            "execution_id": "",
+            "created_at": now,
+            "updated_at": now,
+            "_updated_epoch": time.time(),
+        }
+        _RESEARCH_JOBS[job_id] = job
+        _ACTIVE_RESEARCH_JOBS[active_key] = job_id
+        _cleanup_research_jobs_locked()
+
+    _update_research_job(
+        job_id,
+        status="running",
+        phase="preparing",
+        progress=2,
+        message="Preparando la investigación real…",
+    )
+    background_tasks.add_task(
+        _execute_research_job,
+        job_id,
+        source,
+        payload.model_dump(),
+        actor_email,
+        access.role,
+        is_admin,
+    )
+    return _public_research_job(_RESEARCH_JOBS[job_id])
+
+
+@app.get("/api/research-jobs/{job_id}")
+def research_job_status(job_id: str, identity: Identity = Depends(require_identity)):
+    settings = get_settings()
+    with _RESEARCH_JOBS_LOCK:
+        job = dict(_RESEARCH_JOBS.get(job_id) or {})
+    if not job:
+        raise HTTPException(status_code=404, detail="No se encontró la investigación")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email) if settings.google_sheets_enabled else None
+    is_admin = bool(access and _is_authorized_admin(identity, access, settings))
+    if identity.email.strip().lower() != job.get("owner_email") and not is_admin:
+        raise HTTPException(status_code=404, detail="No se encontró la investigación")
+    return _public_research_job(job)
 
 
 @app.post("/api/onboarding-sources/{record_id}/research")
