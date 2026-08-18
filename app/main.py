@@ -110,6 +110,21 @@ def _is_authorized_admin(identity: Identity, access, settings) -> bool:
     return "admin" in access.role.lower() and identity.email.strip().lower() in allowed
 
 
+def _admin_available_users(store: SheetStore, sources: list) -> list[dict]:
+    users: dict[str, dict] = {}
+    for item in store.access_records():
+        if item.state.lower() != "activo" or "admin" in item.role.lower():
+            continue
+        users[item.email] = {"email": item.email, "role": item.role, "onboarding_count": 0}
+    for source in sources:
+        email = source.email.strip().lower()
+        if not email:
+            continue
+        user = users.setdefault(email, {"email": email, "role": "Cliente registrado", "onboarding_count": 0})
+        user["onboarding_count"] += 1
+    return sorted(users.values(), key=lambda item: item["email"])
+
+
 def _safe_package_name(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-.")
     return normalized[:80] or "cliente"
@@ -684,16 +699,18 @@ def portal_dashboard(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     store.ensure_operational_schema()
-    is_admin = "admin" in access.role.lower()
+    is_admin = _is_authorized_admin(identity, access, settings)
     requested_scope = view_as.strip().lower()
     if requested_scope and not is_admin:
         raise HTTPException(status_code=403, detail="Solo la administración puede usar la vista como cliente")
+    all_sources = store.onboarding_sources(None) if is_admin else []
     scoped_access = store.get_access(requested_scope) if requested_scope else None
-    if requested_scope and not scoped_access:
-        raise HTTPException(status_code=404, detail="El cliente solicitado no está activo en Accesos")
+    scoped_sources = [source for source in all_sources if source.email == requested_scope] if requested_scope else []
+    if requested_scope and not scoped_access and not scoped_sources:
+        raise HTTPException(status_code=404, detail="El cliente solicitado no está registrado")
     scope_email = requested_scope or (None if is_admin else identity.email)
     visible_access = scoped_access or access
-    source_records = store.onboarding_sources(scope_email)
+    source_records = scoped_sources if requested_scope and scoped_sources else store.onboarding_sources(scope_email)
     sources = [
         _source_view(
             source,
@@ -706,11 +723,11 @@ def portal_dashboard(
     global_metrics = store.global_metrics() if is_admin and not requested_scope else None
     return {
         "user": {
-            "email": visible_access.email,
-            "role": visible_access.role,
-            "assigned": visible_access.assigned,
-            "used": visible_access.used,
-            "available": visible_access.available,
+            "email": requested_scope or visible_access.email,
+            "role": scoped_access.role if scoped_access else ("Cliente registrado" if requested_scope else visible_access.role),
+            "assigned": scoped_access.assigned if scoped_access else (0 if requested_scope else visible_access.assigned),
+            "used": scoped_access.used if scoped_access else (0 if requested_scope else visible_access.used),
+            "available": scoped_access.available if scoped_access else (0 if requested_scope else visible_access.available),
         },
         "global": global_metrics,
         "metrics": store.prospect_metrics(scope_email),
@@ -726,11 +743,7 @@ def portal_dashboard(
             "is_admin": is_admin,
             "authenticated_email": identity.email,
             "viewing_as": requested_scope,
-            "available_users": [
-                {"email": item.email, "role": item.role}
-                for item in store.access_records()
-                if item.state.lower() == "activo" and "admin" not in item.role.lower()
-            ] if is_admin else [],
+            "available_users": _admin_available_users(store, all_sources) if is_admin else [],
         },
         "demo": False,
     }

@@ -9,7 +9,7 @@ from app.config import get_settings
 import pytest
 from pydantic import ValidationError
 
-from app.main import AutomationRequest, ResearchAdjustments, _build_client_package, _csv_cell, _demo_payload, app
+from app.main import AutomationRequest, ResearchAdjustments, _admin_available_users, _build_client_package, _csv_cell, _demo_payload, app
 from app.onboarding import OnboardingSource
 
 
@@ -128,6 +128,7 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "lead-focus-mark" in response.text
     assert "Descargar paquete del cliente" in response.text
     assert "Paquete del cliente" in response.text
+    assert ">Radar</a>" in response.text
 
     source_response = client.get("/api/onboarding-sources/ONB-DEMO0001")
     assert source_response.status_code == 200
@@ -209,11 +210,49 @@ def test_desktop_navigation_uses_two_rows_without_single_item_more_menu():
     html = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
     css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
 
-    assert html.count('class="top-link') == 8
-    assert 'grid-template-columns: repeat(4, minmax(105px, 1fr))' in css
+    assert html.count('class="top-link') == 9
+    assert 'grid-template-columns: repeat(5, minmax(92px, 1fr))' in css
     assert 'grid-auto-rows: 42px' in css
     assert '<summary>MÃ¡s</summary>' not in html
     assert '>Paquete del cliente</a>' in html
+
+
+def test_admin_client_selector_combines_access_and_registered_onboarding_accounts():
+    class Store:
+        def access_records(self):
+            return [
+                type("Access", (), {"email": "active@example.com", "role": "Cliente", "state": "Activo"})(),
+                type("Access", (), {"email": "admin@example.com", "role": "Administrador", "state": "Activo"})(),
+            ]
+
+    sources = [
+        type("Source", (), {"email": "registered@example.com"})(),
+        type("Source", (), {"email": "registered@example.com"})(),
+        type("Source", (), {"email": "active@example.com"})(),
+    ]
+
+    users = _admin_available_users(Store(), sources)
+
+    assert users == [
+        {"email": "active@example.com", "role": "Cliente", "onboarding_count": 1},
+        {"email": "registered@example.com", "role": "Cliente registrado", "onboarding_count": 2},
+    ]
+
+
+def test_portal_identifies_client_and_administrator_views_visually():
+    root = Path(__file__).parents[1]
+    portal = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
+
+    assert 'id="portal-role-banner"' in portal
+    assert 'id="portal-role-title">Vista de cliente' in portal
+    assert "Vista administrativa · revisión como cliente" in portal
+    assert "Cuenta revisada:" in portal
+    assert "ADMIN + CLIENTE" in portal
+    assert "Vista administrativa · demostración" in portal
+    assert "Acceso limitado a sus propios datos" in portal
+    assert ".portal-role-banner.admin" in css
+    assert ".portal-role-banner.client" in css
 
 
 def test_prospecting_filter_grid_can_shrink_without_overlapping_summary_panel():
