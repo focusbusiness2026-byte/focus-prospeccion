@@ -10,6 +10,7 @@ import uuid
 import zipfile
 from contextlib import asynccontextmanager
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -550,12 +551,15 @@ def _template(request: Request, name: str, **context):
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request):
-    from app.auth import verify_session
+async def index(request: Request):
+    from app.auth import verify_central_session
 
-    if verify_session(request.cookies.get(SESSION_COOKIE)):
-        return RedirectResponse("/portal", status_code=303)
     settings = get_settings()
+    if await verify_central_session(request.cookies.get(SESSION_COOKIE), settings):
+        return RedirectResponse("/portal", status_code=303)
+    if settings.central_auth_enabled:
+        destination = f"{settings.public_base_url.rstrip('/')}/portal"
+        return RedirectResponse(f"{settings.central_auth_url.rstrip('/')}/access?return_to={quote(destination, safe='')}", status_code=303)
     return _template(
         request,
         "login.html",
@@ -565,13 +569,15 @@ def index(request: Request):
 
 
 @app.get("/portal", response_class=HTMLResponse)
-def portal(request: Request):
-    from app.auth import verify_session
+async def portal(request: Request):
+    from app.auth import verify_central_session
 
-    identity = verify_session(request.cookies.get(SESSION_COOKIE))
+    settings = get_settings()
+    identity = await verify_central_session(request.cookies.get(SESSION_COOKIE), settings)
     if not identity:
-        return RedirectResponse("/", status_code=303)
-    return _template(request, "portal.html", identity=identity)
+        destination = f"{settings.public_base_url.rstrip('/')}/portal"
+        return RedirectResponse(f"{settings.central_auth_url.rstrip('/')}/access?return_to={quote(destination, safe='')}", status_code=303)
+    return _template(request, "portal.html", identity=identity, radar_portal_url=settings.radar_portal_url)
 
 
 @app.get("/health")
@@ -581,6 +587,7 @@ def health():
         "status": "ok",
         "sheets_configured": bool(settings.google_sheets_enabled and settings.google_service_account_json),
         "google_login_configured": bool(settings.google_oauth_client_id),
+        "central_auth_configured": bool(settings.central_auth_enabled and settings.central_auth_url),
         "openai_configured": bool(settings.openai_api_key),
         "openai_web_search_call_limit": settings.web_search_call_limit,
         "auto_research_enabled": settings.auto_research_enabled,
@@ -653,6 +660,12 @@ def demo_login(request: Request):
 @app.post("/auth/logout")
 def logout(request: Request):
     validate_csrf(request)
+    settings = get_settings()
+    if settings.central_auth_enabled:
+        return JSONResponse({
+            "ok": True,
+            "redirect": f"{settings.central_auth_url.rstrip('/')}/logout?return_to={quote(settings.public_base_url, safe='')}",
+        })
     response = JSONResponse({"ok": True, "redirect": "/"})
     response.delete_cookie(SESSION_COOKIE)
     return response

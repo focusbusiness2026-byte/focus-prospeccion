@@ -8,6 +8,7 @@ import secrets
 import time
 from dataclasses import dataclass
 
+import httpx
 from fastapi import HTTPException, Request
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
@@ -83,8 +84,30 @@ def verify_google_credential(credential: str, settings: Settings | None = None) 
     return info
 
 
-def require_identity(request: Request) -> Identity:
-    identity = verify_session(request.cookies.get(SESSION_COOKIE))
+async def verify_central_session(token: str | None, settings: Settings | None = None) -> Identity | None:
+    settings = settings or get_settings()
+    if not token:
+        return None
+    if not settings.central_auth_enabled:
+        return verify_session(token, settings)
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{settings.central_auth_url.rstrip('/')}/api/auth/introspect",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if response.status_code != 200:
+            return None
+        payload = response.json()
+        if payload.get("ok") is not True or not payload.get("email"):
+            return None
+        return Identity(email=str(payload["email"]).lower().strip(), role=str(payload.get("role") or "Cliente"), google_sub="central")
+    except (httpx.HTTPError, ValueError, KeyError):
+        return None
+
+
+async def require_identity(request: Request) -> Identity:
+    identity = await verify_central_session(request.cookies.get(SESSION_COOKIE))
     if not identity:
         raise HTTPException(status_code=401, detail="Inicia sesion para continuar")
     return identity

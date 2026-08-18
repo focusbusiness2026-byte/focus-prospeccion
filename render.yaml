@@ -13,7 +13,7 @@ services:
       - key: APP_SECRET
         generateValue: true
       - key: PUBLIC_BASE_URL
-        sync: false
+        value: https://prospeccion.focusbusinesslab.es
       - key: DEMO_AUTH_BYPASS
         value: "false"
       - key: SOURCE_MODE
@@ -30,6 +30,12 @@ services:
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
         sync: false
+      - key: CENTRAL_AUTH_ENABLED
+        value: "true"
+      - key: CENTRAL_AUTH_URL
+        value: https://onboarding.focusbusinesslab.es
+      - key: RADAR_PORTAL_URL
+        value: https://radar.focusbusinesslab.es/
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL

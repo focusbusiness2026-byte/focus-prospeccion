@@ -5,6 +5,7 @@ import json
 import zipfile
 
 from app.auth import SESSION_COOKIE, Identity, create_session
+from app.config import get_settings
 import pytest
 from pydantic import ValidationError
 
@@ -140,6 +141,21 @@ def test_internal_onboarding_trigger_is_closed_without_server_secret():
 
     assert response.status_code == 503
     assert "no está configurado" in response.json()["detail"]
+
+
+def test_production_portal_redirects_to_shared_email_password_access(monkeypatch):
+    monkeypatch.setenv("CENTRAL_AUTH_ENABLED", "true")
+    monkeypatch.setenv("CENTRAL_AUTH_URL", "https://onboarding.focusbusinesslab.es")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://prospeccion.focusbusinesslab.es")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(app, follow_redirects=False)
+        response = client.get("/")
+        assert response.status_code == 303
+        assert response.headers["location"].startswith("https://onboarding.focusbusinesslab.es/access?return_to=")
+        assert "prospeccion.focusbusinesslab.es" in response.headers["location"]
+    finally:
+        get_settings.cache_clear()
 
 
 def test_professional_research_configuration_limits_requested_leads():
