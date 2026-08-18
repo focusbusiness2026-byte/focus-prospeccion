@@ -20,11 +20,21 @@
         <a class="top-link" href="#method" data-view="method">Metodología</a>
         <a class="top-link" href="#warmup" data-view="warmup">Calentamiento</a>
         <a class="top-link" href="#codex-delivery" data-view="codex-delivery">Paquete del cliente</a>
+        {% if radar_portal_url %}<a class="top-link portal-switch" href="{{ radar_portal_url }}">Radar</a>{% endif %}
       </nav>
       <div class="header-actions"><div id="admin-client-view" class="admin-client-view" hidden><label><span>Vista administrativa</span><select id="admin-view-as"><option value="">Todas las cuentas</option></select></label><small id="admin-view-status">Control total · vista global</small></div><div id="demo-role-control" class="demo-role-control" hidden><label><span>Correo demo</span><input id="demo-role-email" type="email" value="servicemanagerbossio@gmail.com" aria-label="Correo del rol simulado" /></label><label><span>Rol demo</span><select id="demo-role"><option value="admin">Administrador</option><option value="client">Cliente</option></select></label></div><span id="demo-badge" class="badge demo-badge" hidden>Vista de demostración</span><details class="account-menu"><summary><span>{{ identity.email }}</span><i>{{ identity.role }}</i></summary><div>{% if radar_portal_url %}<a href="{{ radar_portal_url }}">Abrir Radar viral</a>{% endif %}<button id="logout" type="button">Cerrar sesión</button></div></details></div>
     </header>
 
     <main class="content">
+      <section id="portal-role-banner" class="portal-role-banner client" aria-live="polite">
+        <span class="portal-role-icon" aria-hidden="true">C</span>
+        <div class="portal-role-copy">
+          <small id="portal-role-kicker">ACCESO IDENTIFICADO</small>
+          <strong id="portal-role-title">Vista de cliente</strong>
+          <span id="portal-role-detail">Cuenta activa: {{ identity.email }}</span>
+        </div>
+        <b id="portal-role-badge" class="portal-role-badge">CLIENTE</b>
+      </section>
 
       <section id="dashboard" class="hero-section portal-view active" data-title="Inicio">
         <div class="dashboard-automation-dock"><button id="toggle-dashboard-automations" class="secondary" type="button" aria-expanded="false" aria-controls="dashboard-automation-quick"><span>Automatizaciones</span><b>Mostrar panel</b></button></div>
@@ -203,14 +213,25 @@
     }
 
     function renderAdminContext(data){
-      const context=data.admin_context||{},control=document.querySelector('#admin-client-view'),select=document.querySelector('#admin-view-as'),status=document.querySelector('#admin-view-status');
-      if(!control||!select||!status)return;
+      const context=data.admin_context||{},control=document.querySelector('#admin-client-view'),select=document.querySelector('#admin-view-as'),status=document.querySelector('#admin-view-status'),banner=document.querySelector('#portal-role-banner'),icon=banner?.querySelector('.portal-role-icon'),title=document.querySelector('#portal-role-title'),detail=document.querySelector('#portal-role-detail'),badge=document.querySelector('#portal-role-badge');
+      if(!control||!select||!status||!banner||!icon||!title||!detail||!badge)return;
       control.hidden=!context.is_admin;
-      if(!context.is_admin)return;
+      banner.classList.toggle('admin',Boolean(context.is_admin));
+      banner.classList.toggle('client',!context.is_admin);
+      icon.textContent=context.is_admin?'A':'C';
+      if(!context.is_admin){
+        title.textContent='Vista de cliente';
+        detail.textContent=`Cuenta activa: ${data.user?.email||context.authenticated_email||'correo registrado'}`;
+        badge.textContent='CLIENTE';
+        return;
+      }
       select.innerHTML='<option value="">Todas las cuentas</option>'+(context.available_users||[]).map(item=>`<option value="${esc(item.email)}">${esc(item.email)} · ${esc(item.role)}</option>`).join('');
       select.value=context.viewing_as||'';
       adminViewAs=context.viewing_as||'';
       status.textContent=adminViewAs?`Control administrador · viendo la cuenta como ${adminViewAs}`:'Control administrador completo · vista global';
+      title.textContent=adminViewAs?'Vista administrativa · revisión como cliente':'Vista administrativa';
+      detail.textContent=adminViewAs?`Sesión: ${context.authenticated_email} · Cuenta revisada: ${adminViewAs}`:`Sesión: ${context.authenticated_email} · Todas las cuentas`;
+      badge.textContent=adminViewAs?'ADMIN + CLIENTE':'ADMINISTRADOR';
     }
 
     const filterOptions={
@@ -301,7 +322,20 @@
     const isPreviewAdmin=()=>dashboardData?.demo
       ? previewRole()==='admin'&&previewEmail()===authorizedDeliveryEmail
       : sessionEmail===authorizedDeliveryEmail&&sessionRole.includes('admin');
-    function applyPreviewRole(){const role=previewRole(),email=previewEmail(),allowed=isPreviewAdmin(),control=document.querySelector('#demo-role-control'),select=document.querySelector('#demo-role'),emailInput=document.querySelector('#demo-role-email'),delivery=document.querySelector('#codex-delivery');if(control)control.hidden=!dashboardData.demo;if(select)select.value=role;if(emailInput)emailInput.value=email;if(delivery)delivery.dataset.roleAllowed=String(allowed);}
+    function applyPreviewRole(){
+      const role=previewRole(),email=previewEmail(),allowed=isPreviewAdmin(),control=document.querySelector('#demo-role-control'),select=document.querySelector('#demo-role'),emailInput=document.querySelector('#demo-role-email'),delivery=document.querySelector('#codex-delivery'),banner=document.querySelector('#portal-role-banner'),icon=banner?.querySelector('.portal-role-icon'),title=document.querySelector('#portal-role-title'),detail=document.querySelector('#portal-role-detail'),badge=document.querySelector('#portal-role-badge');
+      if(control)control.hidden=!dashboardData.demo;
+      if(select)select.value=role;
+      if(emailInput)emailInput.value=email;
+      if(delivery)delivery.dataset.roleAllowed=String(allowed);
+      if(!dashboardData.demo||!banner||!icon||!title||!detail||!badge)return;
+      banner.classList.toggle('admin',allowed);
+      banner.classList.toggle('client',!allowed);
+      icon.textContent=allowed?'A':'C';
+      title.textContent=allowed?'Vista administrativa · demostración':'Vista de cliente · demostración';
+      detail.textContent=allowed?`Sesión simulada: ${email} · Control de todas las cuentas`:`Cuenta simulada: ${email} · Acceso limitado a sus propios datos`;
+      badge.textContent=allowed?'ADMINISTRADOR':'CLIENTE';
+    }
     const crmPresentationKey='focus-prospeccion:crm-presentation:v1';
     const crmBoardSeed=()=>({columns:[{id:'new',name:'Nuevos'},{id:'review',name:'En revisión'},{id:'contact',name:'Contactar'},{id:'followup',name:'En seguimiento'},{id:'closed',name:'Cerrado'}],assignments:{}});
     function readCrmBoard(){try{return JSON.parse(localStorage.getItem(crmPreviewKey))||crmBoardSeed();}catch{return crmBoardSeed();}}
