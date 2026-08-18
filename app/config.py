@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     app_secret: str = "change-me-in-production"
     public_base_url: str = "http://127.0.0.1:8000"
     google_oauth_client_id: str = ""
+    central_auth_enabled: bool = False
+    central_auth_url: str = "https://onboarding.focusbusinesslab.es"
+    radar_portal_url: str = "https://radar.focusbusinesslab.es/"
     worker_poll_seconds: int = 20
     refund_failed_searches: bool = True
     overpass_url: str = "https://overpass-api.de/api/interpreter"
