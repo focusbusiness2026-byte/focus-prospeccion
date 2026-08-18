@@ -69,3 +69,14 @@ La comprobación del servicio público descrita arriba es histórica y no valida
 - OpenAI simulado: límite de 5 llamadas, contactos y señales con fuente, sin clave en el payload.
 - Persistencia ampliada para configuración, consultas, fuentes, señales y CRM.
 - Sin despliegue, escritura real en Sheets ni llamada real a OpenAI.
+
+## Validación del progreso de investigación — 18 de agosto de 2026
+
+- La ejecución manual devuelve un trabajo consultable sin bloquear el navegador.
+- El progreso refleja fases comprobables: preparación, búsqueda pública, validación, guardado individual y actualización final.
+- Cada prospecto persistido incrementa el contador y provoca la recarga de Leads y CRM.
+- Se evita iniciar una segunda ejecución simultánea para la misma fuente y persona.
+- El estado del trabajo solo se expone a su iniciador o a una administración autorizada.
+- 56 pruebas automatizadas superadas; Python compilado, JavaScript válido y `git diff --check` correcto.
+- QA local en escritorio y viewport móvil: componente presente, botón visible, sin errores de consola ni desbordamiento horizontal.
+- No se llamó OpenAI ni se escribieron datos reales durante la validación local.

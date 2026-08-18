@@ -17,6 +17,7 @@ Formulario Onboarding
 - Sin `OPENAI_API_KEY`, el registro queda visible como `Pendiente de configurar OpenAI` y no se realiza ninguna búsqueda.
 - Cada productora puede activar una automatización propia entre 5 minutos y 3 días. La programación y sus filtros se guardan en `Automatizaciones`; el motor puede desactivarse globalmente con `AUTO_RESEARCH_ENABLED=false`.
 - Una ejecución de OpenAI Responses API usa `web_search` y `max_tool_calls` limitado localmente a 5.
+- Las ejecuciones manuales del portal se inician como trabajos en segundo plano. La interfaz consulta su estado, muestra fases reales y actualiza Leads y CRM después de cada prospecto persistido; no inventa avances ni resultados durante la llamada al proveedor.
 - Solo se aceptan contactos, redes y señales con URL de evidencia. No se inicia sesión, evade CAPTCHA ni consulta contenido privado.
 - Lo que no tiene evidencia se muestra como `No encontrado públicamente`, no como cero.
 - La clave de OpenAI vive solo en el entorno del servidor. No existe input de clave ni se guarda en Sheets, UI, logs o Git.
@@ -87,6 +88,8 @@ La administración puede ejecutar las veces necesarias sin consumir la cuota ind
 `ensure_operational_schema()` amplía exclusivamente las columnas operativas de `Prospeccion`, `Ejecuciones` y `Automatizaciones`, añade encabezados finales faltantes y migra el encabezado heredado `gemini_model` a `model`; no reescribe filas de datos. La pestaña visual `Dashboard Prospeccion` queda intacta.
 
 La deduplicación se aplica por dominio (o identidad normalizada disponible) dentro de cada `onboarding_id` antes de guardar en CRM. El número descartado queda en `Ejecuciones.duplicates_discarded`.
+
+El botón de investigación utiliza `POST /api/onboarding-sources/{record_id}/research-jobs` y consulta `GET /api/research-jobs/{job_id}`. Solo la persona que inició el trabajo o una administración autorizada puede ver su estado. El servidor devuelve el trabajo activo si se pulsa de nuevo para la misma cuenta y fuente, evitando consumo duplicado accidental. El endpoint síncrono anterior se conserva para compatibilidad interna.
 
 ## Variables
 
