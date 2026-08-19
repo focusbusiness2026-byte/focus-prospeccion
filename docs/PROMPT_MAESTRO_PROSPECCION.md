@@ -1,6 +1,6 @@
 # Prompt maestro y especificación funcional de Prospección
 
-Estado: **especificación local; no activa consultas, cuotas, escrituras, importaciones ni despliegues**.
+Estado: **especificación y controles de revisión implementados; no activan consultas, IA, importaciones ni consumo por sí solos**.
 
 Fecha de revisión: 2026-08-19.
 
@@ -386,6 +386,15 @@ Acciones separadas: `Descartar`, `Marcar para revisión`, `Aprobar candidato`. S
 
 La salida para GoHighLevel contiene exclusivamente candidatos con `eligible=true`, `approvable=true` y aprobación humana registrada. Los demás permanecen en revisión o se descartan; nunca viajan en el archivo de importación.
 
+### Revisión por cuenta y solicitud de resumen
+
+- Cada productora autenticada recibe únicamente los leads cuyo correo propietario coincide con su sesión y puede decidir `Aprobado`, `Descartado` o `En revisión`.
+- La administración autorizada puede consultar todas las cuentas o filtrar una concreta. Su revisión (`Confirmada`, `Rechazada` o `En revisión`) se guarda aparte y nunca reemplaza la decisión del cliente.
+- Cada evento conserva cuenta propietaria, ejecución, actor, rol, fecha, decisión y motivo opcional. La clave de asociación es cuenta + ejecución, no solo el identificador de ejecución.
+- `Solicitar resumen de mis leads` muestra primero el alcance de esa cuenta y exige confirmación. La solicitud queda `Pendiente de preparación`; no genera un resumen, no llama IA y no consume servicios externos.
+- La administración puede ver el estado de la solicitud asociado a esa productora, pero no solicitarla en nombre del cliente ni mezclar sus datos con otra cuenta.
+- Cualquier salida externa exige aprobación del cliente. Si `LEAD_ADMIN_REVIEW_REQUIRED=true`, exige además confirmación administrativa. Esta condición solo habilita preparación posterior; no ejecuta importaciones.
+
 ## 11. Criterios de aceptación
 
 1. El botón prepara una vista previa sin red ni consumo.
@@ -406,6 +415,13 @@ La salida para GoHighLevel contiene exclusivamente candidatos con `eligible=true
 16. Radar no aparece como fuente ni salida del motor de empresas.
 17. Cliente y administrador ven solo los datos permitidos por su sesión; no se filtra información entre cuentas.
 18. Logs y artefactos no contienen credenciales, secretos ni prompts con datos innecesarios.
+19. Dos cuentas con el mismo identificador de ejecución no comparten decisiones: el sistema vincula por cuenta + ejecución.
+20. La decisión del cliente y la revisión administrativa se muestran y conservan por separado.
+21. Cada cambio registra actor, rol, fecha, decisión y motivo opcional.
+22. El cliente puede solicitar un resumen solo de sus leads mediante vista previa y confirmación; la solicitud no genera IA ni llamadas externas.
+23. La administración consulta el estado por productora, pero no confirma la solicitud en nombre del cliente.
+24. Las salidas para Meta o GoHighLevel consideran únicamente leads con aprobación suficiente según la política configurada.
+25. Una ruta sin sesión o una sesión de otra cuenta no puede decidir ni solicitar resumen sobre datos ajenos.
 
 ## 12. Plan de implementación comprobable
 
@@ -449,4 +465,4 @@ La salida para GoHighLevel contiene exclusivamente candidatos con `eligible=true
 
 ## 13. Evidencia de esta entrega
 
-Esta entrega solo añade documentación contractual y una prueba local de integridad. No modifica el motor, la interfaz, Google Sheets, GoHighLevel, Focus Viral Radar ni proveedores externos.
+La implementación incorpora el registro append-only `Revisiones Leads`, estados separados de cliente/administración, señales de duplicado, trazabilidad visible, vista previa y solicitud de resumen. Las pruebas automatizadas cubren aislamiento con identificadores coincidentes, separación de roles, protección de acciones externas y solicitud sin consumo. No activa investigación, IA, importación a Google Sheets/GoHighLevel ni Focus Viral Radar.

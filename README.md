@@ -79,6 +79,15 @@ last_status, updated_at, last_execution_id, adjustments_json
 name, favorite, created_by_email, created_by_role
 ```
 
+`Revisiones Leads` se crea de forma conservadora al registrar la primera decisión o solicitud y usa `A:M` como historial append-only:
+
+```text
+event_id, event_type, onboarding_id, owner_email, execution_id, actor_email,
+actor_role, decision, reason, created_at, scope_json, result_status, result_ref
+```
+
+La productora autenticada solo ve y decide sobre sus leads. La administración autorizada puede revisar todas las cuentas, pero su decisión se conserva separada y no sustituye la del cliente. Cada cambio registra cuenta, actor, rol, fecha y motivo opcional. La solicitud de resumen se confirma por el cliente y solo crea un estado pendiente: no llama IA, no consume cuota ni inicia importaciones.
+
 La automatización parte desactivada para cada productora. Al activarla, la primera investigación se agenda al finalizar el intervalo elegido y reutiliza los filtros guardados. El servidor fuerza un mínimo de 5 minutos y un máximo de 4320 minutos (3 días). El nombre es obligatorio y solo puede existir una favorita por cuenta.
 
 La administración puede ejecutar las veces necesarias sin consumir la cuota individual del cliente. Este privilegio no elimina los límites técnicos por ejecución, el presupuesto global ni las salvaguardas del proveedor. El historial registra quién ejecutó y desde qué origen: la administración puede revisar actividad de cliente y administrativa, mientras la vista de cliente excluye las ejecuciones identificadas como administrativas.
@@ -107,6 +116,8 @@ El botón de investigación utiliza `POST /api/onboarding-sources/{record_id}/re
 | `AUTO_RESEARCH_ENABLED` | Activa el motor de programaciones. Ninguna productora se ejecuta hasta habilitar su programación. |
 | `AUTO_RESEARCH_POLL_SECONDS` | Frecuencia interna con la que el servidor revisa programaciones vencidas; mínimo efectivo 60 s. |
 | `PROSPECTION_TRIGGER_TOKEN` | Secreto servidor-a-servidor para despertar/procesar un nuevo ID de Onboarding. |
+| `GOOGLE_LEAD_REVIEWS_TAB` | Pestaña append-only de decisiones y solicitudes; valor recomendado `Revisiones Leads`. |
+| `LEAD_ADMIN_REVIEW_REQUIRED` | Si es `true`, una salida externa futura exige aprobación del cliente y confirmación administrativa. No ejecuta la salida. |
 
 La interfaz muestra únicamente si OpenAI está configurado. La clave nunca se devuelve al navegador, no se guarda en Google Sheets y no debe aparecer en logs o Git.
 

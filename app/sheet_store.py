@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -41,6 +42,10 @@ AUTOMATION_HEADERS = [
     "onboarding_id", "email", "enabled", "interval_minutes", "next_run_at", "last_run_at",
     "last_status", "updated_at", "last_execution_id", "adjustments_json", "name", "favorite",
     "created_by_email", "created_by_role",
+]
+LEAD_REVIEW_HEADERS = [
+    "event_id", "event_type", "onboarding_id", "owner_email", "execution_id", "actor_email",
+    "actor_role", "decision", "reason", "created_at", "scope_json", "result_status", "result_ref",
 ]
 
 
@@ -195,6 +200,101 @@ class SheetStore:
             legacy_aliases={"gemini_model": "model"},
         )
         self._ensure_header_row(self.settings.google_automation_tab, AUTOMATION_HEADERS)
+
+    def _review_tab_exists(self) -> bool:
+        return any(
+            item.get("title") == self.settings.google_lead_reviews_tab
+            for item in self._sheet_properties()
+        )
+
+    def ensure_lead_review_schema(self) -> None:
+        """Create the append-only review log only when a user records an action."""
+        tab = self.settings.google_lead_reviews_tab
+        self._ensure_sheet_capacity(tab, len(LEAD_REVIEW_HEADERS))
+        self._ensure_header_row(tab, LEAD_REVIEW_HEADERS)
+
+    @staticmethod
+    def _review_from_row(row: list) -> dict:
+        padded = row + [""] * (len(LEAD_REVIEW_HEADERS) - len(row))
+        return {
+            "event_id": str(padded[0]),
+            "event_type": str(padded[1]),
+            "onboarding_id": str(padded[2]),
+            "owner_email": str(padded[3]).strip().lower(),
+            "execution_id": str(padded[4]),
+            "actor_email": str(padded[5]).strip().lower(),
+            "actor_role": str(padded[6]),
+            "decision": str(padded[7]),
+            "reason": str(padded[8]),
+            "created_at": str(padded[9]),
+            "scope": SheetStore._json_object(padded[10]),
+            "result_status": str(padded[11]),
+            "result_ref": str(padded[12]),
+        }
+
+    def review_events(
+        self,
+        owner_email: str | None = None,
+        *,
+        onboarding_id: str | None = None,
+        execution_id: str | None = None,
+    ) -> list[dict]:
+        if not self._review_tab_exists():
+            return []
+        rows = self._get(f"'{self.settings.google_lead_reviews_tab}'!A2:M2000")
+        events = [self._review_from_row(row) for row in rows]
+        if owner_email:
+            normalized = owner_email.strip().lower()
+            events = [event for event in events if event["owner_email"] == normalized]
+        if onboarding_id:
+            events = [event for event in events if event["onboarding_id"] == onboarding_id.strip()]
+        if execution_id:
+            events = [event for event in events if event["execution_id"] == execution_id.strip()]
+        return events
+
+    def append_review_event(
+        self,
+        *,
+        event_type: str,
+        onboarding_id: str,
+        owner_email: str,
+        actor_email: str,
+        actor_role: str,
+        decision: str,
+        execution_id: str = "",
+        reason: str = "",
+        scope: dict | None = None,
+        result_status: str = "Pendiente",
+        result_ref: str = "",
+    ) -> dict:
+        if event_type not in {"client_decision", "admin_review", "summary_request", "crm_update"}:
+            raise ValueError("Tipo de evento de revisión no permitido")
+        self.ensure_lead_review_schema()
+        event = {
+            "event_id": str(uuid.uuid4()),
+            "event_type": event_type,
+            "onboarding_id": onboarding_id.strip(),
+            "owner_email": owner_email.strip().lower(),
+            "execution_id": execution_id.strip(),
+            "actor_email": actor_email.strip().lower(),
+            "actor_role": actor_role.strip(),
+            "decision": decision.strip(),
+            "reason": reason.strip()[:500],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "scope": scope or {},
+            "result_status": result_status.strip() or "Pendiente",
+            "result_ref": result_ref.strip(),
+        }
+        self._append(
+            f"'{self.settings.google_lead_reviews_tab}'!A:M",
+            [[
+                event["event_id"], event["event_type"], event["onboarding_id"], event["owner_email"],
+                event["execution_id"], event["actor_email"], event["actor_role"], event["decision"],
+                event["reason"], event["created_at"], json.dumps(event["scope"], ensure_ascii=False),
+                event["result_status"], event["result_ref"],
+            ]],
+        )
+        return event
 
     def automation_configs(self, email: str | None = None) -> list[dict]:
         rows = self._get(f"'{self.settings.google_automation_tab}'!A2:N1000")

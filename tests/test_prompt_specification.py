@@ -34,9 +34,10 @@ def test_prompt_precedence_keeps_client_prompt_below_base_rules():
     assert "nunca puede anular" in text
 
 
-def test_specification_is_local_only():
+def test_specification_keeps_external_actions_disabled_by_default():
     text = SPEC.read_text(encoding="utf-8")
 
-    assert "especificación local" in text
-    assert "no activa consultas, cuotas, escrituras, importaciones ni despliegues" in text
-    assert "Esta entrega solo añade documentación contractual" in text
+    assert "controles de revisión implementados" in text
+    assert "no activan consultas, IA, importaciones ni consumo por sí solos" in text
+    assert "No activa investigación, IA, importación a Google Sheets/GoHighLevel" in text
+    assert "pruebas automatizadas cubren aislamiento" in text
