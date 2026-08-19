@@ -86,12 +86,12 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "Madurez comercial y digital" in response.text
     assert "Decisores y empresas similares" in response.text
     assert 'id="warmup"' in response.text
-    assert "11-4-7" in response.text
+    assert "7‑11‑4" in response.text
     assert 'class="site-header"' in response.text
     assert 'class="sidebar"' not in response.text
     assert 'data-view="sources"' in response.text
     assert '<a class="top-link" href="#method" data-view="method">' in response.text
-    assert '<a class="top-link" href="#warmup" data-view="warmup">' in response.text
+    assert '<a class="top-link" href="#warmup" data-view="warmup">' not in response.text
     assert 'data-schedule-enabled' in response.text
     assert 'data-builder-tab="profile"' in response.text
     assert 'id="automation-preview"' in response.text
@@ -112,11 +112,23 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "Hasta 5 resultados" in response.text
     assert 'max="5" data-number="lead_count"' in response.text
     assert 'id="crm-presentation"' in response.text
-    assert "Tablero · columnas Kanban" in response.text
-    assert "Tarjetas · estilo Trello" in response.text
-    assert "Tabla · hoja de cálculo" in response.text
+    assert "Tablero Kanban por estado" in response.text
+    assert "Tarjetas · estilo Trello" not in response.text
+    assert "Tabla · hoja de cálculo" not in response.text
     assert 'id="crm-preview-board"' in response.text
-    assert 'id="crm-preview-table"' in response.text
+    assert 'id="crm-preview-table"' not in response.text
+    assert 'id="crm-preview-cards"' not in response.text
+    assert 'id="open-ghl-export"' in response.text
+    assert 'id="open-audience-export"' in response.text
+    assert 'id="ghl-export-dialog"' in response.text
+    assert 'id="ghl-export-confirmation"' in response.text
+    assert 'id="scraped-date-filter"' in response.text
+    assert 'id="kanban-stage-filter"' in response.text
+    assert 'id="score-filter"' in response.text
+    assert 'id="completeness-filter"' in response.text
+    assert 'id="result-order"' in response.text
+    assert "Más reciente primero" in response.text
+    assert "timeZoneName:'short'" in response.text
     assert "data-copy-value" in response.text
     assert "draggable=\"true\"" in response.text
     assert "crm-drag-handle" in response.text
@@ -125,10 +137,10 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'id="warmup-action-form"' in response.text
     assert "Email con consentimiento" in response.text
     assert "Tarea manual · LinkedIn" in response.text
-    assert "Cómo se conectará GoHighLevel" in response.text
-    assert "flujo oficial de autorización de GoHighLevel" in response.text
+    assert "Cómo se conectará GoHighLevel" not in response.text
+    assert "Cómo preparar el seguimiento" in response.text
     assert "PhantomBuster" in response.text
-    assert "Descargar audiencia para Meta" in response.text
+    assert "Exportar audiencia para Meta" in response.text
     assert 'id="audience-legal-confirmation"' in response.text
     assert 'id="briefing-dialog"' in response.text
     assert "No llama a servicios externos" in response.text
@@ -152,8 +164,7 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert 'id="admin-lead-delivery-dialog"' in response.text
     assert "sesión real, correo autorizado y permisos del servidor" in response.text
     assert "lead-focus-mark" in response.text
-    assert "Descargar paquete del cliente" in response.text
-    assert "Paquete del cliente" in response.text
+    assert '>Paquete del cliente</a>' not in response.text
     assert ">Radar</a>" in response.text
 
     source_response = client.get("/api/onboarding-sources/ONB-DEMO0001")
@@ -238,11 +249,12 @@ def test_desktop_navigation_uses_two_rows_without_single_item_more_menu():
     html = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
     css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
 
-    assert html.count('class="top-link') == 9
+    assert html.count('class="top-link') == 7
     assert 'grid-template-columns: repeat(5, minmax(92px, 1fr))' in css
     assert 'grid-auto-rows: 42px' in css
     assert '<summary>MÃ¡s</summary>' not in html
-    assert '>Paquete del cliente</a>' in html
+    assert '>Paquete del cliente</a>' not in html
+    assert '>Calentamiento</a>' not in html
 
 
 def test_admin_client_selector_combines_access_and_registered_onboarding_accounts():

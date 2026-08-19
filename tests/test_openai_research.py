@@ -47,7 +47,7 @@ def test_discovery_clamps_web_search_to_five_and_keeps_traceable_public_data():
     assert prospects[0]["public_signals"][0]["evidence_class"] == "company_declared"
 
 
-def test_discovery_respects_the_requested_lead_quantity_without_more_search_calls():
+def test_discovery_uses_the_five_lead_goal_without_more_search_calls():
     response = mock_response()
     original = json.loads(response["output"][1]["content"][0]["text"])
     prospects = []
@@ -62,5 +62,5 @@ def test_discovery_respects_the_requested_lead_quantity_without_more_search_call
 
     result, trace = researcher.discover({"targeting": {"sectors": ["Tecnología"]}}, {"lead_count": 1})
 
-    assert len(result) == 1
+    assert len(result) == 3
     assert trace["web_search_calls"] == 1
