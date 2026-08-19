@@ -588,7 +588,8 @@ Encuentra empresas que puedan ser prospectos comerciales adecuados para la produ
 Onboarding. La configuración del formulario es la fuente principal; los ajustes del dashboard solo acotan esa
 configuración y no autorizan a inventar criterios ausentes.
 
-El objetivo solicitado es devolver hasta {max(1, min(50, int(controls.get("lead_count") or 25)))} empresas verificables; es un máximo, no una promesa de resultados.
+El objetivo operativo es devolver 5 leads válidos y deduplicables. Si no encuentras cinco, entrega únicamente los
+resultados reales que cumplan los criterios y explica el motivo del déficit; no inventes, rellenes ni relajes la calidad.
 Aplica todos los filtros, señales, decisores y exclusiones indicados en AJUSTES OPCIONALES, sin relajar criterios para completar la cantidad.
 Realiza como máximo {self.settings.web_search_call_limit} acciones de búsqueda web pública en total. Respeta robots,
 términos y límites técnicos. No inicies sesión, no evadas CAPTCHA, no accedas a información privada y no afirmes
@@ -732,7 +733,7 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             raw["score_detail"] = score.as_dict()
             prospects.append(raw)
 
-        requested_leads = max(1, min(50, int((adjustments or {}).get("lead_count") or 25)))
+        requested_leads = 5
         prospects = prospects[:requested_leads]
         usage = response.get("usage") or {}
         trace_queries = queries[: self.settings.web_search_call_limit]

@@ -667,6 +667,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .admin-client-view label { display: grid; gap: 3px; }
 .admin-client-view select { width: 100%; padding: 7px 9px; border: 1px solid #6f5b29; border-radius: 8px; background: #101c2b; color: #edf3fa; text-transform: none; }
 .admin-client-view small { max-width: 280px; overflow: hidden; color: var(--gold); font-size: 9px; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+.crm-scraped-at { color: #e7be52; font-variant-numeric: tabular-nums; }
+.public-work-guide { display: grid; gap: 8px; margin-top: 22px; padding: clamp(18px, 3vw, 28px); border: 1px solid #35475d; border-radius: 14px; background: linear-gradient(145deg, #0d1928, #08121e); }
+.public-work-guide h3 { margin: 10px 0 0; color: #f2cc63; }
+.public-work-guide p { margin: 0; color: #b7c4d2; line-height: 1.7; }
+.public-work-guide .pending-note { margin-top: 10px; padding: 12px; border-left: 3px solid #d8a92d; background: #221d10; color: #dfcc96; }
 .portal-role-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; margin: 0 0 24px; padding: 15px 18px; border: 1px solid #2e6874; border-radius: 14px; background: linear-gradient(120deg, #0d2932, #0a1826); box-shadow: 0 14px 32px #0003; }
 .portal-role-banner.client { border-color: #2e6874; background: linear-gradient(120deg, #0d2932, #0a1826); }
 .portal-role-banner.admin { border-color: #80631f; background: linear-gradient(120deg, #29220f, #111a27 72%); box-shadow: 0 14px 34px #0005, inset 4px 0 #efb928; }
@@ -740,6 +745,14 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 1380px) {
   .automation-panel, .schedule-fields { grid-template-columns: 1fr; }
   .schedule-fields { grid-column: auto; }
+}
+
+@media (max-width: 1500px) and (min-width: 1181px) {
+  .site-header { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; gap: 8px 22px; }
+  .site-header .brand { grid-column: 1; grid-row: 1; }
+  .top-navigation { grid-column: 2; grid-row: 1; min-width: 0; }
+  .site-header .header-actions { grid-column: 1 / -1; grid-row: 2; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+  .admin-client-view { flex: 0 1 360px; min-width: 0; }
 }
 
 @media (max-width: 1100px) {

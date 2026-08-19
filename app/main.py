@@ -546,8 +546,18 @@ def _run_onboarding_research(
             if company_dedupe_key({"commercial_name": prospect.get("company", ""), "website": prospect.get("website", ""), "city": prospect.get("city", "")}) not in existing_keys
         ]
         duplicates_discarded = discovered_count - len(prospects)
+        target_leads = 5
+        missing_leads = max(0, target_leads - len(prospects))
         if not prospects and duplicates_discarded:
             trace["no_prospect_reason"] = "Los resultados encontrados ya existían para esta productora y se descartaron como duplicados."
+        if missing_leads:
+            deficit_reason = str(trace.get("no_prospect_reason") or "No hubo más empresas que cumplieran todos los criterios con evidencia suficiente.")
+            trace["research_summary"] = (
+                f"Objetivo: {target_leads}. Encontrados: {discovered_count}. "
+                f"Válidos nuevos: {len(prospects)}. Duplicados/excluidos: {duplicates_discarded}. "
+                f"Faltantes: {missing_leads}. Motivo: {deficit_reason} "
+                "Puedes ampliar o ajustar los criterios únicamente mediante una acción explícita en el portal."
+            )
         total_to_save = len(prospects)
         for index, prospect in enumerate(prospects, start=1):
             prospect_execution_id = f"{execution_id}-{index:03d}"
@@ -611,7 +621,7 @@ def _run_onboarding_research(
             phase="completed",
             progress=100,
             message=(
-                f"Investigación completada: {len(prospects)} leads guardados en Leads y CRM."
+                f"Investigación completada: objetivo 5 · encontrados {discovered_count} · válidos {len(prospects)} · duplicados/excluidos {duplicates_discarded} · faltantes {missing_leads}."
                 if prospects
                 else "Investigación completada sin nuevos leads verificables."
             ),
