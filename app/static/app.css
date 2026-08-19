@@ -835,3 +835,31 @@ tbody tr:last-child td { border-bottom: 0; }
   .builder-tabs { grid-template-columns: 1fr; }
   .studio-toolbar h2 { font-size: 24px; }
 }
+
+.review-state-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.review-state-row span { padding: 5px 8px; border: 1px solid #31445b; border-radius: 999px; background: #0a1624; color: #aebdcd; font-size: 11px; }
+.review-state-row span.warning { border-color: #856a20; color: #f0cf69; }
+.lead-decision-panel, .summary-request-card { margin: 22px 0; padding: 18px; border: 1px solid #40536a; border-radius: 14px; background: #0a1523; }
+.review-state-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.review-state-grid > div { padding: 12px; border: 1px solid #2d4056; border-radius: 10px; background: #0c1929; }
+.review-state-grid span, .review-state-grid b { display: block; }
+.review-state-grid span { color: #8295aa; font-size: 10px; text-transform: uppercase; }
+.review-state-grid b { margin-top: 5px; color: #f2d36f; font-size: 13px; }
+.decision-actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 14px 0; }
+.decision-trace { margin-top: 14px; color: #d4dde8; }
+.decision-trace summary { cursor: pointer; font-weight: 700; }
+.decision-trace ol { padding-left: 22px; }
+.decision-trace li { margin: 9px 0; }
+.decision-trace li span, .decision-trace li small { display: block; color: #91a3b8; }
+.summary-request-card { display: grid; gap: 12px; }
+.summary-request-card h4 { margin: 3px 0; }
+.summary-request-card p { margin: 4px 0; }
+.summary-request-safety { grid-column: 1 / -1; color: #91a3b8; font-size: 12px; line-height: 1.5; }
+.lead-summary-request-dialog form { display: grid; gap: 16px; margin-top: 18px; }
+.summary-confirmation { display: flex; align-items: flex-start; gap: 10px; color: #c8d3df; line-height: 1.55; }
+.summary-confirmation input { margin-top: 4px; }
+
+@media (max-width: 600px) {
+  .review-state-grid { grid-template-columns: 1fr; }
+  .decision-actions > *, .summary-request-card > button { width: 100%; }
+}

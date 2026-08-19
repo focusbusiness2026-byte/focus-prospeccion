@@ -274,7 +274,22 @@ def test_prospecting_filter_grid_can_shrink_without_overlapping_summary_panel():
     assert ".professional-grid .input input," in css
     assert ".professional-grid .input textarea { min-width: 0; }" in css
     assert "@media (max-width: 1380px)" in css
-    assert '/static/app.css?v=20260818-2' in portal
+    assert '/static/app.css?v=20260819-1' in portal
+
+
+def test_client_lead_decisions_and_summary_request_are_explicit_and_safe():
+    root = Path(__file__).parents[1]
+    portal = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
+
+    assert 'data-lead-decision="${esc(decision)}"' in portal
+    assert "Decisión del cliente" in portal
+    assert "Revisión administrativa" in portal
+    assert "Ver trazabilidad de decisiones" in portal
+    assert 'id="lead-summary-request-dialog"' in portal
+    assert "Solicitar resumen de mis leads" in portal
+    assert "no llama IA ni servicios externos" in portal
+    assert "/lead-summary-requests`" in portal
+    assert "item.external_action_ready===true" in portal
 
 
 def test_real_automation_controls_and_admin_execution_visibility_are_present():

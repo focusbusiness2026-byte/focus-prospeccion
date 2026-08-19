@@ -36,6 +36,12 @@ from app.db import create_schema, session_scope
 from app.dedupe import company_dedupe_key
 from app.enrichment import OpenAIProspectDiscovery
 from app.keepalive import render_keepalive_loop, render_keepalive_ready
+from app.lead_reviews import (
+    ADMIN_DECISIONS,
+    CLIENT_DECISIONS,
+    decorate_prospects,
+    summary_request_preview,
+)
 from app.services import ensure_demo_client
 from app.sheet_store import SheetStore
 
@@ -45,7 +51,17 @@ class GoogleCredential(BaseModel):
 
 
 class LeadStatusRequest(BaseModel):
-    status: Literal["Nuevo", "Aprobado", "Descartado", "Cerrado"]
+    status: Literal["Nuevo", "Aprobado", "Descartado", "En revisión", "Cerrado"]
+
+
+class LeadDecisionRequest(BaseModel):
+    decision: Literal["Aprobado", "Descartado", "En revisión", "Confirmada", "Rechazada"]
+    reason: str = Field(default="", max_length=500)
+
+
+class LeadSummaryRequest(BaseModel):
+    confirmed: Literal[True]
+    note: str = Field(default="", max_length=500)
 
 
 class DeleteLeadRequest(BaseModel):
@@ -53,7 +69,7 @@ class DeleteLeadRequest(BaseModel):
 
 
 class CRMRequest(BaseModel):
-    status: Literal["Nuevo", "Aprobado", "Descartado", "Cerrado"]
+    status: Literal["Nuevo", "Aprobado", "Descartado", "En revisión", "Cerrado"]
     owner: str = ""
     notes: str = ""
     next_action: str = ""
@@ -350,6 +366,21 @@ def _demo_payload(identity: Identity, openai_budget: int) -> dict:
             "updated_at": "2026-08-09T16:10:00+00:00",
         },
     ]
+    prospects = decorate_prospects(
+        prospects,
+        [{
+            "event_id": "DEMO-DECISION-001",
+            "event_type": "client_decision",
+            "onboarding_id": "ONB-DEMO0001",
+            "owner_email": identity.email,
+            "execution_id": "DEMO-VERDE-001",
+            "actor_email": identity.email,
+            "actor_role": "Cliente",
+            "decision": "Aprobado",
+            "reason": "Ejemplo local para revisar la trazabilidad.",
+            "created_at": "2026-08-10T10:00:00+00:00",
+        }],
+    )
     return {
         "user": {"email": identity.email, "role": identity.role, "assigned": 10, "used": 2, "available": 8},
         "global": {
@@ -414,10 +445,18 @@ def _demo_payload(identity: Identity, openai_budget: int) -> dict:
                     "adjustments": {},
                 },
                 "openai_configured": False,
+                "lead_summary_request": {
+                    "decision": "No solicitada",
+                    "created_at": "",
+                    "actor_email": "",
+                    "result_status": "No iniciado",
+                    "result_ref": "",
+                },
             }
         ],
         "source_metrics": {"total": 1, "ready": 1, "blocked": 0},
         "automation_engine_enabled": False,
+        "approval_policy": {"admin_review_required": False},
         "demo": True,
     }
 
@@ -924,6 +963,26 @@ def portal_dashboard(
         )
         for source in source_records
     ]
+    review_events = store.review_events(scope_email)
+    prospects = decorate_prospects(
+        store.recent_prospects(scope_email),
+        review_events,
+        require_admin_review=settings.lead_admin_review_required,
+    )
+    summary_events = [event for event in review_events if event.get("event_type") == "summary_request"]
+    for source in sources:
+        latest_request = max(
+            (event for event in summary_events if event.get("onboarding_id") == source["onboarding_id"]),
+            key=lambda event: str(event.get("created_at") or ""),
+            default=None,
+        )
+        source["lead_summary_request"] = latest_request or {
+            "decision": "No solicitada",
+            "created_at": "",
+            "actor_email": "",
+            "result_status": "No iniciado",
+            "result_ref": "",
+        }
     global_metrics = store.global_metrics() if is_admin and not requested_scope else None
     return {
         "user": {
@@ -935,7 +994,7 @@ def portal_dashboard(
         },
         "global": global_metrics,
         "metrics": store.prospect_metrics(scope_email),
-        "prospects": store.recent_prospects(scope_email),
+        "prospects": prospects,
         "executions": store.recent_executions(scope_email, hide_admin=not is_admin),
         "sources": sources,
         "source_metrics": {
@@ -950,6 +1009,7 @@ def portal_dashboard(
             "available_users": _admin_available_users(store, all_sources) if is_admin else [],
         },
         "automation_engine_enabled": settings.auto_research_enabled,
+        "approval_policy": {"admin_review_required": settings.lead_admin_review_required},
         "demo": False,
     }
 
@@ -1161,25 +1221,144 @@ def update_prospect_status(
     identity: Identity = Depends(require_identity),
 ):
     validate_csrf(request)
+    raise HTTPException(
+        status_code=409,
+        detail="Usa el flujo de decisión auditada para aprobar, descartar o enviar a revisión",
+    )
+
+
+@app.post("/api/prospects/{execution_id}/decision")
+def record_prospect_decision(
+    execution_id: str,
+    payload: LeadDecisionRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
     settings = get_settings()
     if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
-    store = SheetStore()
+        raise HTTPException(status_code=503, detail="Las decisiones no se guardan en el modo demo")
+    store = SheetStore(settings)
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    try:
+    is_admin = _is_authorized_admin(identity, access, settings)
+    allowed = ADMIN_DECISIONS if is_admin else CLIENT_DECISIONS
+    if payload.decision not in allowed:
+        raise HTTPException(status_code=422, detail="La decisión no corresponde al rol autenticado")
+    prospect = store.get_prospect(execution_id, None if is_admin else identity.email)
+    if not prospect:
+        raise HTTPException(status_code=404, detail="No se encontró el lead solicitado")
+    event_type = "admin_review" if is_admin else "client_decision"
+    event = store.append_review_event(
+        event_type=event_type,
+        onboarding_id=str(prospect.get("onboarding_id") or ""),
+        owner_email=str(prospect.get("email") or ""),
+        execution_id=execution_id,
+        actor_email=identity.email,
+        actor_role=access.role,
+        decision=payload.decision,
+        reason=payload.reason,
+        result_status="Registrada",
+    )
+    if not is_admin:
         prospect = store.update_prospect_status(
             execution_id,
             identity.email,
-            payload.status,
-            is_admin="admin" in access.role.lower(),
+            payload.decision,
+            is_admin=False,
         )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"ok": True, "prospect": prospect}
+    events = store.review_events(str(prospect.get("email") or ""), execution_id=execution_id)
+    decorated = decorate_prospects(
+        [prospect],
+        events,
+        require_admin_review=settings.lead_admin_review_required,
+    )[0]
+    return {"ok": True, "event": event, "prospect": decorated, "external_action_started": False}
+
+
+@app.get("/api/onboarding-sources/{record_id}/lead-summary-request-preview")
+def lead_summary_request_preview(record_id: str, identity: Identity = Depends(require_identity)):
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        demo = _demo_payload(identity, settings.openai_request_budget)
+        source = next((item for item in demo["sources"] if item["onboarding_id"] == record_id), None)
+        if not source:
+            raise HTTPException(status_code=404, detail="No se encontró la productora")
+        return {
+            "preview": summary_request_preview(record_id, demo["prospects"]),
+            "current_request": source["lead_summary_request"],
+        }
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    events = store.review_events(source.email, onboarding_id=record_id)
+    prospects = decorate_prospects(
+        [item for item in store.recent_prospects(source.email, limit=1000) if item.get("onboarding_id") == record_id],
+        events,
+        require_admin_review=settings.lead_admin_review_required,
+    )
+    latest = max(
+        (event for event in events if event.get("event_type") == "summary_request"),
+        key=lambda event: str(event.get("created_at") or ""),
+        default=None,
+    )
+    return {
+        "preview": summary_request_preview(record_id, prospects),
+        "current_request": latest or {"decision": "No solicitada", "result_status": "No iniciado"},
+    }
+
+
+@app.post("/api/onboarding-sources/{record_id}/lead-summary-requests", status_code=202)
+def request_lead_summary(
+    record_id: str,
+    payload: LeadSummaryRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="La solicitud no se guarda en el modo demo")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    if _is_authorized_admin(identity, access, settings):
+        raise HTTPException(status_code=403, detail="La solicitud debe confirmarla el cliente de esa cuenta")
+    source = store.get_onboarding_source(record_id, identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    events = store.review_events(identity.email, onboarding_id=record_id)
+    prospects = decorate_prospects(
+        [item for item in store.recent_prospects(identity.email, limit=1000) if item.get("onboarding_id") == record_id],
+        events,
+        require_admin_review=settings.lead_admin_review_required,
+    )
+    scope = summary_request_preview(record_id, prospects)
+    event = store.append_review_event(
+        event_type="summary_request",
+        onboarding_id=record_id,
+        owner_email=identity.email,
+        actor_email=identity.email,
+        actor_role=access.role,
+        decision="Solicitada",
+        reason=payload.note,
+        scope=scope,
+        result_status="Pendiente de preparación",
+    )
+    return {
+        "ok": True,
+        "request": event,
+        "preview": scope,
+        "summary_generated": False,
+        "external_calls": False,
+    }
 
 
 @app.post("/api/prospects/{execution_id}/crm")
@@ -1197,6 +1376,15 @@ def update_prospect_crm(
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    current = store.get_prospect(execution_id, None if is_admin else identity.email)
+    if not current:
+        raise HTTPException(status_code=404, detail="No se encontró el lead solicitado")
+    if payload.status != str(current.get("lead_status") or "Nuevo"):
+        raise HTTPException(
+            status_code=409,
+            detail="El estado comercial solo cambia mediante una decisión auditada",
+        )
     try:
         prospect = store.update_prospect_crm(
             execution_id,
@@ -1208,7 +1396,18 @@ def update_prospect_crm(
             follow_up_date=payload.follow_up_date[:40],
             warmup_preparation=payload.warmup_preparation,
             warmup_approval=payload.warmup_approval,
-            is_admin="admin" in access.role.lower(),
+            is_admin=is_admin,
+        )
+        store.append_review_event(
+            event_type="crm_update",
+            onboarding_id=str(prospect.get("onboarding_id") or ""),
+            owner_email=str(prospect.get("email") or ""),
+            execution_id=execution_id,
+            actor_email=identity.email,
+            actor_role=access.role,
+            decision="Seguimiento CRM actualizado",
+            reason=payload.notes,
+            result_status="Registrada",
         )
         try:
             store.refresh_dashboard_summary()

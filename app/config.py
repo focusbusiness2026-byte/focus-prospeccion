@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     google_executions_tab: str = "Ejecuciones"
     google_automation_tab: str = "Automatizaciones"
     google_dashboard_tab: str = "Dashboard Prospeccion"
+    google_lead_reviews_tab: str = "Revisiones Leads"
     google_service_account_json: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-5.5"
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     render_keepalive_interval_seconds: int = 600
     prospection_trigger_token: str = ""
     web_scraper_max_pages: int = 4
+    lead_admin_review_required: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
