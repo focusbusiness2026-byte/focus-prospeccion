@@ -9,7 +9,8 @@ from app.config import get_settings
 import pytest
 from pydantic import ValidationError
 
-from app.main import AutomationRequest, ResearchAdjustments, _admin_available_users, _build_client_package, _csv_cell, _demo_payload, app
+from app.main import AutomationRequest, ResearchAdjustments, _admin_available_users, _build_client_package, _csv_cell, _demo_data_allowed, _demo_payload, app
+from app.config import Settings
 from app.onboarding import OnboardingSource
 
 
@@ -26,6 +27,32 @@ def test_demo_dashboard_exercises_complete_portal_shape():
     assert payload["global"]["openai_requests_remaining"] == 498
     assert payload["prospects"][0]["web_search_call_limit"] == 5
     assert payload["prospects"][0]["public_contacts"]
+
+
+def test_demo_data_is_never_used_as_a_production_fallback():
+    settings = Settings(
+        app_env="production",
+        google_sheets_enabled=False,
+        google_sheet_id="",
+        google_service_account_json="",
+    )
+
+    with pytest.raises(Exception) as error:
+        _demo_data_allowed(settings)
+
+    assert getattr(error.value, "status_code", None) == 503
+    assert "no se mostrará información de demostración" in str(getattr(error.value, "detail", ""))
+
+
+def test_demo_data_remains_available_only_for_explicit_local_development():
+    settings = Settings(
+        app_env="development",
+        google_sheets_enabled=False,
+        google_sheet_id="",
+        google_service_account_json="",
+    )
+
+    assert _demo_data_allowed(settings) is True
 
 
 def test_demo_csv_export_is_downloadable_and_formula_safe():
@@ -238,6 +265,18 @@ def test_admin_client_selector_combines_access_and_registered_onboarding_account
         {"email": "active@example.com", "role": "Cliente", "onboarding_count": 1},
         {"email": "registered@example.com", "role": "Cliente registrado", "onboarding_count": 2},
     ]
+
+
+def test_dashboard_loader_retries_transient_non_json_responses_and_shows_real_error():
+    portal = (Path(__file__).parents[1] / "app" / "templates" / "portal.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "fetchDashboardPayload(endpoint,attempt=0)" in portal
+    assert "const raw=await r.text()" in portal
+    assert "return fetchDashboardPayload(endpoint,attempt+1)" in portal
+    assert "El servicio devolvió una respuesta temporal no válida" in portal
+    assert "No se pudo cargar el panel:" in portal
 
 
 def test_portal_identifies_client_and_administrator_views_visually():

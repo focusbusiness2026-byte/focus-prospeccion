@@ -808,6 +808,23 @@ def _template(request: Request, name: str, **context):
     return response
 
 
+def _demo_data_allowed(settings: Settings) -> bool:
+    """Allow fixtures only in an explicitly local, non-production setup."""
+    sheets_ready = bool(
+        settings.google_sheets_enabled
+        and settings.google_sheet_id
+        and settings.google_service_account_json
+    )
+    if sheets_ready:
+        return False
+    if settings.app_env == "production" or settings.google_sheets_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="La fuente real de productoras no está disponible; no se mostrará información de demostración.",
+        )
+    return True
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     from app.auth import verify_central_session
@@ -935,7 +952,7 @@ def portal_dashboard(
     identity: Identity = Depends(require_identity),
 ):
     settings = get_settings()
-    if not settings.google_sheets_enabled:
+    if _demo_data_allowed(settings):
         return _demo_payload(identity, settings.openai_request_budget)
     store = SheetStore()
     access = store.get_access(identity.email)
@@ -1017,7 +1034,7 @@ def portal_dashboard(
 @app.get("/api/onboarding-sources/{record_id}")
 def onboarding_source(record_id: str, identity: Identity = Depends(require_identity)):
     settings = get_settings()
-    if not settings.google_sheets_enabled:
+    if _demo_data_allowed(settings):
         source = next(
             (item for item in _demo_payload(identity, settings.openai_request_budget)["sources"] if item["onboarding_id"] == record_id),
             None,
@@ -1280,7 +1297,7 @@ def record_prospect_decision(
 @app.get("/api/onboarding-sources/{record_id}/lead-summary-request-preview")
 def lead_summary_request_preview(record_id: str, identity: Identity = Depends(require_identity)):
     settings = get_settings()
-    if not settings.google_sheets_enabled:
+    if _demo_data_allowed(settings):
         demo = _demo_payload(identity, settings.openai_request_budget)
         source = next((item for item in demo["sources"] if item["onboarding_id"] == record_id), None)
         if not source:
@@ -1498,7 +1515,7 @@ def export_prospects(
     identity: Identity = Depends(require_identity),
 ):
     settings = get_settings()
-    if not settings.google_sheets_enabled:
+    if _demo_data_allowed(settings):
         prospects = _demo_payload(identity, settings.openai_request_budget)["prospects"]
     else:
         store = SheetStore()
