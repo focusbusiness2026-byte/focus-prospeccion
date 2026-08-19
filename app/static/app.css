@@ -1,11 +1,11 @@
 :root {
   color-scheme: dark;
-  --ink: #07101d;
-  --panel: #101d2d;
-  --panel-2: #142338;
-  --line: #304157;
-  --paper: #f5f7fb;
-  --muted: #95a4b7;
+  --ink: #06101e;
+  --panel: #0c1727;
+  --panel-2: #101c2c;
+  --line: #263548;
+  --paper: #eef1f5;
+  --muted: #9aa7b8;
   --gold: #d9af43;
   --gold-soft: #f4cf67;
   --green: #3ddc84;
@@ -620,7 +620,7 @@ tbody tr:last-child td { border-bottom: 0; }
   gap: 28px;
   padding: 10px clamp(22px, 4vw, 64px);
   border-bottom: 1px solid #263649;
-  background: #07101df2;
+  background: #06101ef2;
   box-shadow: 0 12px 34px #0005;
   backdrop-filter: blur(18px);
 }

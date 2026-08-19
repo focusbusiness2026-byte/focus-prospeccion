@@ -254,6 +254,13 @@ def test_portal_identifies_client_and_administrator_views_visually():
     assert "Acceso limitado a sus propios datos" in portal
     assert ".portal-role-banner.admin" in css
     assert ".portal-role-banner.client" in css
+    assert "--ink: #06101e;" in css
+    assert "--panel: #0c1727;" in css
+    assert "--panel-2: #101c2c;" in css
+    assert "--line: #263548;" in css
+    assert "--paper: #eef1f5;" in css
+    assert "--muted: #9aa7b8;" in css
+    assert "--gold: #d9af43;" in css
 
 
 def test_prospecting_filter_grid_can_shrink_without_overlapping_summary_panel():
