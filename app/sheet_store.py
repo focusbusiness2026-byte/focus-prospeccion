@@ -11,11 +11,13 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 from app.config import Settings, get_settings
+from app.lead_reviews import is_admin_role
 from app.onboarding import OnboardingSource
 
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _quota_lock = threading.Lock()
+CLIENT_MONTHLY_SCRAPES = 50
 
 PROSPECT_HEADERS = [
     "execution_id", "email", "created_at", "company", "website", "title", "description", "sector",
@@ -57,6 +59,7 @@ class AccessRecord:
     state: str
     assigned: int
     used: int
+    renewed_at: str = ""
 
     @property
     def available(self) -> int:
@@ -430,10 +433,10 @@ class SheetStore:
             return fallback
 
     def access_records(self) -> list[AccessRecord]:
-        rows = self._get(f"'{self.settings.google_access_tab}'!A2:I200")
+        rows = self._get(f"'{self.settings.google_access_tab}'!A2:J200")
         records: list[AccessRecord] = []
         for index, row in enumerate(rows, start=2):
-            padded = row + [""] * (9 - len(row))
+            padded = row + [""] * (10 - len(row))
             email = str(padded[0]).strip().lower()
             if not email:
                 continue
@@ -445,16 +448,64 @@ class SheetStore:
                     state=str(padded[2]).strip() or "Inactivo",
                     assigned=self._int(padded[4], 0),
                     used=self._int(padded[5], 0),
+                    renewed_at=str(padded[9]).strip(),
                 )
             )
         return records
 
+    @staticmethod
+    def _renewal_month(value: str) -> tuple[int, int] | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        normalized = raw.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+            return parsed.year, parsed.month
+        except ValueError:
+            pass
+        for pattern in ("%m/%d/%Y", "%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(raw, pattern)
+                return parsed.year, parsed.month
+            except ValueError:
+                continue
+        return None
+
+    def _renew_client_quota_if_needed(self, record: AccessRecord) -> AccessRecord:
+        if is_admin_role(record.role):
+            return record
+        now = datetime.now(timezone.utc)
+        current_month = (now.year, now.month)
+        if record.assigned == CLIENT_MONTHLY_SCRAPES and self._renewal_month(record.renewed_at) == current_month:
+            return record
+        row = record.row
+        formulas = [
+            CLIENT_MONTHLY_SCRAPES,
+            0,
+            f'=IF(B{row}="Administrador";"Sin límite";MAX(E{row}-F{row};0))',
+            f'=IF(B{row}="Administrador";"";IFERROR(G{row}/E{row};0))',
+            f'=IF(B{row}="Administrador";"Ilimitado";IF(G{row}=0;"Agotado";IF(H{row}<=20%;"Crítico";IF(H{row}<=50%;"Atención";"Disponible"))))',
+            now.date().isoformat(),
+        ]
+        self._update(f"'{self.settings.google_access_tab}'!E{row}:J{row}", [formulas])
+        return AccessRecord(
+            record.row,
+            record.email,
+            record.role,
+            record.state,
+            CLIENT_MONTHLY_SCRAPES,
+            0,
+            now.date().isoformat(),
+        )
+
     def get_access(self, email: str) -> AccessRecord | None:
         normalized = email.strip().lower()
-        return next(
+        record = next(
             (record for record in self.access_records() if record.email == normalized and record.state.lower() == "activo"),
             None,
         )
+        return self._renew_client_quota_if_needed(record) if record else None
 
     def onboarding_sources(self, email: str | None = None, limit: int = 200) -> list[OnboardingSource]:
         rows = self._get(f"'{self.settings.google_onboarding_tab}'!A1:ZZ1000")
@@ -490,10 +541,12 @@ class SheetStore:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
+            if is_admin_role(record.role):
+                return record
             if record.available <= 0:
                 raise RuntimeError("No quedan ejecuciones disponibles")
             self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[record.used + 1]])
-            return AccessRecord(record.row, record.email, record.role, record.state, record.assigned, record.used + 1)
+            return AccessRecord(record.row, record.email, record.role, record.state, record.assigned, record.used + 1, record.renewed_at)
 
     def refund_execution(self, email: str) -> None:
         with _quota_lock:
