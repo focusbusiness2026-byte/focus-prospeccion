@@ -26,6 +26,8 @@ class Identity:
     email: str
     role: str
     google_sub: str
+    prospection_access: bool = True
+    radar_access: bool = False
 
 
 def new_csrf_token() -> str:
@@ -46,6 +48,8 @@ def create_session(identity: Identity, settings: Settings | None = None) -> str:
         "email": identity.email.lower().strip(),
         "role": identity.role,
         "sub": identity.google_sub,
+        "prospection_access": identity.prospection_access,
+        "radar_access": identity.radar_access,
         "exp": int(time.time()) + SESSION_TTL_SECONDS,
     }
     encoded = _b64encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
@@ -65,7 +69,13 @@ def verify_session(token: str | None, settings: Settings | None = None) -> Ident
         payload = json.loads(_b64decode(encoded))
         if int(payload["exp"]) < int(time.time()):
             return None
-        return Identity(email=payload["email"], role=payload["role"], google_sub=payload["sub"])
+        return Identity(
+            email=payload["email"],
+            role=payload["role"],
+            google_sub=payload["sub"],
+            prospection_access=bool(payload.get("prospection_access", True)),
+            radar_access=bool(payload.get("radar_access", "admin" in str(payload["role"]).lower())),
+        )
     except (ValueError, KeyError, json.JSONDecodeError):
         return None
 
@@ -101,7 +111,15 @@ async def verify_central_session(token: str | None, settings: Settings | None = 
         payload = response.json()
         if payload.get("ok") is not True or not payload.get("email"):
             return None
-        return Identity(email=str(payload["email"]).lower().strip(), role=str(payload.get("role") or "Cliente"), google_sub="central")
+        role = str(payload.get("role") or "Cliente")
+        is_admin = "admin" in role.lower()
+        return Identity(
+            email=str(payload["email"]).lower().strip(),
+            role=role,
+            google_sub="central",
+            prospection_access=bool(payload.get("prospectionAccess", True)),
+            radar_access=bool(payload.get("radarAccess", is_admin)),
+        )
     except (httpx.HTTPError, ValueError, KeyError):
         return None
 
@@ -110,6 +128,8 @@ async def require_identity(request: Request) -> Identity:
     identity = await verify_central_session(request.cookies.get(SESSION_COOKIE))
     if not identity:
         raise HTTPException(status_code=401, detail="Inicia sesion para continuar")
+    if not identity.prospection_access:
+        raise HTTPException(status_code=403, detail="Prospección no está habilitada para este correo")
     return identity
 
 
