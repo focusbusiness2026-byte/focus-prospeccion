@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from app.config import Settings
@@ -7,7 +9,8 @@ from app.sheet_store import AUTOMATION_HEADERS, DASHBOARD_HEADERS, EXECUTION_HEA
 class FakeStore(SheetStore):
     def __init__(self):
         super().__init__(Settings(google_sheet_id="sheet", google_service_account_json="{}"))
-        self.rows = [[" USER@example.com\n", "Administrador", "Activo", "", 2, 1, 1, 0.5, "Atención"]]
+        current_cycle = datetime.now(timezone.utc).date().isoformat()
+        self.rows = [[" USER@example.com\n", "Cliente", "Activo", "", 50, 49, 1, 0.02, "Crítico", current_cycle]]
         self.updates = []
 
     def _get(self, a1_range):
@@ -17,7 +20,10 @@ class FakeStore(SheetStore):
 
     def _update(self, a1_range, values):
         self.updates.append((a1_range, values))
-        self.rows[0][5] = values[0][0]
+        if ":J" in a1_range:
+            self.rows[0][4:10] = values[0]
+        else:
+            self.rows[0][5] = values[0][0]
 
 
 def test_access_is_normalized_and_quota_is_reserved_once():
@@ -26,9 +32,37 @@ def test_access_is_normalized_and_quota_is_reserved_once():
     record = store.reserve_execution("user@example.com")
 
     assert record.available == 0
-    assert store.updates == [("'Accesos'!F2", [[2]])]
+    assert store.updates == [("'Accesos'!F2", [[50]])]
     with pytest.raises(RuntimeError, match="No quedan"):
         store.reserve_execution("user@example.com")
+
+
+def test_client_quota_renews_to_fifty_when_cycle_is_old():
+    store = FakeStore()
+    store.rows[0][5] = 50
+    store.rows[0][9] = "2025-01-01"
+
+    record = store.get_access("user@example.com")
+
+    assert record is not None
+    assert record.assigned == 50
+    assert record.used == 0
+    assert record.available == 50
+    assert store.updates[0][0] == "'Accesos'!E2:J2"
+    assert store.updates[0][1][0][:2] == [50, 0]
+
+
+def test_administrator_has_unlimited_executions_without_charging_quota():
+    store = FakeStore()
+    store.rows[0][1] = "Administrador"
+    store.rows[0][4] = "Ilimitado"
+    store.rows[0][5] = 999
+    store.updates.clear()
+
+    record = store.reserve_execution("user@example.com")
+
+    assert record.role == "Administrador"
+    assert store.updates == []
 
 
 def test_inactive_or_missing_email_is_rejected():
