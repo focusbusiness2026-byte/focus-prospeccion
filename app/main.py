@@ -862,7 +862,17 @@ async def portal(request: Request):
     if not identity:
         destination = f"{settings.public_base_url.rstrip('/')}/portal"
         return RedirectResponse(f"{settings.central_auth_url.rstrip('/')}/access?return_to={quote(destination, safe='')}", status_code=303)
-    return _template(request, "portal.html", identity=identity, radar_portal_url=settings.radar_portal_url)
+    if not identity.prospection_access:
+        return HTMLResponse(
+            "<main><h1>Acceso no habilitado</h1><p>La administración puede activar Prospección desde la hoja de accesos.</p></main>",
+            status_code=403,
+        )
+    return _template(
+        request,
+        "portal.html",
+        identity=identity,
+        radar_portal_url=settings.radar_portal_url if identity.radar_access else "",
+    )
 
 
 @app.get("/health")

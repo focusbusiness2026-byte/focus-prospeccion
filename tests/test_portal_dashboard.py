@@ -70,7 +70,7 @@ def test_demo_csv_export_is_downloadable_and_formula_safe():
 
 def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     client = TestClient(app)
-    client.cookies.set(SESSION_COOKIE, create_session(Identity("demo@focus.local", "Administrador", "demo")))
+    client.cookies.set(SESSION_COOKIE, create_session(Identity("demo@focus.local", "Administrador", "demo", radar_access=True)))
 
     response = client.get("/portal")
 
@@ -170,6 +170,27 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     source_response = client.get("/api/onboarding-sources/ONB-DEMO0001")
     assert source_response.status_code == 200
     assert source_response.json()["source"]["productora"]["email"] == "demo@focus.local"
+
+
+def test_client_without_radar_permission_does_not_see_radar_link():
+    client = TestClient(app)
+    identity = Identity("client@example.com", "Cliente", "client", prospection_access=True, radar_access=False)
+    client.cookies.set(SESSION_COOKIE, create_session(identity))
+
+    response = client.get("/portal")
+
+    assert response.status_code == 200
+    assert ">Radar</a>" not in response.text
+    assert "Abrir Radar viral" not in response.text
+
+
+def test_account_without_prospection_permission_is_blocked():
+    client = TestClient(app)
+    identity = Identity("blocked@example.com", "Cliente", "blocked", prospection_access=False, radar_access=False)
+    client.cookies.set(SESSION_COOKIE, create_session(identity))
+
+    assert client.get("/portal").status_code == 403
+    assert client.get("/api/portal-dashboard").status_code == 403
 
 
 def test_internal_onboarding_trigger_is_closed_without_server_secret():
