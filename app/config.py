@@ -8,9 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = "sqlite:///./data/focus_prospeccion.db"
-    source_mode: str = "fixture"
     allow_external_sources: bool = False
-    demo_auth_bypass: bool = True
     focus_admin_emails: str = ""
     app_secret: str = "change-me-in-production"
     public_base_url: str = "http://127.0.0.1:8000"

@@ -8,7 +8,6 @@ import re
 import secrets
 import time
 import uuid
-import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from threading import Lock
@@ -32,7 +31,7 @@ from app.auth import (
     verify_google_credential,
 )
 from app.config import get_settings
-from app.db import create_schema, session_scope
+from app.db import create_schema
 from app.dedupe import company_dedupe_key
 from app.enrichment import OpenAIProspectDiscovery
 from app.keepalive import render_keepalive_loop, render_keepalive_ready
@@ -41,7 +40,6 @@ from app.lead_reviews import (
     CLIENT_DECISIONS,
     decorate_prospects,
     is_admin_role,
-    summary_request_preview,
 )
 from app.sheet_store import SheetStore, is_active_access_state
 
@@ -66,16 +64,6 @@ class LeadSummaryRequest(BaseModel):
 
 class DeleteLeadRequest(BaseModel):
     confirmation: Literal["ELIMINAR"]
-
-
-class CRMRequest(BaseModel):
-    status: Literal["Nuevo", "En revisión", "Aprobado para descarga", "Descartado"]
-    owner: str = ""
-    notes: str = ""
-    next_action: str = ""
-    follow_up_date: str = ""
-    warmup_preparation: Literal["No iniciada", "Preparada", "En revisión"] = "No iniciada"
-    warmup_approval: Literal["Pendiente", "Aprobada", "Rechazada"] = "Pendiente"
 
 
 class ResearchAdjustments(BaseModel):
@@ -220,251 +208,6 @@ def _admin_available_users(store: SheetStore, sources: list) -> list[dict]:
         user = users.setdefault(email, {"email": email, "role": "Cliente registrado", "onboarding_count": 0})
         user["onboarding_count"] += 1
     return sorted(users.values(), key=lambda item: item["email"])
-
-
-def _safe_package_name(value: str) -> str:
-    normalized = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-.")
-    return normalized[:80] or "cliente"
-
-
-def _build_client_package(source, prospect: dict) -> bytes:
-    form = {key: value for key, value in source.raw_form.items() if str(value).strip()}
-    missing = [key for key, value in source.raw_form.items() if not str(value).strip()]
-    profile = source.as_dict()
-    instructions = f"""INSTRUCCIONES PARA EL EQUIPO DE IMPLEMENTACION
-
-Cliente: {source.company or 'Pendiente'}
-Registro de onboarding: {source.record_id or 'Pendiente'}
-Lead relacionado: {prospect.get('company') or 'Pendiente'} ({prospect.get('execution_id') or 'sin ID'})
-
-OBJETIVO
-Preparar y validar la configuracion solicitada por el cliente en su subcuenta de GoHighLevel usando exclusivamente la informacion confirmada de este paquete.
-
-PROCEDIMIENTO OBLIGATORIO
-1. Inspeccionar primero la subcuenta autorizada en modo lectura: campos, contactos, pipeline, calendarios, usuarios, integraciones y workflows existentes.
-2. Comparar esa evidencia con datos_formulario.json, perfil_normalizado.json y datos_lead.json.
-3. Presentar el mapeo de campos estandar y personalizados, los flujos propuestos, conexiones necesarias, conflictos, duplicados, costes y campos faltantes.
-4. No crear, actualizar, conectar, activar, enviar ni consumir nada sin aprobacion final explicita.
-5. Usar OAuth o el mecanismo oficial solo en el momento autorizado. No pedir, copiar ni guardar contraseñas, tokens, claves API o secretos dentro del paquete.
-
-CONFIGURACION A PREPARAR
-- Contactos y campos: nombre, email, telefono, empresa, cargo, web, LinkedIn, ciudad, pais, fuente, busqueda, etapa, score y campos confirmados del formulario.
-- Pipeline: proponer etapas y reglas basadas en las solicitudes confirmadas; no inventar estados ausentes.
-- Calendarios y reuniones: configurar solo si el formulario contiene requisitos suficientes.
-- Workflows: documentar disparador, condiciones, esperas, responsables, mensajes y salida; cualquier mensajeria o accion con coste requiere aprobacion final.
-- Conexiones: enumerar solo las confirmadas. Marcar las demas como pendientes de autorizacion o credenciales en la plataforma correspondiente.
-
-CAMPOS FALTANTES
-{chr(10).join('- ' + item for item in missing) if missing else '- No se detectaron campos vacios en el registro disponible.'}
-
-RESTRICCIONES
-No contiene secretos. No asumir conexiones, permisos, presupuestos, remitentes, dominios, numeros o credenciales. Detener la ejecucion ante cualquier dato material no confirmado y pedir la decision exacta.
-"""
-    readme = f"""PAQUETE DEL CLIENTE - FOCUS BUSINESS
-
-Cliente: {source.company or 'Pendiente'}
-Generado para revision e implementacion controlada.
-
-Contenido:
-- datos_formulario.json: respuestas disponibles del onboarding, sin secretos.
-- perfil_normalizado.json: resumen estructurado y campos pendientes.
-- datos_lead.json: datos publicos y CRM del lead seleccionado.
-- INSTRUCCIONES_EQUIPO_TECNICO.txt: procedimiento para preparar GoHighLevel.
-- CAMPOS_FALTANTES.txt: valores que deben confirmarse antes de ejecutar.
-
-Este paquete no conecta servicios ni ejecuta cambios. Toda accion posterior requiere cuentas autorizadas y aprobacion final.
-"""
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("README.txt", readme)
-        archive.writestr("datos_formulario.json", json.dumps(form, ensure_ascii=False, indent=2))
-        archive.writestr("perfil_normalizado.json", json.dumps(profile, ensure_ascii=False, indent=2))
-        archive.writestr("datos_lead.json", json.dumps(prospect, ensure_ascii=False, indent=2))
-        archive.writestr("INSTRUCCIONES_EQUIPO_TECNICO.txt", instructions)
-        archive.writestr("CAMPOS_FALTANTES.txt", "\n".join(missing) if missing else "Sin campos vacios detectados.")
-    return output.getvalue()
-
-
-def _demo_payload(identity: Identity, openai_budget: int) -> dict:
-    prospects = [
-        {
-            "execution_id": "DEMO-VERDE-001",
-            "email": identity.email,
-            "created_at": "2026-08-10T09:30:00+00:00",
-            "company": "Estudio Horizonte",
-            "website": "https://example.com",
-            "title": "Estudio Horizonte",
-            "description": "Productora audiovisual B2B con proyectos corporativos.",
-            "sector": "Produccion audiovisual",
-            "business_model": "B2B",
-            "city": "Madrid",
-            "employees": 42,
-            "score": 8.4,
-            "classification": "green",
-            "summary": "Empresa con web activa, equipo consolidado y senales de crecimiento.",
-            "entry_angle": "Proponer una estrategia de captacion para sus servicios corporativos.",
-            "social_links": {"linkedin": "https://www.linkedin.com", "instagram": "https://www.instagram.com"},
-            "evidence": ["https://example.com", "https://example.com/contacto"],
-            "research_sources": [{"url": "https://example.com", "title": "Fuente de demostración", "type": "company_website"}],
-            "search_queries": ["empresa audiovisual corporativa Madrid"],
-            "web_search_calls": 1,
-            "web_search_call_limit": 5,
-            "public_contacts": [{"type": "email", "value": "info@example.com", "source_url": "https://example.com/contacto"}],
-            "decision_makers": [{"name": "Responsable de marketing", "role": "Dirección de marketing", "public_contact": "", "source_url": "https://example.com/contacto"}],
-            "public_signals": [],
-            "public_signals_status": "No encontrado públicamente",
-            "prospect_found": True,
-            "no_prospect_reason": "",
-            "no_contacts_reason": "",
-            "country": "España",
-            "client_type": "Empresa privada B2B",
-            "onboarding_id": "ONB-DEMO0001",
-            "productora": "Productora Demo Focus",
-            "crm_owner": "Equipo Focus Business",
-            "crm_notes": "Validar encaje en la próxima revisión.",
-            "crm_next_action": "Revisar decisor",
-            "crm_follow_up_date": "2026-08-20",
-            "lead_status": "Aprobado",
-            "warmup_preparation": "No iniciada",
-            "warmup_approval": "Pendiente",
-            "updated_at": "2026-08-10T09:35:00+00:00",
-        },
-        {
-            "execution_id": "DEMO-AMARILLO-002",
-            "email": identity.email,
-            "created_at": "2026-08-09T16:10:00+00:00",
-            "company": "Norte Visual",
-            "website": "https://example.org",
-            "title": "Norte Visual",
-            "description": "Agencia creativa con servicios de video y contenido.",
-            "sector": "Agencia creativa",
-            "business_model": "B2B",
-            "city": "Barcelona",
-            "employees": 18,
-            "score": 5.8,
-            "classification": "yellow",
-            "summary": "Encaje posible, aunque faltan senales recientes de compra.",
-            "entry_angle": "Validar volumen de proyectos y necesidad de apoyo comercial.",
-            "social_links": {"linkedin": "https://www.linkedin.com"},
-            "evidence": ["https://example.org"],
-            "research_sources": [{"url": "https://example.org", "title": "Fuente de demostración", "type": "company_website"}],
-            "search_queries": ["agencia creativa Barcelona B2B"],
-            "web_search_calls": 1,
-            "web_search_call_limit": 5,
-            "public_contacts": [],
-            "decision_makers": [],
-            "public_signals": [],
-            "public_signals_status": "No encontrado públicamente",
-            "prospect_found": True,
-            "no_prospect_reason": "",
-            "no_contacts_reason": "No se encontraron contactos públicos verificables.",
-            "country": "España",
-            "client_type": "Agencia",
-            "onboarding_id": "ONB-DEMO0001",
-            "productora": "Productora Demo Focus",
-            "crm_owner": "",
-            "crm_notes": "",
-            "crm_next_action": "",
-            "crm_follow_up_date": "",
-            "lead_status": "Nuevo",
-            "warmup_preparation": "No iniciada",
-            "warmup_approval": "Pendiente",
-            "updated_at": "2026-08-09T16:10:00+00:00",
-        },
-    ]
-    prospects = decorate_prospects(
-        prospects,
-        [{
-            "event_id": "DEMO-DECISION-001",
-            "event_type": "client_decision",
-            "onboarding_id": "ONB-DEMO0001",
-            "owner_email": identity.email,
-            "execution_id": "DEMO-VERDE-001",
-            "actor_email": identity.email,
-            "actor_role": "Cliente",
-            "decision": "Aprobado",
-            "reason": "Ejemplo local para revisar la trazabilidad.",
-            "created_at": "2026-08-10T10:00:00+00:00",
-        }],
-    )
-    return {
-        "user": {"email": identity.email, "role": identity.role, "assigned": 10, "used": 2, "available": 8},
-        "global": {
-            "active_users": 1,
-            "assigned": 10,
-            "used": 2,
-            "remaining": 8,
-            "remaining_ratio": 0.8,
-            "state": "green",
-            "openai_internal_budget": openai_budget,
-            "openai_requests_used": 2,
-            "openai_requests_remaining": max(0, openai_budget - 2),
-            "openai_web_search_calls_used": 2,
-            "failed_requests": 0,
-        },
-        "metrics": {"total": 2, "classifications": {"green": 1, "yellow": 1, "red": 0}, "statuses": {"Nuevo": 1, "Aprobado": 1, "Descartado": 0}},
-        "prospects": prospects,
-        "executions": [
-            {"execution_id": item["execution_id"], "created_at": item["created_at"], "email": identity.email, "company": item["company"], "website": item["website"], "status": "Completado", "model": "demo", "prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0, "error": "", "onboarding_id": "ONB-DEMO0001", "productora": "Productora Demo Focus", "web_search_calls": 1, "web_search_call_limit": 5, "search_queries": item["search_queries"], "research_sources": item["research_sources"], "no_prospect_reason": "", "research_summary": item["summary"], "research_provider": "OpenAI Responses API + web_search (demo)"}
-            for item in prospects
-        ],
-        "sources": [
-            {
-                "onboarding_id": "ONB-DEMO0001",
-                "productora": {
-                    "name": "Productora Demo Focus",
-                    "website": "https://example.com",
-                    "email": identity.email,
-                    "activity": "Productora audiovisual",
-                    "location": "Madrid, España",
-                    "description": "Fuente ficticia para validar la interfaz local.",
-                },
-                "targeting": {
-                    "main_service": "Producción audiovisual",
-                    "services": ["Vídeo corporativo"],
-                    "audience": ["B2B"],
-                    "sectors": ["Tecnología"],
-                    "markets": ["España"],
-                    "target_city": "Madrid",
-                    "target_region": "Comunidad de Madrid",
-                    "target_countries": ["España"],
-                    "target_client_types": ["Empresa privada B2B"],
-                    "ideal_company_size": "11–50 empleados",
-                    "decision_maker": "Dirección de marketing",
-                    "minimum_budget": "3.000 €",
-                    "monthly_capacity": "2–3 proyectos",
-                    "prospect_exclusions": "Clientes actuales y competidores directos",
-                    "prospect_preferences": "Empresas con marketing activo",
-                    "objectives": ["Captar clientes B2B"],
-                },
-                "submitted_at": "2026-08-10T09:00:00+00:00",
-                "status": "Nuevo",
-                "ready": True,
-                "blockers": [],
-                "automation_state": "Pendiente de configurar OpenAI",
-                "automation": {
-                    "enabled": False,
-                    "interval_minutes": 1440,
-                    "next_run_at": "",
-                    "last_run_at": "",
-                    "last_status": "Desactivada",
-                    "adjustments": {},
-                },
-                "openai_configured": False,
-                "lead_summary_request": {
-                    "decision": "No solicitada",
-                    "created_at": "",
-                    "actor_email": "",
-                    "result_status": "No iniciado",
-                    "result_ref": "",
-                },
-            }
-        ],
-        "source_metrics": {"total": 1, "ready": 1, "blocked": 0},
-        "automation_engine_enabled": False,
-        "approval_policy": {"admin_review_required": False},
-        "demo": True,
-    }
 
 
 def _csv_cell(value) -> str:
@@ -824,21 +567,9 @@ def _template(request: Request, name: str, **context):
     return response
 
 
-def _demo_data_allowed(settings: Settings) -> bool:
-    """Allow fixtures only in an explicitly local, non-production setup."""
-    sheets_ready = bool(
-        settings.google_sheets_enabled
-        and settings.google_sheet_id
-        and settings.google_service_account_json
-    )
-    if sheets_ready:
-        return False
-    if settings.app_env == "production" or settings.google_sheets_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="La fuente real de productoras no está disponible; no se mostrará información de demostración.",
-        )
-    return True
+def _require_real_sheets(settings: Settings) -> None:
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="Google Sheets no está disponible")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -855,7 +586,7 @@ async def index(request: Request):
         request,
         "login.html",
         google_oauth_client_id=settings.google_oauth_client_id,
-        demo_enabled=False,
+        local_login_enabled=False,
     )
 
 
@@ -893,6 +624,7 @@ def health():
         "openai_web_search_call_limit": settings.web_search_call_limit,
         "auto_research_enabled": settings.auto_research_enabled,
         "render_keepalive_enabled": render_keepalive_ready(settings),
+        "portal_release": "real-portal-2026-09-01",
     }
 
 
@@ -960,8 +692,7 @@ def portal_dashboard(
     identity: Identity = Depends(require_identity),
 ):
     settings = get_settings()
-    if _demo_data_allowed(settings):
-        return _demo_payload(identity, settings.openai_request_budget)
+    _require_real_sheets(settings)
     store = SheetStore()
     access = store.get_access(identity.email)
     if not access:
@@ -1035,21 +766,13 @@ def portal_dashboard(
         },
         "automation_engine_enabled": settings.auto_research_enabled,
         "approval_policy": {"admin_review_required": settings.lead_admin_review_required},
-        "demo": False,
     }
 
 
 @app.get("/api/onboarding-sources/{record_id}")
 def onboarding_source(record_id: str, identity: Identity = Depends(require_identity)):
     settings = get_settings()
-    if _demo_data_allowed(settings):
-        source = next(
-            (item for item in _demo_payload(identity, settings.openai_request_budget)["sources"] if item["onboarding_id"] == record_id),
-            None,
-        )
-        if not source:
-            raise HTTPException(status_code=404, detail="No se encontró la productora")
-        return {"source": source}
+    _require_real_sheets(settings)
     store = SheetStore()
     access = store.get_access(identity.email)
     if not access:
@@ -1287,7 +1010,7 @@ def record_prospect_decision(
     validate_csrf(request)
     settings = get_settings()
     if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="Las decisiones no se guardan en el modo demo")
+        raise HTTPException(status_code=503, detail="Las decisiones requieren Google Sheets")
     store = SheetStore(settings)
     access = store.get_access(identity.email)
     if not access:
@@ -1327,180 +1050,12 @@ def record_prospect_decision(
     return {"ok": True, "event": event, "prospect": decorated, "external_action_started": False}
 
 
-@app.get("/api/onboarding-sources/{record_id}/lead-summary-request-preview")
-def lead_summary_request_preview(record_id: str, identity: Identity = Depends(require_identity)):
-    settings = get_settings()
-    if _demo_data_allowed(settings):
-        demo = _demo_payload(identity, settings.openai_request_budget)
-        source = next((item for item in demo["sources"] if item["onboarding_id"] == record_id), None)
-        if not source:
-            raise HTTPException(status_code=404, detail="No se encontró la productora")
-        return {
-            "preview": summary_request_preview(record_id, demo["prospects"]),
-            "current_request": source["lead_summary_request"],
-        }
-    store = SheetStore(settings)
-    access = store.get_access(identity.email)
-    if not access:
-        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
-    if not source:
-        raise HTTPException(status_code=404, detail="No se encontró la productora")
-    events = store.review_events(source.email, onboarding_id=record_id)
-    prospects = decorate_prospects(
-        [item for item in store.recent_prospects(source.email, limit=1000) if item.get("onboarding_id") == record_id],
-        events,
-        require_admin_review=settings.lead_admin_review_required,
-    )
-    latest = max(
-        (event for event in events if event.get("event_type") == "summary_request"),
-        key=lambda event: str(event.get("created_at") or ""),
-        default=None,
-    )
-    return {
-        "preview": summary_request_preview(record_id, prospects),
-        "current_request": latest or {"decision": "No solicitada", "result_status": "No iniciado"},
-    }
-
-
-@app.post("/api/onboarding-sources/{record_id}/lead-summary-requests", status_code=202)
-def request_lead_summary(
-    record_id: str,
-    payload: LeadSummaryRequest,
-    request: Request,
-    identity: Identity = Depends(require_identity),
-):
-    validate_csrf(request)
-    settings = get_settings()
-    if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="La solicitud no se guarda en el modo demo")
-    store = SheetStore(settings)
-    access = store.get_access(identity.email)
-    if not access:
-        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    if _is_authorized_admin(identity, access, settings):
-        raise HTTPException(status_code=403, detail="La solicitud debe confirmarla el cliente de esa cuenta")
-    source = store.get_onboarding_source(record_id, identity.email)
-    if not source:
-        raise HTTPException(status_code=404, detail="No se encontró la productora")
-    events = store.review_events(identity.email, onboarding_id=record_id)
-    prospects = decorate_prospects(
-        [item for item in store.recent_prospects(identity.email, limit=1000) if item.get("onboarding_id") == record_id],
-        events,
-        require_admin_review=settings.lead_admin_review_required,
-    )
-    scope = summary_request_preview(record_id, prospects)
-    event = store.append_review_event(
-        event_type="summary_request",
-        onboarding_id=record_id,
-        owner_email=identity.email,
-        actor_email=identity.email,
-        actor_role=access.role,
-        decision="Solicitada",
-        reason=payload.note,
-        scope=scope,
-        result_status="Pendiente de preparación",
-    )
-    return {
-        "ok": True,
-        "request": event,
-        "preview": scope,
-        "summary_generated": False,
-        "external_calls": False,
-    }
-
-
-@app.post("/api/prospects/{execution_id}/crm")
-def update_prospect_crm(
-    execution_id: str,
-    payload: CRMRequest,
-    request: Request,
-    identity: Identity = Depends(require_identity),
-):
-    validate_csrf(request)
-    settings = get_settings()
-    if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
-    store = SheetStore(settings)
-    access = store.get_access(identity.email)
-    if not access:
-        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    is_admin = _is_authorized_admin(identity, access, settings)
-    current = store.get_prospect(execution_id, None if is_admin else identity.email)
-    if not current:
-        raise HTTPException(status_code=404, detail="No se encontró el lead solicitado")
-    if payload.status != str(current.get("lead_status") or "Nuevo"):
-        raise HTTPException(
-            status_code=409,
-            detail="El estado comercial solo cambia mediante una decisión auditada",
-        )
-    try:
-        prospect = store.update_prospect_crm(
-            execution_id,
-            identity.email,
-            status=payload.status,
-            owner=payload.owner[:160],
-            notes=payload.notes[:4000],
-            next_action=payload.next_action[:500],
-            follow_up_date=payload.follow_up_date[:40],
-            warmup_preparation=payload.warmup_preparation,
-            warmup_approval=payload.warmup_approval,
-            is_admin=is_admin,
-        )
-        store.append_review_event(
-            event_type="crm_update",
-            onboarding_id=str(prospect.get("onboarding_id") or ""),
-            owner_email=str(prospect.get("email") or ""),
-            execution_id=execution_id,
-            actor_email=identity.email,
-            actor_role=access.role,
-            decision="Seguimiento CRM actualizado",
-            reason=payload.notes,
-            result_status="Registrada",
-        )
-        try:
-            store.refresh_dashboard_summary()
-        except Exception:
-            pass
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"ok": True, "prospect": prospect}
-
-
-@app.get("/api/prospects/{execution_id}/client-package.zip")
-def download_client_package(execution_id: str, identity: Identity = Depends(require_identity)):
-    settings = get_settings()
-    if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="La descarga real requiere Google Sheets")
-    store = SheetStore(settings)
-    access = store.get_access(identity.email)
-    if not access:
-        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    is_admin = _is_authorized_admin(identity, access, settings)
-    prospect = store.get_prospect(execution_id, None if is_admin else identity.email)
-    if not prospect:
-        raise HTTPException(status_code=404, detail="No se encontro el lead solicitado")
-    source = store.get_onboarding_source(prospect.get("onboarding_id", ""), None if is_admin else identity.email)
-    if not source:
-        raise HTTPException(status_code=404, detail="No se encontro el formulario asociado al lead")
-    package = _build_client_package(source, prospect)
-    filename = f"paquete-cliente-{_safe_package_name(source.company)}-{_safe_package_name(source.record_id)}.zip"
-    return StreamingResponse(
-        io.BytesIO(package),
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 @app.post("/api/prospects/{execution_id}/close")
 def close_prospect(execution_id: str, request: Request, identity: Identity = Depends(require_identity)):
     validate_csrf(request)
     settings = get_settings()
     if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
+        raise HTTPException(status_code=503, detail="Los cambios requieren Google Sheets")
     store = SheetStore(settings)
     access = store.get_access(identity.email)
     if not access or not _is_authorized_admin(identity, access, settings):
@@ -1522,7 +1077,7 @@ def delete_prospect(
     validate_csrf(request)
     settings = get_settings()
     if not settings.google_sheets_enabled:
-        raise HTTPException(status_code=503, detail="Los cambios no se guardan en el modo demo")
+        raise HTTPException(status_code=503, detail="Los cambios requieren Google Sheets")
     store = SheetStore(settings)
     access = store.get_access(identity.email)
     if not access or not _is_authorized_admin(identity, access, settings):
@@ -1548,14 +1103,12 @@ def export_prospects(
     identity: Identity = Depends(require_identity),
 ):
     settings = get_settings()
-    if _demo_data_allowed(settings):
-        prospects = _demo_payload(identity, settings.openai_request_budget)["prospects"]
-    else:
-        store = SheetStore()
-        access = store.get_access(identity.email)
-        if not access:
-            raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-        prospects = store.recent_prospects(None if "admin" in access.role.lower() else identity.email, limit=1000)
+    _require_real_sheets(settings)
+    store = SheetStore()
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    prospects = store.recent_prospects(None if is_admin_role(access.role) else identity.email, limit=1000)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     filters = {
@@ -1572,7 +1125,7 @@ def export_prospects(
     writer.writerow([
         "Productora", "ID onboarding", "Empresa", "Web", "Sector", "Tipo de cliente", "Ciudad", "País",
         "Empleados", "Score", "Clasificación", "Estado CRM", "Propietario CRM", "Notas CRM", "Próxima acción",
-        "Fecha seguimiento", "Preparación calentamiento", "Aprobación calentamiento", "Resumen", "Ángulo de entrada", "Contactos públicos", "Redes sociales",
+        "Fecha seguimiento", "Resumen", "Ángulo de entrada", "Contactos públicos", "Redes sociales",
         "Decisores públicos", "Señales financieras/comerciales", "Estado de señales", "Consultas", "Llamadas de búsqueda", "Límite",
         "Fuentes", "Motivo sin contactos", "Motivo sin prospecto", "Correo de cuenta", "Fecha", "ID lead",
     ])
@@ -1582,7 +1135,6 @@ def export_prospects(
             item.get("sector", ""), item.get("client_type", ""), item.get("city", ""), item.get("country", ""),
             item.get("employees", ""), item.get("score", ""), item.get("classification", ""), item.get("lead_status", ""),
             item.get("crm_owner", ""), item.get("crm_notes", ""), item.get("crm_next_action", ""), item.get("crm_follow_up_date", ""),
-            item.get("warmup_preparation", "No iniciada"), item.get("warmup_approval", "Pendiente"),
             item.get("summary", ""), item.get("entry_angle", ""), json.dumps(item.get("public_contacts") or [], ensure_ascii=False),
             json.dumps(item.get("social_links") or {}, ensure_ascii=False), json.dumps(item.get("decision_makers") or [], ensure_ascii=False), json.dumps(item.get("public_signals") or [], ensure_ascii=False),
             item.get("public_signals_status", "No encontrado públicamente"), " | ".join(item.get("search_queries") or []),

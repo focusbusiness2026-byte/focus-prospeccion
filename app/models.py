@@ -74,7 +74,7 @@ class SearchJob(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     client_id: Mapped[str] = mapped_column(ForeignKey("clients.id"), index=True)
     status: Mapped[str] = mapped_column(String(24), default=SearchStatus.PENDING.value, index=True)
-    source_mode: Mapped[str] = mapped_column(String(32), default="fixture")
+    source_mode: Mapped[str] = mapped_column(String(32), default="overpass")
     filters: Mapped[dict] = mapped_column(JSON, default=dict)
     quota_charged: Mapped[bool] = mapped_column(Boolean, default=True)
     results_count: Mapped[int] = mapped_column(Integer, default=0)

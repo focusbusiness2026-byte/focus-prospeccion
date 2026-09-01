@@ -243,8 +243,6 @@ def test_client_cannot_decide_on_another_accounts_lead(monkeypatch):
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
-
-
 def test_kanban_status_is_persisted_for_an_active_administrator(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
@@ -261,8 +259,6 @@ def test_kanban_status_is_persisted_for_an_active_administrator(monkeypatch):
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
-
-
 def test_client_cannot_move_another_accounts_kanban_card(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("alpha@example.com", "Cliente", "alpha"))
@@ -317,21 +313,3 @@ def test_admin_review_is_separate_and_does_not_overwrite_client_status(monkeypat
         get_settings.cache_clear()
 
 
-def test_summary_request_requires_client_account_and_starts_no_external_work(monkeypatch):
-    reset_api_state()
-    client = api_client(monkeypatch, Identity("alpha@example.com", "Cliente", "alpha"))
-    try:
-        response = client.post(
-            "/api/onboarding-sources/ONB-1/lead-summary-requests",
-            headers={"X-CSRF-Token": "csrf-test"},
-            json={"confirmed": True, "note": "Priorizar aprobados"},
-        )
-        assert response.status_code == 202
-        payload = response.json()
-        assert payload["summary_generated"] is False
-        assert payload["external_calls"] is False
-        assert ApiStore.events[0]["event_type"] == "summary_request"
-        assert ApiStore.events[0]["owner_email"] == "alpha@example.com"
-    finally:
-        main_module.app.dependency_overrides.clear()
-        get_settings.cache_clear()

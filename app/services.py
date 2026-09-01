@@ -8,18 +8,7 @@ from app.dedupe import company_dedupe_key
 from app.models import Client, Prospect, Quota, SearchJob, SearchResult, SearchStatus, utcnow
 from app.scoring import score_company
 from app.sheets import GoogleSheetsExporter
-from app.sources import FixtureSource, OverpassSource
-
-
-def ensure_demo_client(session: Session) -> Client:
-    client = session.get(Client, "demo")
-    if client:
-        return client
-    client = Client(id="demo", name="Focus Business Demo")
-    session.add(client)
-    session.add(Quota(client_id="demo", launches_total=25, launches_consumed=0))
-    session.commit()
-    return client
+from app.sources import OverpassSource
 
 
 def launch_search(session: Session, client_id: str, filters: dict, source_mode: str | None = None) -> SearchJob:
@@ -36,8 +25,6 @@ def launch_search(session: Session, client_id: str, filters: dict, source_mode: 
 
 
 def _source(mode: str):
-    if mode == "fixture":
-        return FixtureSource()
     if mode == "overpass":
         return OverpassSource()
     raise ValueError(f"Fuente no soportada: {mode}")
