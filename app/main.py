@@ -40,10 +40,10 @@ from app.lead_reviews import (
     ADMIN_DECISIONS,
     CLIENT_DECISIONS,
     decorate_prospects,
+    is_admin_role,
     summary_request_preview,
 )
-from app.services import ensure_demo_client
-from app.sheet_store import SheetStore
+from app.sheet_store import SheetStore, is_active_access_state
 
 
 class GoogleCredential(BaseModel):
@@ -51,7 +51,7 @@ class GoogleCredential(BaseModel):
 
 
 class LeadStatusRequest(BaseModel):
-    status: Literal["Nuevo", "Aprobado", "Descartado", "En revisión", "Cerrado"]
+    status: Literal["Nuevo", "En revisión", "Aprobado para descarga", "Descartado"]
 
 
 class LeadDecisionRequest(BaseModel):
@@ -69,7 +69,7 @@ class DeleteLeadRequest(BaseModel):
 
 
 class CRMRequest(BaseModel):
-    status: Literal["Nuevo", "Aprobado", "Descartado", "En revisión", "Cerrado"]
+    status: Literal["Nuevo", "En revisión", "Aprobado para descarga", "Descartado"]
     owner: str = ""
     notes: str = ""
     next_action: str = ""
@@ -197,14 +197,19 @@ def _safe_research_failure(exc: Exception) -> str:
 
 
 def _is_authorized_admin(identity: Identity, access, settings) -> bool:
-    allowed = settings.admin_emails or {"servicemanagerbossio@gmail.com"}
-    return "admin" in access.role.lower() and identity.email.strip().lower() in allowed
+    """The active Accesos row is the authority for every administrator."""
+    return bool(
+        access
+        and access.email.strip().casefold() == identity.email.strip().casefold()
+        and is_active_access_state(access.state)
+        and is_admin_role(access.role)
+    )
 
 
 def _admin_available_users(store: SheetStore, sources: list) -> list[dict]:
     users: dict[str, dict] = {}
     for item in store.access_records():
-        if item.state.lower() != "activo" or "admin" in item.role.lower():
+        if not is_active_access_state(item.state) or is_admin_role(item.role):
             continue
         users[item.email] = {"email": item.email, "role": item.role, "onboarding_count": 0}
     for source in sources:
@@ -314,7 +319,7 @@ def _demo_payload(identity: Identity, openai_budget: int) -> dict:
             "client_type": "Empresa privada B2B",
             "onboarding_id": "ONB-DEMO0001",
             "productora": "Productora Demo Focus",
-            "crm_owner": "Alberto",
+            "crm_owner": "Equipo Focus Business",
             "crm_notes": "Validar encaje en la próxima revisión.",
             "crm_next_action": "Revisar decisor",
             "crm_follow_up_date": "2026-08-20",
@@ -783,8 +788,6 @@ async def lifespan(_: FastAPI):
     settings = get_settings()
     if settings.app_env != "production":
         create_schema()
-        with session_scope() as session:
-            ensure_demo_client(session)
     automation_task = None
     keepalive_task = None
     if settings.google_sheets_enabled and settings.auto_research_enabled:
@@ -1258,10 +1261,34 @@ def update_prospect_status(
     identity: Identity = Depends(require_identity),
 ):
     validate_csrf(request)
-    raise HTTPException(
-        status_code=409,
-        detail="Usa el flujo de decisión auditada para aprobar, descartar o enviar a revisión",
-    )
+    settings = get_settings()
+    if not settings.google_sheets_enabled:
+        raise HTTPException(status_code=503, detail="El tablero requiere Google Sheets")
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    current = store.get_prospect(execution_id, None if is_admin else identity.email)
+    if not current:
+        raise HTTPException(status_code=404, detail="No se encontró el lead solicitado")
+    try:
+        prospect = store.update_prospect_status(execution_id, identity.email, payload.status, is_admin=is_admin)
+        store.append_review_event(
+            event_type="kanban_status",
+            onboarding_id=str(prospect.get("onboarding_id") or ""),
+            owner_email=str(prospect.get("email") or ""),
+            execution_id=execution_id,
+            actor_email=identity.email,
+            actor_role=access.role,
+            decision=payload.status,
+            result_status="Registrada",
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "prospect": prospect}
 
 
 @app.post("/api/prospects/{execution_id}/decision")

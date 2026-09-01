@@ -245,6 +245,40 @@ def test_client_cannot_decide_on_another_accounts_lead(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_kanban_status_is_persisted_for_an_active_administrator(monkeypatch):
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
+    try:
+        response = client.post(
+            "/api/prospects/EXEC-BETA/status",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"status": "Aprobado para descarga"},
+        )
+        assert response.status_code == 200
+        assert response.json()["prospect"]["lead_status"] == "Aprobado para descarga"
+        assert ApiStore.status_updates == [("EXEC-BETA", "admin@example.com", "Aprobado para descarga", True)]
+        assert ApiStore.events[-1]["event_type"] == "kanban_status"
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_client_cannot_move_another_accounts_kanban_card(monkeypatch):
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("alpha@example.com", "Cliente", "alpha"))
+    try:
+        response = client.post(
+            "/api/prospects/EXEC-BETA/status",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"status": "Descartado"},
+        )
+        assert response.status_code == 404
+        assert ApiStore.status_updates == []
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_client_decision_is_audited_without_external_action(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("alpha@example.com", "Cliente", "alpha"))

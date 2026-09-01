@@ -77,11 +77,10 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert response.status_code == 200
     assert 'id="source-list"' in response.text
     assert "La configuración recomendada se construye automáticamente con el Onboarding" in response.text
-    assert "máximo 5 búsquedas" in response.text
+    assert 'data-number="lead_count"' not in response.text
     assert 'name="openai_api_key"' not in response.text
     assert 'id="scrape-form"' not in response.text
     assert 'id="recommended-config"' in response.text
-    assert 'data-number="lead_count"' in response.text
     assert "Firmografía avanzada" in response.text
     assert "Madurez comercial y digital" in response.text
     assert "Decisores y empresas similares" in response.text
@@ -94,25 +93,17 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert '<a class="top-link" href="#warmup" data-view="warmup">' not in response.text
     assert 'data-schedule-enabled' in response.text
     assert 'data-builder-tab="profile"' in response.text
-    assert 'id="automation-preview"' in response.text
-    assert "PROGRAMACIÓN OPERATIVA" in response.text
-    assert "Acciones reales" in response.text
-    assert 'id="preview-countdown"' in response.text
-    assert "focus-prospeccion:automation-preview:v1" not in response.text
+    assert 'data-view="automation-preview"' not in response.text
     assert 'id="dashboard-automation-quick"' in response.text
-    assert 'class="dashboard-automation-dock"' in response.text
-    assert 'id="favorite-automation-select"' in response.text
-    assert 'id="dashboard-automation-filters"' in response.text
-    assert 'id="quick-toggle-automation"' in response.text
+    assert "Cada 3 h · 1 raspado" in response.text
+    assert "Cada 24 h · 8 raspados" in response.text
     assert 'id="module-info-dialog"' in response.text
     assert response.text.count('class="info-button') >= 7
     assert 'data-schedule-name' in response.text
     assert "Nombre del guardado" in response.text
     assert "Automatizaciones reales" in response.text
-    assert "Hasta 5 resultados" in response.text
-    assert 'max="5" data-number="lead_count"' in response.text
-    assert 'id="crm-presentation"' in response.text
-    assert "Tablero Kanban por estado" in response.text
+    assert 'id="crm-presentation"' not in response.text
+    assert "Tablero Kanban" in response.text
     assert "Tarjetas · estilo Trello" not in response.text
     assert "Tabla · hoja de cálculo" not in response.text
     assert 'id="crm-preview-board"' in response.text
@@ -131,7 +122,7 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "timeZoneName:'short'" in response.text
     assert "data-copy-value" in response.text
     assert "draggable=\"true\"" in response.text
-    assert "crm-drag-handle" in response.text
+    assert "data-move-prospect" in response.text
     assert "drop-target" in response.text
     assert "draggedProspectId" in response.text
     assert 'id="warmup-action-form"' in response.text
@@ -152,13 +143,7 @@ def test_portal_uses_onboarding_sources_instead_of_manual_company_fields():
     assert "CARPETA MAESTRA GOHIGHLEVEL" in response.text
     assert "08_INSTRUCCIONES_EQUIPO_TECNICO.txt" in response.text
     assert "NO ejecutes ciegamente" in response.text
-    assert 'id="demo-role"' in response.text
-    assert 'id="demo-role-email"' in response.text
-    assert "const sessionEmail=" in response.text
-    assert "const sessionRole=" in response.text
-    assert "sessionEmail===authorizedDeliveryEmail&&sessionRole.includes('admin')" in response.text
-    assert "servicemanagerbossio@gmail.com" in response.text
-    assert "previewEmail()===authorizedDeliveryEmail" in response.text
+    assert "authorizedDeliveryEmail" not in response.text
     assert "Administrador" in response.text
     assert "Cliente" in response.text
     assert 'id="admin-lead-delivery-dialog"' in response.text
@@ -270,7 +255,7 @@ def test_desktop_navigation_uses_two_rows_without_single_item_more_menu():
     html = (root / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
     css = (root / "app" / "static" / "app.css").read_text(encoding="utf-8")
 
-    assert html.count('class="top-link') == 7
+    assert html.count('class="top-link') == 6
     assert 'grid-template-columns: repeat(5, minmax(92px, 1fr))' in css
     assert 'grid-auto-rows: 42px' in css
     assert '<summary>MÃ¡s</summary>' not in html
@@ -322,8 +307,7 @@ def test_portal_identifies_client_and_administrator_views_visually():
     assert "Vista administrativa · revisión como cliente" in portal
     assert "Cuenta revisada:" in portal
     assert "ADMIN + CLIENTE" in portal
-    assert "Vista administrativa · demostración" in portal
-    assert "Acceso limitado a sus propios datos" in portal
+    assert "Vista administrativa · demostración" not in portal
     assert ".portal-role-banner.admin" in css
     assert ".portal-role-banner.client" in css
     assert "--ink: #06101e;" in css
@@ -369,8 +353,8 @@ def test_real_automation_controls_and_admin_execution_visibility_are_present():
     css = (Path(__file__).parents[1] / "app" / "static" / "app.css").read_text(encoding="utf-8")
 
     assert "persistAutomation" in portal
-    assert "runSavedAutomation" in portal
-    assert 'id="quick-run-automation"' in portal
+    assert 'data-frequency-minutes="180"' in portal
+    assert 'data-frequency-minutes="1440"' in portal
     assert 'class="admin-execution-column" hidden' in portal
     assert "Tu historial excluye las ejecuciones internas realizadas por administración" in portal
     assert "Sin límite" in portal
