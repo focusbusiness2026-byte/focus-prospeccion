@@ -1,5 +1,5 @@
 from app.config import Settings
-from app.main import _process_onboarding_trigger, _run_onboarding_research
+from app.main import _process_onboarding_trigger, _run_onboarding_research, _sync_automations_once
 from app.onboarding import OnboardingSource
 
 
@@ -166,3 +166,29 @@ def test_onboarding_trigger_prepares_profile_without_starting_search():
     assert result["automation"]["adjustments"]["lead_count"] == 5
     assert "No ejecutar búsquedas" in result["prompt_preview"]
     assert result["viral_radar_profile"]["client_key"] == "onb-pipeline"
+
+
+def test_automation_runs_each_configured_cycle_without_provider_calls(monkeypatch):
+    class Access:
+        email = "owner@example.test"
+        role = "Administrador"
+        state = "Activo"
+
+    class AutomationStore:
+        def __init__(self, *_):
+            self.marked = []
+        def ensure_operational_schema(self): pass
+        def due_automation_configs(self): return [{"onboarding_id": "ONB-PIPELINE", "email": "owner@example.test", "adjustments": {"runs_per_cycle": 4}}]
+        def get_onboarding_source(self, *_): return type("Source", (), {"record_id": "ONB-PIPELINE", "email": "owner@example.test", "ready": True, "blockers": []})()
+        def get_access(self, *_): return Access()
+        def mark_automation_run(self, *values): self.marked.append(values)
+
+    created = AutomationStore()
+    calls = []
+    settings = Settings(google_sheets_enabled=True, auto_research_enabled=True, openai_api_key="configured")
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.main.SheetStore", lambda *_: created)
+    monkeypatch.setattr("app.main._run_onboarding_research", lambda *args, **kwargs: calls.append(kwargs) or {"prospects": [], "execution_id": str(len(calls))})
+    _sync_automations_once()
+    assert len(calls) == 4
+    assert created.marked[-1][1].startswith("Completado ciclo: 4/4")
