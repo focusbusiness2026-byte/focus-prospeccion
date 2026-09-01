@@ -187,6 +187,7 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .portal-header small { color: #91a0b2; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
 .badge, .muted-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 7px 11px; font-size: 11px; font-weight: 700; }
+.demo-badge { border: 1px solid #7b642b; background: #2c2618; color: #f0cf73; }
 .muted-pill { border: 1px solid #35465b; color: #9fadc0; }
 .hero-section { scroll-margin-top: 20px; }
 .dashboard-heading { align-items: flex-start; }
@@ -658,6 +659,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .more-menu a:hover, .more-menu a.current { background: #172438; color: var(--gold-soft); }
 .menu-toggle { display: none; width: 42px; height: 42px; border: 1px solid #405168; border-radius: 10px; background: #0e1928; color: #fff; font-size: 20px; }
 .site-header .header-actions { display: flex; align-items: center; gap: 10px; }
+.demo-role-control { display: flex; align-items: end; gap: 6px; color: #8293a7; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.demo-role-control label { display: grid; gap: 2px; }
+.demo-role-control select, .demo-role-control input { min-width: 125px; padding: 7px 9px; border: 1px solid #3b4d63; border-radius: 8px; background: #101c2b; color: #edf3fa; }
+.demo-role-control input { min-width: 245px; text-transform: none; }
 .admin-client-view { display: grid; gap: 3px; min-width: 230px; color: #8293a7; font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .admin-client-view label { display: grid; gap: 3px; }
 .admin-client-view select { width: 100%; padding: 7px 9px; border: 1px solid #6f5b29; border-radius: 8px; background: #101c2b; color: #edf3fa; text-transform: none; }
@@ -771,6 +776,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .more-menu > summary { min-height: 42px; }
   .more-menu > div { position: static; grid-template-columns: 1fr 1fr; margin-top: 5px; box-shadow: none; }
   .site-header .header-actions { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+  .site-header .demo-badge { display: none; }
+  .demo-role-control span, .demo-role-control label:first-child { display: none; }
+  .demo-role-control select { min-width: 105px; max-width: 120px; }
   .admin-client-view { min-width: min(100%, 320px); max-width: 100%; }
   .admin-client-view small { max-width: 100%; }
   .portal-role-banner { grid-template-columns: auto minmax(0, 1fr); }
