@@ -123,6 +123,7 @@ class AutomationRequest(BaseModel):
     enabled: bool = False
     favorite: bool = False
     interval_minutes: int = Field(default=1440, ge=5, le=4320)
+    runs_per_cycle: int = Field(default=1, ge=1, le=8)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
 
 
@@ -730,24 +731,26 @@ def _sync_automations_once() -> None:
         try:
             creator_email = str(config.get("created_by_email") or config.get("email") or "").strip().lower()
             creator_access = store.get_access(creator_email) if creator_email else None
-            creator_is_admin = bool(
-                creator_access
-                and "admin" in creator_access.role.lower()
-                and creator_email in (settings.admin_emails or {"servicemanagerbossio@gmail.com"})
-            )
-            result = _run_onboarding_research(
-                source,
-                store,
-                config.get("adjustments") or None,
-                actor_email=creator_email or source.email,
-                actor_role=creator_access.role if creator_access else "Cliente",
-                execution_origin="automation",
-                bypass_user_limit=creator_is_admin,
-            )
+            creator_is_admin = _is_authorized_admin(
+                Identity(creator_email, creator_access.role, "automation"), creator_access, settings,
+            ) if creator_access else False
+            runs = max(1, min(8, int((config.get("adjustments") or {}).get("runs_per_cycle", 1))))
+            completed = []
+            for _ in range(runs):
+                result = _run_onboarding_research(
+                    source,
+                    store,
+                    config.get("adjustments") or None,
+                    actor_email=creator_email or source.email,
+                    actor_role=creator_access.role if creator_access else "Cliente",
+                    execution_origin="automation",
+                    bypass_user_limit=creator_is_admin,
+                )
+                completed.append(result)
             store.mark_automation_run(
                 config,
-                f"Completada: {len(result['prospects'])} prospectos",
-                result["execution_id"],
+                f"Completado ciclo: {len(completed)}/{runs} ejecuciones · {sum(len(item['prospects']) for item in completed)} prospectos",
+                completed[-1]["execution_id"],
             )
         except Exception as exc:
             store.mark_automation_run(config, f"Falló: {str(exc)[:240]}")
@@ -852,7 +855,7 @@ async def index(request: Request):
         request,
         "login.html",
         google_oauth_client_id=settings.google_oauth_client_id,
-        demo_enabled=settings.demo_auth_bypass and settings.app_env != "production",
+        demo_enabled=False,
     )
 
 
@@ -931,24 +934,6 @@ def google_login(payload: GoogleCredential, request: Request):
         create_session(identity),
         httponly=True,
         secure=get_settings().app_env == "production",
-        samesite="lax",
-        max_age=8 * 60 * 60,
-    )
-    return response
-
-
-@app.post("/auth/demo")
-def demo_login(request: Request):
-    validate_csrf(request)
-    settings = get_settings()
-    if settings.app_env == "production" or not settings.demo_auth_bypass:
-        raise HTTPException(status_code=404)
-    response = JSONResponse({"ok": True, "redirect": "/portal"})
-    response.set_cookie(
-        SESSION_COOKIE,
-        create_session(Identity("demo@focus.local", "Administrador", "demo")),
-        httponly=True,
-        secure=False,
         samesite="lax",
         max_age=8 * 60 * 60,
     )
@@ -1244,6 +1229,7 @@ def save_onboarding_automation(
         source.email,
         enabled=payload.enabled,
         interval_minutes=payload.interval_minutes,
+        runs_per_cycle=payload.runs_per_cycle,
         adjustments=payload.adjustments.model_dump(),
         name=payload.name,
         favorite=payload.favorite,

@@ -215,6 +215,9 @@ def test_automation_interval_is_limited_between_five_minutes_and_three_days():
         AutomationRequest(name="Inválida", enabled=True, interval_minutes=4)
     with pytest.raises(ValidationError):
         AutomationRequest(name="Inválida", enabled=True, interval_minutes=4321)
+    assert AutomationRequest(name="Cada seis horas", enabled=False, interval_minutes=360, runs_per_cycle=2).runs_per_cycle == 2
+    with pytest.raises(ValidationError):
+        AutomationRequest(name="Inválida", enabled=False, runs_per_cycle=9)
     with pytest.raises(ValidationError):
         AutomationRequest(name="", enabled=False)
 
@@ -244,9 +247,8 @@ def test_google_sign_in_keeps_official_flow_inside_dark_responsive_frame():
     assert "justify-content: center" in css
     assert ".google-access-control" in css
     assert "padding: 0" in css
-    assert "Continuar con correo" in html
-    assert "No se ha enviado ningún email" in html
-    assert "postLogin('/auth/demo')" in html
+    assert "Continuar con correo" not in html
+    assert "/auth/demo" not in html
     assert "#google-button iframe" in css
 
 
