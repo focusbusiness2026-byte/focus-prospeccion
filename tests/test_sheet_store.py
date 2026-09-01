@@ -108,10 +108,10 @@ def test_recent_prospects_are_scoped_and_include_full_detail():
 def test_admin_can_change_status_and_metrics_are_calculated():
     store = ProspectStore()
 
-    updated = store.update_prospect_status("exec-2", "admin@example.com", "Aprobado", is_admin=True)
+    updated = store.update_prospect_status("exec-2", "admin@example.com", "Aprobado para descarga", is_admin=True)
     metrics = store.prospect_metrics(None)
 
-    assert updated["lead_status"] == "Aprobado"
+    assert updated["lead_status"] == "Aprobado para descarga"
     assert store.updates[0][0] == "'Prospeccion'!W3:X3"
     assert metrics["total"] == 2
     assert metrics["classifications"] == {"green": 1, "yellow": 0, "red": 1}
@@ -121,7 +121,7 @@ def test_client_cannot_change_another_accounts_lead():
     store = ProspectStore()
 
     with pytest.raises(PermissionError, match="otra cuenta"):
-        store.update_prospect_status("exec-2", "owner@example.com", "Aprobado")
+        store.update_prospect_status("exec-2", "owner@example.com", "Aprobado para descarga")
 
 
 class AppendStore(SheetStore):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +19,31 @@ from app.onboarding import OnboardingSource
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _quota_lock = threading.Lock()
 CLIENT_MONTHLY_SCRAPES = 50
+KANBAN_STATUSES = {"Nuevo", "En revisión", "Aprobado para descarga", "Descartado"}
+LEGACY_KANBAN_STATUS = {
+    "aprobado": "Aprobado para descarga",
+    "cerrado": "Descartado",
+}
+
+
+def _normalized_access_text(value: str) -> str:
+    """Compare Sheets role/state values without whitespace or accent surprises."""
+    compact = " ".join(str(value or "").split()).casefold()
+    return "".join(
+        char for char in unicodedata.normalize("NFD", compact)
+        if unicodedata.category(char) != "Mn"
+    )
+
+
+def is_active_access_state(value: str) -> bool:
+    return _normalized_access_text(value) == "activo"
+
+
+def normalized_kanban_status(value: str) -> str:
+    raw = " ".join(str(value or "").split())
+    if raw in KANBAN_STATUSES:
+        return raw
+    return LEGACY_KANBAN_STATUS.get(_normalized_access_text(raw), "Nuevo")
 
 PROSPECT_HEADERS = [
     "execution_id", "email", "created_at", "company", "website", "title", "description", "sector",
@@ -437,7 +463,7 @@ class SheetStore:
         records: list[AccessRecord] = []
         for index, row in enumerate(rows, start=2):
             padded = row + [""] * (10 - len(row))
-            email = str(padded[0]).strip().lower()
+            email = str(padded[0]).strip().casefold()
             if not email:
                 continue
             records.append(
@@ -500,9 +526,9 @@ class SheetStore:
         )
 
     def get_access(self, email: str) -> AccessRecord | None:
-        normalized = email.strip().lower()
+        normalized = email.strip().casefold()
         record = next(
-            (record for record in self.access_records() if record.email == normalized and record.state.lower() == "activo"),
+            (record for record in self.access_records() if record.email == normalized and is_active_access_state(record.state)),
             None,
         )
         return self._renew_client_quota_if_needed(record) if record else None
@@ -700,7 +726,7 @@ class SheetStore:
                 "tiktok": padded[20],
             },
             "evidence": [line for line in str(padded[21]).splitlines() if line.strip()],
-            "lead_status": padded[22] or "Nuevo",
+            "lead_status": normalized_kanban_status(padded[22]),
             "updated_at": padded[23] or padded[2],
             "onboarding_id": padded[24],
             "productora": padded[25],
@@ -819,17 +845,19 @@ class SheetStore:
     def prospect_metrics(self, email: str | None) -> dict:
         prospects = self.recent_prospects(email, limit=1000)
         classifications = {"green": 0, "yellow": 0, "red": 0}
-        statuses = {"Nuevo": 0, "Aprobado": 0, "Descartado": 0}
+        statuses = {status: 0 for status in KANBAN_STATUSES}
         for prospect in prospects:
             classification = str(prospect["classification"]).strip().lower()
             if classification in classifications:
                 classifications[classification] += 1
-            status = str(prospect["lead_status"]).strip().capitalize() or "Nuevo"
+            status = normalized_kanban_status(prospect["lead_status"])
             if status in statuses:
                 statuses[status] += 1
         return {"total": len(prospects), "classifications": classifications, "statuses": statuses}
 
     def update_prospect_status(self, execution_id: str, email: str, status: str, *, is_admin: bool = False) -> dict:
+        if status not in KANBAN_STATUSES:
+            raise ValueError("Estado Kanban no válido")
         rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
         normalized_email = email.strip().lower()
         for row_number, row in enumerate(rows, start=2):
@@ -908,7 +936,7 @@ class SheetStore:
             "active_users": global_metrics["active_users"],
             "prospects": metrics["total"],
             "new": statuses["Nuevo"],
-            "approved": statuses["Aprobado"],
+            "approved": statuses["Aprobado para descarga"],
             "discarded": statuses["Descartado"],
             "executions_completed": global_metrics["openai_requests_used"],
             "executions_failed": global_metrics["failed_requests"],
