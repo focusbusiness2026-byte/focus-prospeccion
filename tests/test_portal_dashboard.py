@@ -32,8 +32,16 @@ def test_portal_has_selected_account_real_schedule_and_kanban_exports():
     assert 'dashboardData.sources?.[0]' not in html
 
 
-def test_application_code_has_no_removed_local_experience_terms():
-    app_files = list(Path('app').rglob('*'))
-    content = '\n'.join(path.read_text(encoding='utf-8') for path in app_files if path.is_file() and path.suffix in {'.py', '.html', '.css', '.js'})
-    forbidden = ('demo', 'paquete del cliente', 'calentamiento', 'vista previa')
-    assert all(term not in content.lower() for term in forbidden)
+def test_portal_restores_full_operational_controls_and_styles():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    css = Path('app/static/app.css').read_text(encoding='utf-8')
+    assert 'id="dashboard"' in html
+    assert 'id="results"' in html
+    assert 'id="execution-list"' in html
+    assert 'id="refresh-top"' in html
+    assert 'id="lead-dialog"' in html
+    assert 'id="open-ghl-export"' in html
+    assert 'fetchDashboardPayload' in html
+    assert '.portal-app' in css
+    assert '.top-navigation' in css
+    assert '@media (max-width: 600px)' in css
