@@ -22,14 +22,19 @@ def test_real_sheet_source_is_required_when_unavailable():
 
 def test_portal_has_selected_account_real_schedule_and_kanban_exports():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
-    assert 'automation-source-select' in html
-    assert 'enabled:true' in html
-    assert 'next_run_at' in html
-    assert 'data-frequency-runs="8"' in html
-    assert "['Nuevo','En revisión','Aprobado para descarga','Descartado']" in html
+    assert 'id="research-frequency-select"' in html
+    assert 'Cada 3 horas' in html
+    assert 'Cada 6 horas' in html
+    assert 'Cada 12 horas' in html
+    assert 'Cada 24 horas' in html
+    assert 'id="run-research-preview"' in html
+    assert 'startLocalResearchCountdown' in html
+    assert 'raspado' not in html[html.index('Frecuencia de investigación'):html.index('Resultados')]
+    assert 'Mueve un lead entre Nuevo, En revisión, Aprobado para descarga y Descartado.' in html
     assert 'Exportar para GoHighLevel' in html
-    assert 'Exportar para Meta' in html
-    assert 'dashboardData.sources?.[0]' not in html
+    assert 'Exportar Meta' in html
+    assert 'Columnas incluidas en el CSV' in html
+    assert 'selectedFields=[]' in html
 
 
 def test_portal_restores_full_operational_controls_and_styles():
