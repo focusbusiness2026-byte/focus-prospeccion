@@ -832,14 +832,17 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 1180px) {
-  .site-header { grid-template-columns: auto 1fr auto; min-height: 68px; padding: 9px 16px; }
+  .site-header { grid-template-columns: minmax(0, 1fr) auto auto; min-height: 68px; gap: 8px; padding: 9px 16px; }
+  .site-header .brand { grid-column: 1; grid-row: 1; }
   .menu-toggle { display: grid; grid-column: 2; grid-row: 1; justify-self: end; place-items: center; }
+  .site-header .header-actions { grid-column: 3; grid-row: 1; display: flex; width: auto; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: nowrap; }
+  .site-header .admin-client-view:not([hidden]) { position: absolute; top: calc(100% + 1px); right: 16px; width: min(320px, calc(100vw - 32px)); padding: 10px; border: 1px solid #34465b; border-radius: 0 0 12px 12px; background: #07111ef8; box-shadow: 0 18px 42px #0008; }
+  .site-header .account-menu { position: relative; margin: 0; flex: 0 0 auto; }
   .top-navigation { position: absolute; top: calc(100% + 1px); right: 14px; left: 14px; display: none; grid-template-columns: 1fr 1fr; padding: 10px; border: 1px solid #34465b; border-radius: 12px; background: #07111ef8; box-shadow: 0 22px 50px #000b; }
   .top-navigation.open { display: grid; }
   .more-menu { grid-column: 1 / -1; }
   .more-menu > summary { min-height: 42px; }
   .more-menu > div { position: static; grid-template-columns: 1fr 1fr; margin-top: 5px; box-shadow: none; }
-  .site-header .header-actions { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
   .site-header .demo-badge { display: none; }
   .demo-role-control span, .demo-role-control label:first-child { display: none; }
   .demo-role-control select { min-width: 105px; max-width: 120px; }
@@ -899,7 +902,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .filters { grid-template-columns: 1fr; }
   .heading-actions { width: 100%; justify-content: stretch; }
   .heading-actions > *, .heading-actions .input, .heading-actions select { width: 100%; }
-  .site-header .header-actions { justify-content: stretch; }
+  .site-header .header-actions { width: auto; justify-content: flex-end; flex-wrap: nowrap; }
   .admin-client-view { width: 100%; min-width: 0; }
   .admin-presentation-toggle { grid-template-columns: 1fr; }
   .client-execution-card header { display: grid; }
@@ -913,7 +916,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .site-header .brand span { display: block; min-width: 0; overflow: hidden; }
   .site-header .brand small { display: none; }
   .site-header .brand i { width: 40px; height: 40px; }
-  .site-header { grid-template-columns: auto 1fr auto; }
+  .site-header { grid-template-columns: minmax(0, 1fr) auto auto; }
   .top-navigation { grid-template-columns: 1fr; }
   .more-menu, .more-menu > div { grid-column: auto; grid-template-columns: 1fr; }
   .builder-tabs { grid-template-columns: 1fr; }

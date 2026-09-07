@@ -98,6 +98,16 @@ def test_portal_restores_full_operational_controls_and_styles():
     assert '@media (max-width: 600px)' in css
 
 
+def test_mobile_header_keeps_the_account_control_next_to_the_menu_toggle():
+    css = Path('app/static/app.css').read_text(encoding='utf-8')
+
+    mobile_header = css[css.index('@media (max-width: 1180px)'):css.index('@media (max-width: 900px)')]
+    assert 'grid-template-columns: minmax(0, 1fr) auto auto' in mobile_header
+    assert '.menu-toggle { display: grid; grid-column: 2; grid-row: 1;' in mobile_header
+    assert '.site-header .header-actions { grid-column: 3; grid-row: 1;' in mobile_header
+    assert '.site-header .account-menu { position: relative; margin: 0;' in mobile_header
+
+
 def test_admin_can_switch_to_an_isolated_client_presentation():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
     assert 'id="admin-presentation-toggle"' in html
