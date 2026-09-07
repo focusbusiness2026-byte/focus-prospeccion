@@ -331,6 +331,35 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .crm-board-track { display: flex; width: max-content; min-width: 100%; gap: 12px; align-items: flex-start; }
 .crm-column { width: 290px; min-width: 290px; min-height: 390px; padding: 12px; border: 1px solid #34465a; border-radius: 13px; background: #0a1421; }
 .crm-column.drop-target { border-color: var(--lime); background: #101d16; box-shadow: inset 0 0 0 2px #a9f41433, 0 0 24px #a9f4141f; }
+.crm-board-card.saving { opacity: .78; cursor: progress; box-shadow: inset 0 0 0 1px #e8bf4a66; }
+.crm-board-card.saving .crm-drag-handle { color: var(--gold); }
+
+.client-selection-loading {
+  position: fixed;
+  z-index: 80;
+  top: 88px;
+  left: 50%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: center;
+  min-width: min(360px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border: 1px solid #e8bf4a99;
+  border-radius: 12px;
+  background: #091525f2;
+  color: #f8fbff;
+  box-shadow: 0 16px 40px #02060dcc;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.client-selection-loading[hidden] { display: none; }
+.client-selection-loading small { grid-column: 2; color: #aebdce; }
+.client-loading-spinner { grid-row: 1 / span 2; width: 24px; height: 24px; border: 3px solid #e8bf4a44; border-top-color: var(--gold); border-radius: 50%; animation: client-loading-spin .8s linear infinite; }
+.source-selection-empty { padding: 28px; border: 1px dashed #43546a; border-radius: 12px; background: #0b1522; text-align: center; }
+.source-selection-empty strong { color: #fff; font-size: 18px; }
+.source-selection-empty p { margin: 8px 0 0; color: #aebdce; }
+@keyframes client-loading-spin { to { transform: rotate(360deg); } }
 .crm-column > header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .crm-column > header input { min-width: 0; flex: 1; padding: 8px; border: 1px solid transparent; background: transparent; color: #f0f3f7; font-weight: 800; }
 .crm-column > header input:focus { border-color: var(--gold); border-radius: 6px; outline: none; }

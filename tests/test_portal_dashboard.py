@@ -1,11 +1,18 @@
 from pathlib import Path
+import re
+import subprocess
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
+import app.main as main_module
+from app.auth import Identity, require_identity
 from app.config import Settings
+from app.config import get_settings
 from app.build_info import portal_build_id
 from app.main import AutomationRequest, ResearchAdjustments, _client_execution_summary, _require_real_sheets
+from app.sheet_store import AccessRecord
 
 
 def test_automation_request_supports_cycle_runs_without_changing_internal_limit():
@@ -67,12 +74,121 @@ def test_admin_can_switch_to_an_isolated_client_presentation():
     assert 'toggle.hidden=false' in html
     assert 'clientButton.disabled=!adminViewAs' in html
     assert 'Selecciona una cuenta para habilitar la vista de cliente.' in html
+    assert "control.hidden=!context.is_admin" in html
+    assert "toggle.hidden=false" in html
+    assert "adminPresentation='admin';loadDashboard()" in html
+
+
+def test_client_identity_never_receives_admin_presentation_access(monkeypatch):
+    class DashboardStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, email):
+            role = "Administrador" if email == "admin@example.com" else "Cliente"
+            return AccessRecord(2, email, role, "Activo", 50, 0)
+
+        def ensure_operational_schema(self):
+            return None
+
+        def onboarding_sources(self, email=None):
+            return []
+
+        def review_events(self, email=None):
+            return []
+
+        def recent_prospects(self, email=None):
+            return []
+
+        def recent_executions(self, email=None, *, hide_admin=False):
+            return []
+
+        def prospect_metrics(self, email=None):
+            return {"total": 0, "classifications": {}, "statuses": {}}
+
+        def global_metrics(self):
+            return {"remaining": 0, "used": 0, "assigned": 0}
+
+        def access_records(self):
+            return [
+                AccessRecord(2, "admin@example.com", "Administrador", "Activo", 0, 0),
+                AccessRecord(3, "client@example.com", "Cliente", "Activo", 50, 0),
+            ]
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", DashboardStore)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity("client@example.com", "Cliente", "client")
+    try:
+        client = TestClient(main_module.app)
+        denied = client.get("/api/portal-dashboard?view_as=other@example.com&presentation=client")
+        own = client.get("/api/portal-dashboard")
+        assert denied.status_code == 403
+        assert own.status_code == 200
+        assert own.json()["admin_context"]["is_admin"] is False
+        assert own.json()["admin_context"]["presentation_mode"] == "client"
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeypatch):
+    class DashboardStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, email):
+            role = "Administrador" if email == "admin@example.com" else "Cliente"
+            return AccessRecord(2, email, role, "Activo", 50, 0)
+
+        def ensure_operational_schema(self):
+            return None
+
+        def onboarding_sources(self, email=None):
+            return []
+
+        def review_events(self, email=None):
+            return []
+
+        def recent_prospects(self, email=None):
+            return []
+
+        def recent_executions(self, email=None, *, hide_admin=False):
+            return []
+
+        def prospect_metrics(self, email=None):
+            return {"total": 0, "classifications": {}, "statuses": {}}
+
+        def global_metrics(self):
+            return {"remaining": 0, "used": 0, "assigned": 0}
+
+        def access_records(self):
+            return [AccessRecord(3, "client@example.com", "Cliente", "Activo", 50, 0)]
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", DashboardStore)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity("admin@example.com", "Administrador", "admin")
+    try:
+        response = TestClient(main_module.app).get(
+            "/api/portal-dashboard?view_as=client@example.com&presentation=client"
+        )
+        assert response.status_code == 200
+        context = response.json()["admin_context"]
+        assert context["is_admin"] is True
+        assert context["authenticated_email"] == "admin@example.com"
+        assert context["viewing_as"] == "client@example.com"
+        assert context["presentation_mode"] == "client"
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
 
 
 def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
 
-    assert 'class="crm-board-card" draggable="true" data-drag-prospect="${esc(item.execution_id)}"' in html
+    assert 'class="crm-board-card ${saving?' in html
+    assert 'draggable="${saving?' in html
     assert 'class="crm-drag-handle" aria-hidden="true"' in html
     assert "addEventListener('dragstart'" in html
     assert "addEventListener('dragover'" in html
@@ -83,6 +199,63 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "moveCrmProspect(prospectId,column.dataset.crmColumn)" in html
     assert "fetch(`/api/prospects/${encodeURIComponent(id)}/status`" in html
     assert 'data-move-prospect="${esc(item.execution_id)}"' in html
+    assert "prospect.lead_status=columnId;renderCrmBoard()" in html
+    assert "crmMovesInFlight.add(id)" in html
+    assert "crmMovesInFlight.has(id)" in html
+    assert "void refreshDashboardStateInBackground(id,columnId)" in html
+    assert "prospect.lead_status=previousStatus" in html
+    assert "Se restauró la columna anterior." in html
+
+
+def test_kanban_move_is_immediate_single_post_persistent_and_rolls_back_on_error():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    function_source = re.search(r"^\s*(async function moveCrmProspect\(.*)$", html, re.MULTILINE).group(1)
+    script = f"""
+const assert = require('assert');
+let dashboardData={{prospects:[{{execution_id:'LEAD-1',lead_status:'Nuevo'}}]}};
+const crmMovesInFlight=new Set();
+const readCrmBoard=()=>({{columns:[{{id:'Nuevo'}},{{id:'En revisión'}}]}});
+let renders=[];
+const renderCrmBoard=()=>renders.push({{status:dashboardData.prospects[0].lead_status,at:Date.now()}});
+const message={{textContent:''}};
+const headers=()=>({{}});
+let fetchCalls=0;
+let persisted='Nuevo';
+let fail=false;
+const fetch=async()=>{{fetchCalls++;await new Promise(resolve=>setTimeout(resolve,250));if(fail)return {{ok:false,json:async()=>({{detail:'fallo controlado'}})}};persisted='En revisión';return {{ok:true,json:async()=>({{prospect:{{lead_status:persisted}}}})}};}};
+const refreshDashboardStateInBackground=()=>Promise.resolve();
+{function_source}
+(async()=>{{
+  const started=Date.now();
+  const first=moveCrmProspect('LEAD-1','En revisión');
+  const duplicate=moveCrmProspect('LEAD-1','En revisión');
+  assert.equal(dashboardData.prospects[0].lead_status,'En revisión');
+  assert.ok(Date.now()-started<200,'el cambio visual no fue inmediato');
+  await Promise.all([first,duplicate]);
+  assert.equal(fetchCalls,1,'se envió más de un POST');
+  dashboardData.prospects[0].lead_status=persisted;
+  assert.equal(dashboardData.prospects[0].lead_status,'En revisión');
+  fail=true;
+  await moveCrmProspect('LEAD-1','Nuevo');
+  assert.equal(dashboardData.prospects[0].lead_status,'En revisión');
+  assert.ok(message.textContent.includes('Se restauró la columna anterior.'));
+}})().catch(error=>{{console.error(error);process.exit(1);}});
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_admin_client_selection_has_a_four_second_loading_state_and_clear_empty_copy():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    css = Path('app/static/app.css').read_text(encoding='utf-8')
+
+    assert 'id="client-selection-loading"' in html
+    assert 'Cargando…' in html
+    assert 'clientSelectionDelay(4000)' in html
+    assert 'Debes seleccionar un cliente' in html
+    assert 'Configuración bloqueada' not in html
+    assert '.client-selection-loading[hidden]' in css
+    assert 'pointer-events: none' in css
 
 
 def test_home_has_real_saved_schedule_controls_and_intro_video_placeholder():
