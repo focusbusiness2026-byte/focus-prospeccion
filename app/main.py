@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from app.build_info import STATIC_DIR, TEMPLATE_DIR, portal_build_id
 from app.auth import (
     CSRF_COOKIE,
     SESSION_COOKIE,
@@ -245,6 +246,54 @@ def _source_view(source, settings, latest: dict | None = None, automation: dict 
     }
 
 
+def _client_execution_summary(execution: dict, prospects: list[dict]) -> dict:
+    """Return a client-safe execution summary without provider or error details."""
+    execution_id = str(execution.get("execution_id") or "")
+    found = sum(
+        1
+        for prospect in prospects
+        if str(prospect.get("execution_id") or "") == execution_id
+        or str(prospect.get("execution_id") or "").startswith(f"{execution_id}-")
+    )
+    adjustments = execution.get("adjustments") or {}
+    try:
+        objective = max(1, min(5, int(adjustments.get("lead_count") or 5)))
+    except (TypeError, ValueError):
+        objective = 5
+    deficit = max(0, objective - found)
+    status = str(execution.get("status") or "Pendiente")
+    if status.lower().startswith("complet"):
+        public_status = "Completada"
+    elif any(word in status.lower() for word in ("pendiente", "proceso", "inici")):
+        public_status = "En proceso"
+    else:
+        public_status = "Revisión necesaria"
+    reason = str(execution.get("no_prospect_reason") or "").strip()
+    technical_markers = ("http", "api", "openai", "traceback", "exception", "error", "token", "quota")
+    if reason and any(marker in reason.lower() for marker in technical_markers):
+        reason = "La ejecución necesita revisión interna antes de volver a intentarse."
+    elif not reason and deficit:
+        reason = (
+            "No hubo suficientes empresas que cumplieran todos los criterios y la evidencia requerida."
+            if public_status == "Completada"
+            else "El equipo está revisando la ejecución; no necesitas realizar ninguna acción."
+        )
+    search_summary = str(execution.get("research_summary") or "").strip()
+    if public_status != "Completada" or any(marker in search_summary.lower() for marker in technical_markers):
+        search_summary = "Búsqueda según la configuración guardada de la cuenta."
+    return {
+        "execution_id": execution_id,
+        "created_at": execution.get("created_at"),
+        "productora": execution.get("productora") or execution.get("company"),
+        "status": public_status,
+        "search_summary": search_summary or "Búsqueda según la configuración guardada de la cuenta.",
+        "search_queries": execution.get("search_queries") or [],
+        "objective": objective,
+        "found": found,
+        "duplicates_excluded": int(execution.get("duplicates_discarded") or 0),
+        "deficit": deficit,
+        "reason": reason or "Objetivo alcanzado con resultados válidos y deduplicados.",
+    }
 def _run_onboarding_research(
     source,
     store: SheetStore,
@@ -556,12 +605,14 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Focus Prospeccion", version="0.3.0", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 
 def _template(request: Request, name: str, **context):
+    context.setdefault("portal_asset_version", portal_build_id())
     response = templates.TemplateResponse(request=request, name=name, context=context)
+    response.headers["Cache-Control"] = "no-store"
     if not request.cookies.get(CSRF_COOKIE):
         response.set_cookie(CSRF_COOKIE, new_csrf_token(), httponly=False, secure=get_settings().app_env == "production", samesite="lax")
     return response
@@ -625,6 +676,7 @@ def health():
         "auto_research_enabled": settings.auto_research_enabled,
         "render_keepalive_enabled": render_keepalive_ready(settings),
         "portal_release": "real-portal-2026-09-01",
+        "portal_build_id": portal_build_id(),
     }
 
 
@@ -689,6 +741,7 @@ def logout(request: Request):
 @app.get("/api/portal-dashboard")
 def portal_dashboard(
     view_as: str = Query(default="", max_length=320),
+    presentation: str = Query(default="admin", max_length=16),
     identity: Identity = Depends(require_identity),
 ):
     settings = get_settings()
@@ -700,8 +753,13 @@ def portal_dashboard(
     store.ensure_operational_schema()
     is_admin = _is_authorized_admin(identity, access, settings)
     requested_scope = view_as.strip().lower()
+    requested_presentation = presentation.strip().lower()
+    if requested_presentation not in {"admin", "client"}:
+        raise HTTPException(status_code=422, detail="Vista no válida")
     if requested_scope and not is_admin:
         raise HTTPException(status_code=403, detail="Solo la administración puede usar la vista como cliente")
+    if requested_presentation == "client" and (not is_admin or not requested_scope):
+        raise HTTPException(status_code=403, detail="Selecciona una cuenta antes de activar la vista de cliente")
     all_sources = store.onboarding_sources(None) if is_admin else []
     scoped_access = store.get_access(requested_scope) if requested_scope else None
     scoped_sources = [source for source in all_sources if source.email == requested_scope] if requested_scope else []
@@ -725,6 +783,9 @@ def portal_dashboard(
         review_events,
         require_admin_review=settings.lead_admin_review_required,
     )
+    client_presentation = (not is_admin) or requested_presentation == "client"
+    visible_executions = store.recent_executions(scope_email, hide_admin=client_presentation)
+
     summary_events = [event for event in review_events if event.get("event_type") == "summary_request"]
     for source in sources:
         latest_request = max(
@@ -751,7 +812,8 @@ def portal_dashboard(
         "global": global_metrics,
         "metrics": store.prospect_metrics(scope_email),
         "prospects": prospects,
-        "executions": store.recent_executions(scope_email, hide_admin=not is_admin),
+        "executions": visible_executions if not client_presentation else [],
+        "client_executions": [_client_execution_summary(item, prospects) for item in visible_executions],
         "sources": sources,
         "source_metrics": {
             "total": len(sources),
@@ -762,6 +824,7 @@ def portal_dashboard(
             "is_admin": is_admin,
             "authenticated_email": identity.email,
             "viewing_as": requested_scope,
+            "presentation_mode": "client" if client_presentation else "admin",
             "available_users": _admin_available_users(store, all_sources) if is_admin else [],
         },
         "automation_engine_enabled": settings.auto_research_enabled,

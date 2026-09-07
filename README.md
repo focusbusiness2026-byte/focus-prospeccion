@@ -148,6 +148,27 @@ Copy-Item .env.example .env
 
 El modo demo no usa OpenAI ni realiza investigación real.
 
+### Paridad entre local y producción
+
+La vista válida para revisión debe ejecutarse desde esta misma aplicación
+(`uvicorn app.main:app`). No se considera una prueba de paridad servir la
+plantilla con un servidor HTML ad hoc ni sustituir `/api/portal-dashboard` por
+un JSON de demostración: eso puede reproducir la apariencia, pero no la
+autenticación, los permisos, el aislamiento ni las rutas de producción.
+
+`GET /health` publica `portal_build_id`, una huella no secreta calculada sobre
+el código, las plantillas y los assets de `app/`. La revisión previa y la
+verificación posterior al despliegue deben comparar ese valor; si coincide,
+local y producción contienen exactamente el mismo código de aplicación. El CSS
+usa esa misma huella como versión, evitando que el navegador conserve estilos
+de una publicación anterior.
+
+Las únicas diferencias admisibles entre entornos son el dominio, la cookie
+segura, los datos reales de Google Sheets y la disponibilidad de credenciales o
+servicios externos. Para validar roles y datos reales en localhost hacen falta
+credenciales de desarrollo autorizadas y una sesión válida para localhost; no
+se deben copiar secretos de producción ni presentar fixtures como datos reales.
+
 ## Calentamiento de lead: alcance futuro documentado
 
 La documentación de Focus Business propone seleccionar y limpiar primero los prospectos, luego generar reconocimiento mediante contenido, web, vídeo, publicidad y retargeting, y finalmente hacer contacto personalizado y seguimiento. La referencia 11-4-7 significa impactos de contenido en varios canales antes del contacto; no once mensajes automáticos. LinkedIn e Instagram deben operarse manualmente o con control estricto para evitar automatización agresiva. El planificador actual organiza localmente lead aprobado, base legal, canal, fecha, responsable, nota y estado, pero no ejecuta calentamiento ni mensajes. GoHighLevel continúa sin conexión: una futura integración requerirá OAuth oficial, permisos mínimos, mapeo, prueba controlada y aprobación separada antes de activar Workflows, mensajería o funciones con coste.

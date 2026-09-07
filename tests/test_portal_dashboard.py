@@ -4,7 +4,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.config import Settings
-from app.main import AutomationRequest, ResearchAdjustments, _require_real_sheets
+from app.build_info import portal_build_id
+from app.main import AutomationRequest, ResearchAdjustments, _client_execution_summary, _require_real_sheets
 
 
 def test_automation_request_supports_cycle_runs_without_changing_internal_limit():
@@ -54,3 +55,76 @@ def test_portal_restores_full_operational_controls_and_styles():
     assert '.portal-app' in css
     assert '.top-navigation' in css
     assert '@media (max-width: 600px)' in css
+
+
+def test_admin_can_switch_to_an_isolated_client_presentation():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    assert 'id="admin-presentation-toggle"' in html
+    assert 'id="view-as-admin"' in html
+    assert 'id="view-as-client"' in html
+    assert "params.set('presentation','client')" in html
+    assert 'Tu sesión administrativa no cambia.' in html
+
+
+def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+
+    assert 'class="crm-drag-handle"' in html
+    assert 'data-drag-prospect="${esc(item.execution_id)}"' in html
+    assert "addEventListener('pointerdown'" in html
+    assert "addEventListener('pointerup'" in html
+    assert "moveCrmProspect(prospectId,column.dataset.crmColumn)" in html
+    assert "fetch(`/api/prospects/${encodeURIComponent(id)}/status`" in html
+    assert 'data-move-prospect="${esc(item.execution_id)}"' in html
+
+
+def test_home_has_real_saved_schedule_controls_and_intro_video_placeholder():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    assert 'id="favorite-automation-select"' in html
+    assert 'id="quick-toggle-automation"' in html
+    assert 'id="quick-run-automation"' in html
+    assert 'id="dashboard-preview-countdown"' in html
+    assert 'Video pendiente de configurar' in html
+
+
+def test_client_execution_summary_hides_technical_provider_errors():
+    execution = {
+        "execution_id": "RUN-1",
+        "created_at": "2026-09-07T10:00:00Z",
+        "productora": "Productora Norte",
+        "status": "Falló",
+        "error": "OpenAI API devolvió HTTP 429",
+        "no_prospect_reason": "OpenAI API devolvió HTTP 429",
+        "search_queries": ["empresas industriales Madrid"],
+        "adjustments": {"lead_count": 5},
+        "duplicates_discarded": 1,
+    }
+    prospects = [{"execution_id": "RUN-1-001"}, {"execution_id": "RUN-1-002"}]
+
+    summary = _client_execution_summary(execution, prospects)
+
+    assert summary["status"] == "Revisión necesaria"
+    assert summary["found"] == 2
+    assert summary["deficit"] == 3
+    assert summary["duplicates_excluded"] == 1
+    assert "OpenAI" not in summary["reason"]
+    assert "429" not in summary["reason"]
+    assert "error" not in summary
+
+
+def test_portal_assets_use_the_build_fingerprint_instead_of_a_manual_cache_key():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    login = Path("app/templates/login.html").read_text(encoding="utf-8")
+
+    assert 'app.css?v={{ portal_asset_version }}' in portal
+    assert 'app.css?v={{ portal_asset_version }}' in login
+    assert len(portal_build_id()) == 12
+
+
+def test_render_runs_the_same_fastapi_application_used_locally():
+    render = Path("render.yaml").read_text(encoding="utf-8")
+
+    assert "uvicorn app.main:app" in render
+    assert "GOOGLE_SHEETS_ENABLED" in render
+    assert "CENTRAL_AUTH_ENABLED" in render
+    assert "DEMO_AUTH_BYPASS" not in render or 'value: "false"' in render

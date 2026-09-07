@@ -335,7 +335,7 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .crm-column > header input { min-width: 0; flex: 1; padding: 8px; border: 1px solid transparent; background: transparent; color: #f0f3f7; font-weight: 800; }
 .crm-column > header input:focus { border-color: var(--gold); border-radius: 6px; outline: none; }
 .crm-column > header span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: #243349; color: #cbd4df; font-size: 11px; }
-.crm-column-cards { display: grid; gap: 9px; }
+.crm-column-cards { display: grid; min-height: 300px; align-content: start; gap: 9px; }
 .crm-board-card, .crm-trello-card { padding: 14px; border: 1px solid #40536a; border-radius: 10px; background: linear-gradient(145deg, #15243a, #0e1b2c); box-shadow: 0 8px 20px #0003; }
 .crm-board-card.dragging { opacity: .48; transform: rotate(1deg); }
 .crm-drag-handle { display: flex; align-items: center; justify-content: center; gap: 6px; margin: -4px -4px 10px; padding: 7px; border: 1px dashed #5f7188; border-radius: 7px; background: #0a1421; color: #aebdcd; cursor: grab; font-size: 10px; font-weight: 800; letter-spacing: .4px; user-select: none; touch-action: none; }
@@ -667,6 +667,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .admin-client-view label { display: grid; gap: 3px; }
 .admin-client-view select { width: 100%; padding: 7px 9px; border: 1px solid #6f5b29; border-radius: 8px; background: #101c2b; color: #edf3fa; text-transform: none; }
 .admin-client-view small { max-width: 280px; overflow: hidden; color: var(--gold); font-size: 9px; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+.admin-presentation-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.admin-presentation-toggle[hidden] { display: none; }
+.admin-presentation-toggle button { min-height: 30px; padding: 5px 8px; border: 1px solid #3e5065; border-radius: 7px; background: #0a1421; color: #9dabbc; font-size: 10px; font-weight: 800; }
+.admin-presentation-toggle button.active { border-color: var(--gold); background: #3a3015; color: #ffe08a; }
 .crm-scraped-at { color: #e7be52; font-variant-numeric: tabular-nums; }
 .public-work-guide { display: grid; gap: 8px; margin-top: 22px; padding: clamp(18px, 3vw, 28px); border: 1px solid #35475d; border-radius: 14px; background: linear-gradient(145deg, #0d1928, #08121e); }
 .public-work-guide h3 { margin: 10px 0 0; color: #f2cc63; }
@@ -713,6 +717,31 @@ tbody tr:last-child td { border-bottom: 0; }
 .automation-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, .8fr) auto auto; align-items: center; gap: 16px; padding: 17px 18px; border: 1px solid #34465a; border-radius: 12px; background: linear-gradient(135deg, #101c2a, #0a121d); }
 .automation-panel h4 { margin: 0; font-size: 17px; }
 .automation-panel p { margin: 3px 0 0; color: #8998aa; font-size: 11px; }
+.automation-countdown { display: grid; gap: 4px; align-self: stretch; padding: 12px; border: 1px solid #3e5368; border-radius: 10px; background: #07121e; }
+.automation-countdown span { color: #8393a7; font-size: 10px; text-transform: uppercase; }
+.automation-countdown strong { color: var(--lime-soft); font-size: 24px; letter-spacing: .05em; }
+.automation-countdown small { color: #9aa8b8; }
+.automation-guardrail { grid-column: 1 / -1; margin: 0; color: #95a4b6; font-size: 11px; }
+.client-execution-list { display: grid; gap: 14px; }
+.client-execution-list[hidden] { display: none; }
+.client-execution-card { padding: 18px; border: 1px solid #344b60; border-radius: 13px; background: linear-gradient(140deg, #0d1b2b, #08131f); }
+.client-execution-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.client-execution-card h3 { margin: 5px 0 12px; }
+.client-execution-card header span:first-child { color: #8192a6; font-size: 11px; }
+.client-execution-card p { color: #b7c3d0; line-height: 1.55; }
+.client-execution-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 15px 0; }
+.client-execution-counts div { padding: 11px; border: 1px solid #31455a; border-radius: 9px; background: #091522; }
+.client-execution-counts span, .client-execution-counts b { display: block; }
+.client-execution-counts span { color: #8192a6; font-size: 10px; text-transform: uppercase; }
+.client-execution-counts b { margin-top: 4px; color: #edf4fb; font-size: 18px; }
+.client-execution-reason { margin-bottom: 0; padding-top: 12px; border-top: 1px solid #26394c; }
+.execution-status.pending { background: #282817; color: #f2dc7d; }
+.execution-status.review { background: #332419; color: #f2b56f; }
+.intro-video-card { display: grid; grid-template-columns: minmax(220px, .75fr) minmax(0, 1.25fr); gap: 22px; align-items: center; margin: 22px 0; padding: 18px; border: 1px solid #40546a; border-radius: 14px; background: #091522; }
+.intro-video-placeholder { display: grid; min-height: 160px; place-items: center; border: 1px dashed #6c7f94; border-radius: 11px; background: radial-gradient(circle at center, #24364b, #080f18 70%); }
+.intro-video-placeholder span { display: grid; width: 54px; height: 54px; place-items: center; border: 1px solid var(--gold); border-radius: 50%; color: var(--gold); font-size: 22px; }
+.intro-video-card h3 { margin: 5px 0 9px; }
+.intro-video-card p { color: #aab7c5; line-height: 1.55; }
 .automation-panel > small { grid-column: 1 / -1; color: #8998aa; }
 .automation-name { min-width: 0; }
 .schedule-fields { grid-column: 1 / -1; justify-self: stretch; }
@@ -836,6 +865,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .heading-actions > *, .heading-actions .input, .heading-actions select { width: 100%; }
   .site-header .header-actions { justify-content: stretch; }
   .admin-client-view { width: 100%; min-width: 0; }
+  .admin-presentation-toggle { grid-template-columns: 1fr; }
+  .client-execution-card header { display: grid; }
+  .client-execution-counts { grid-template-columns: 1fr 1fr; }
+  .intro-video-card { grid-template-columns: 1fr; }
   .account-menu { margin-left: auto; }
 }
 
