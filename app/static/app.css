@@ -331,8 +331,10 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .crm-board-track { display: flex; width: max-content; min-width: 100%; gap: 12px; align-items: flex-start; }
 .crm-column { width: 290px; min-width: 290px; min-height: 390px; padding: 12px; border: 1px solid #34465a; border-radius: 13px; background: #0a1421; }
 .crm-column.drop-target { border-color: var(--lime); background: #101d16; box-shadow: inset 0 0 0 2px #a9f41433, 0 0 24px #a9f4141f; }
-.crm-board-card.saving { opacity: .78; cursor: progress; box-shadow: inset 0 0 0 1px #e8bf4a66; }
-.crm-board-card.saving .crm-drag-handle { color: var(--gold); }
+.crm-board-card.persisting { box-shadow: inset 0 0 0 1px #e8bf4a66, 0 8px 20px #0003; }
+.crm-board-card.persisting .crm-drag-handle { color: var(--gold); }
+.crm-board-card.moved { animation: kanban-card-arrive 160ms ease-out both; }
+@keyframes kanban-card-arrive { from { opacity: .72; transform: translateY(-7px); } to { opacity: 1; transform: translateY(0); } }
 
 .client-selection-loading {
   position: fixed;

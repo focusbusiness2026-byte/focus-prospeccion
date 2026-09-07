@@ -1052,7 +1052,10 @@ def update_prospect_status(
     try:
         prospect = store.update_prospect_status(execution_id, identity.email, payload.status, is_admin=is_admin)
         store.append_review_event(
-            event_type="kanban_status",
+            # ``crm_update`` is the established, allow-listed audit event for
+            # changes made from the CRM board.  Do not introduce a free-form
+            # event type here: the review sheet is an append-only contract.
+            event_type="crm_update",
             onboarding_id=str(prospect.get("onboarding_id") or ""),
             owner_email=str(prospect.get("email") or ""),
             execution_id=execution_id,

@@ -187,8 +187,8 @@ def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeyp
 def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
 
-    assert 'class="crm-board-card ${saving?' in html
-    assert 'draggable="${saving?' in html
+    assert 'class="crm-board-card ${persisting?' in html
+    assert 'draggable="true"' in html
     assert 'class="crm-drag-handle" aria-hidden="true"' in html
     assert "addEventListener('dragstart'" in html
     assert "addEventListener('dragover'" in html
@@ -199,7 +199,7 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "card.getAttribute('draggable')!=='true'" in html
     assert "crmDragIdFromEvent" in html
     assert "clearCrmDrag();if(!column||!prospectId||!currentColumn)return" in html
-    assert "pointer-events: none; transform: none" in Path('app/static/app.css').read_text(encoding='utf-8')
+    assert ".crm-board-card.moved { animation: kanban-card-arrive 160ms ease-out both; }" in Path('app/static/app.css').read_text(encoding='utf-8')
     assert "crmMovesInFlight.has(id)" in html
     assert "moveCrmProspect(prospectId,column.dataset.crmColumn)" in html
     assert "fetch(`/api/prospects/${encodeURIComponent(id)}/status`" in html
@@ -210,6 +210,7 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "void refreshDashboardStateInBackground(id,columnId)" in html
     assert "prospect.lead_status=previousStatus" in html
     assert "Se restauró la columna anterior." in html
+    assert "Tarjeta movida. Sincronizando en segundo plano…" in html
 
 
 def test_kanban_only_offers_the_three_persistable_columns_and_resets_stale_drag_state():

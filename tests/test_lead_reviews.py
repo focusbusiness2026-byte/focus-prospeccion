@@ -208,11 +208,28 @@ class ApiStore:
         return [dict(item) for item in rows if not email or item["email"] == email][:limit]
 
 
-def api_client(monkeypatch, identity: Identity):
+class AuditedApiStore(ApiStore):
+    """Use the production audit validator while keeping the API test offline."""
+
+    appended_rows = []
+
+    def __init__(self, settings=None):
+        self.settings = Settings(google_lead_reviews_tab="Revisiones Leads")
+
+    def ensure_lead_review_schema(self):
+        pass
+
+    def _append(self, a1_range, values):
+        self.appended_rows.append((a1_range, values))
+
+    append_review_event = SheetStore.append_review_event
+
+
+def api_client(monkeypatch, identity: Identity, store_class=ApiStore):
     monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
     monkeypatch.setenv("FOCUS_ADMIN_EMAILS", "admin@example.com")
     get_settings.cache_clear()
-    monkeypatch.setattr(main_module, "SheetStore", ApiStore)
+    monkeypatch.setattr(main_module, "SheetStore", store_class)
     main_module.app.dependency_overrides[require_identity] = lambda: identity
     client = TestClient(main_module.app)
     client.cookies.set(CSRF_COOKIE, "csrf-test")
@@ -226,6 +243,7 @@ def reset_api_state():
         "EXEC-ALPHA": prospect("EXEC-ALPHA", "alpha@example.com", "Alpha", "https://alpha.example"),
         "EXEC-BETA": prospect("EXEC-BETA", "beta@example.com", "Beta", "https://beta.example"),
     }
+    AuditedApiStore.appended_rows = []
 
 
 def test_client_cannot_decide_on_another_accounts_lead(monkeypatch):
@@ -255,7 +273,7 @@ def test_kanban_status_is_persisted_for_an_active_administrator(monkeypatch):
         assert response.status_code == 200
         assert response.json()["prospect"]["lead_status"] == "Aprobado para descarga"
         assert ApiStore.status_updates == [("EXEC-BETA", "admin@example.com", "Aprobado para descarga", True)]
-        assert ApiStore.events[-1]["event_type"] == "kanban_status"
+        assert ApiStore.events[-1]["event_type"] == "crm_update"
         assert ApiStore().get_prospect("EXEC-BETA")["lead_status"] == "Aprobado para descarga"
     finally:
         main_module.app.dependency_overrides.clear()
@@ -288,6 +306,24 @@ def test_kanban_status_endpoint_accepts_every_persistable_column(monkeypatch):
             )
             assert response.status_code == 200
             assert response.json()["prospect"]["lead_status"] == status
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_kanban_status_endpoint_uses_the_real_allow_listed_audit_contract(monkeypatch):
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"), AuditedApiStore)
+    try:
+        for status in ("Nuevo", "En revisión", "Aprobado para descarga"):
+            response = client.post(
+                "/api/prospects/EXEC-BETA/status",
+                headers={"X-CSRF-Token": "csrf-test"},
+                json={"status": status},
+            )
+            assert response.status_code == 200
+        events = [values[0][1] for _, values in AuditedApiStore.appended_rows]
+        assert events == ["crm_update", "crm_update", "crm_update"]
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
