@@ -64,15 +64,22 @@ def test_admin_can_switch_to_an_isolated_client_presentation():
     assert 'id="view-as-client"' in html
     assert "params.set('presentation','client')" in html
     assert 'Tu sesión administrativa no cambia.' in html
+    assert 'toggle.hidden=false' in html
+    assert 'clientButton.disabled=!adminViewAs' in html
+    assert 'Selecciona una cuenta para habilitar la vista de cliente.' in html
 
 
 def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
 
-    assert 'class="crm-drag-handle"' in html
-    assert 'data-drag-prospect="${esc(item.execution_id)}"' in html
-    assert "addEventListener('pointerdown'" in html
-    assert "addEventListener('pointerup'" in html
+    assert 'class="crm-board-card" draggable="true" data-drag-prospect="${esc(item.execution_id)}"' in html
+    assert 'class="crm-drag-handle" aria-hidden="true"' in html
+    assert "addEventListener('dragstart'" in html
+    assert "addEventListener('dragover'" in html
+    assert "addEventListener('drop'" in html
+    assert "addEventListener('dragend'" in html
+    assert "isCrmInteractiveTarget" in html
+    assert "crmMovesInFlight.has(id)" in html
     assert "moveCrmProspect(prospectId,column.dataset.crmColumn)" in html
     assert "fetch(`/api/prospects/${encodeURIComponent(id)}/status`" in html
     assert 'data-move-prospect="${esc(item.execution_id)}"' in html

@@ -337,11 +337,13 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .crm-column > header span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: #243349; color: #cbd4df; font-size: 11px; }
 .crm-column-cards { display: grid; min-height: 300px; align-content: start; gap: 9px; }
 .crm-board-card, .crm-trello-card { padding: 14px; border: 1px solid #40536a; border-radius: 10px; background: linear-gradient(145deg, #15243a, #0e1b2c); box-shadow: 0 8px 20px #0003; }
+.crm-board-card[draggable="true"] { cursor: grab; }
+.crm-board-card[draggable="true"]:active { cursor: grabbing; }
+.crm-board-card button, .crm-board-card a, .crm-board-card select { cursor: pointer; }
 .crm-board-card.dragging { opacity: .48; transform: rotate(1deg); }
-.crm-drag-handle { display: flex; align-items: center; justify-content: center; gap: 6px; margin: -4px -4px 10px; padding: 7px; border: 1px dashed #5f7188; border-radius: 7px; background: #0a1421; color: #aebdcd; cursor: grab; font-size: 10px; font-weight: 800; letter-spacing: .4px; user-select: none; touch-action: none; }
+.crm-drag-handle { display: flex; align-items: center; justify-content: center; gap: 6px; margin: -4px -4px 10px; padding: 7px; border: 1px dashed #5f7188; border-radius: 7px; background: #0a1421; color: #aebdcd; font-size: 10px; font-weight: 800; letter-spacing: .4px; user-select: none; }
 .crm-drag-handle:active { cursor: grabbing; }
 .crm-drag-handle:focus-visible { border-color: var(--gold); outline: 2px solid #d9af4333; }
-.crm-pointer-dragging, .crm-pointer-dragging * { cursor: grabbing !important; }
 .crm-board-card b, .crm-board-card small { display: block; }
 .crm-board-card small { margin: 5px 0 10px; color: #91a1b4; }
 .crm-board-card label, .crm-trello-card label { display: grid; gap: 4px; margin-top: 12px; color: #8292a6; font-size: 10px; }
