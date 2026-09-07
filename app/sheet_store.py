@@ -574,7 +574,7 @@ class SheetStore:
         return None
 
     def _renew_client_quota_if_needed(self, record: AccessRecord) -> AccessRecord:
-        if is_admin_role(record.role) or record.unlimited:
+        if record.unlimited:
             return record
         now = datetime.now(timezone.utc)
         current_month = (now.year, now.month)
@@ -602,11 +602,10 @@ class SheetStore:
 
     def get_access(self, email: str) -> AccessRecord | None:
         normalized = email.strip().casefold()
-        record = next(
+        return next(
             (record for record in self.access_records() if record.email == normalized and is_active_access_state(record.state)),
             None,
         )
-        return self._renew_client_quota_if_needed(record) if record else None
 
     def onboarding_sources(self, email: str | None = None, limit: int = 200) -> list[OnboardingSource]:
         rows = self._get(f"'{self.settings.google_onboarding_tab}'!A1:ZZ1000")
@@ -642,7 +641,7 @@ class SheetStore:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
-            if is_admin_role(record.role) or record.unlimited:
+            if record.unlimited:
                 return record
             if not record.has_available_scrape:
                 raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
@@ -653,7 +652,7 @@ class SheetStore:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
-            if is_admin_role(record.role) or record.unlimited:
+            if record.unlimited:
                 return record
             if not record.has_available_scrape:
                 raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")

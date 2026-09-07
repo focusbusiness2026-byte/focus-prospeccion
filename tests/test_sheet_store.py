@@ -56,7 +56,7 @@ def test_limit_check_does_not_consume_quota_before_scrape():
     assert store.updates == []
 
 
-def test_client_quota_renews_to_fifty_when_cycle_is_old():
+def test_access_read_preserves_the_current_sheet_quota_without_rewriting_it():
     store = FakeStore()
     store.rows[0][5] = 50
     store.rows[0][9] = "2025-01-01"
@@ -65,10 +65,9 @@ def test_client_quota_renews_to_fifty_when_cycle_is_old():
 
     assert record is not None
     assert record.assigned == 50
-    assert record.used == 0
-    assert record.available == 50
-    assert store.updates[0][0] == "'Accesos'!E2:J2"
-    assert store.updates[0][1][0][:2] == [50, 0]
+    assert record.used == 50
+    assert record.available == 0
+    assert store.updates == []
 
 
 def test_administrator_has_unlimited_executions_without_charging_quota():
@@ -82,6 +81,18 @@ def test_administrator_has_unlimited_executions_without_charging_quota():
 
     assert record.role == "Administrador"
     assert store.updates == []
+
+
+def test_administrator_with_a_numeric_assignment_consumes_one_scrape():
+    store = FakeStore()
+    store.rows[0][1] = "Administrador"
+    store.rows[0][4] = 50
+    store.rows[0][5] = 0
+
+    record = store.consume_successful_scrape("user@example.com")
+
+    assert record.used == 1
+    assert store.updates == [("'Accesos'!F2", [[1]])]
 
 
 def test_inactive_or_missing_email_is_rejected():
