@@ -267,10 +267,25 @@ def test_client_cannot_move_another_accounts_kanban_card(monkeypatch):
         response = client.post(
             "/api/prospects/EXEC-BETA/status",
             headers={"X-CSRF-Token": "csrf-test"},
-            json={"status": "Descartado"},
+            json={"status": "Nuevo"},
         )
         assert response.status_code == 404
         assert ApiStore.status_updates == []
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_kanban_status_endpoint_rejects_non_column_status(monkeypatch):
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
+    try:
+        response = client.post(
+            "/api/prospects/EXEC-BETA/status",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"status": "Descartado"},
+        )
+        assert response.status_code == 422
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()

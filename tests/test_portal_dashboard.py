@@ -42,7 +42,7 @@ def test_portal_has_selected_account_real_schedule_and_kanban_exports():
     assert 'portalReadOnly' not in html
     prospeccion = html[html.index('id="sources"'):html.index('id="results"')]
     assert 'raspado' not in prospeccion
-    assert 'Mueve un lead entre Nuevo, En revisión, Aprobado para descarga y Descartado.' in html
+    assert 'Mueve un lead entre Nuevo, En revisión y Aprobado para descarga.' in html
     assert 'Exportar para GoHighLevel' in html
     assert 'Exportar Meta' in html
     assert 'Columnas incluidas en el CSV' in html
@@ -194,7 +194,12 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "addEventListener('dragover'" in html
     assert "addEventListener('drop'" in html
     assert "addEventListener('dragend'" in html
+    assert "addEventListener('dragleave'" in html
     assert "isCrmInteractiveTarget" in html
+    assert "card.getAttribute('draggable')!=='true'" in html
+    assert "crmDragIdFromEvent" in html
+    assert "clearCrmDrag();if(!column||!prospectId||!currentColumn)return" in html
+    assert "pointer-events: none; transform: none" in Path('app/static/app.css').read_text(encoding='utf-8')
     assert "crmMovesInFlight.has(id)" in html
     assert "moveCrmProspect(prospectId,column.dataset.crmColumn)" in html
     assert "fetch(`/api/prospects/${encodeURIComponent(id)}/status`" in html
@@ -205,6 +210,18 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "void refreshDashboardStateInBackground(id,columnId)" in html
     assert "prospect.lead_status=previousStatus" in html
     assert "Se restauró la columna anterior." in html
+
+
+def test_kanban_only_offers_the_three_persistable_columns_and_resets_stale_drag_state():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+
+    seed = re.search(r"const crmBoardSeed=.*", html).group(0)
+    assert "{id:'Nuevo'" in seed
+    assert "{id:'En revisión'" in seed
+    assert "{id:'Aprobado para descarga'" in seed
+    assert "{id:'Descartado'" not in seed
+    assert "allowed.has(item.lead_status)?item.lead_status:'Nuevo'" in seed
+    assert "function clearCrmDrag(){draggedProspectId='';" in html
 
 
 def test_kanban_move_is_immediate_single_post_persistent_and_rolls_back_on_error():

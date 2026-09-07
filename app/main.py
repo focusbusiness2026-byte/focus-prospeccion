@@ -50,7 +50,9 @@ class GoogleCredential(BaseModel):
 
 
 class LeadStatusRequest(BaseModel):
-    status: Literal["Nuevo", "En revisión", "Aprobado para descarga", "Descartado"]
+    # Estas son las únicas columnas operativas del tablero.  ``Descartado``
+    # sigue siendo una decisión de revisión, pero no es un destino de drag/drop.
+    status: Literal["Nuevo", "En revisión", "Aprobado para descarga"]
 
 
 class LeadDecisionRequest(BaseModel):
