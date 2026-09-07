@@ -256,6 +256,7 @@ def test_kanban_status_is_persisted_for_an_active_administrator(monkeypatch):
         assert response.json()["prospect"]["lead_status"] == "Aprobado para descarga"
         assert ApiStore.status_updates == [("EXEC-BETA", "admin@example.com", "Aprobado para descarga", True)]
         assert ApiStore.events[-1]["event_type"] == "kanban_status"
+        assert ApiStore().get_prospect("EXEC-BETA")["lead_status"] == "Aprobado para descarga"
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
