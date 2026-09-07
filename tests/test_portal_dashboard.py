@@ -283,7 +283,7 @@ def test_client_execution_summary_hides_technical_provider_errors():
 
     summary = _client_execution_summary(execution, prospects)
 
-    assert summary["status"] == "Revisión necesaria"
+    assert summary["status"] == "Esperando turno"
     assert summary["found"] == 2
     assert summary["deficit"] == 3
     assert summary["duplicates_excluded"] == 1

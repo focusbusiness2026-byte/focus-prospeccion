@@ -28,13 +28,28 @@ class FakeStore(SheetStore):
 
 def test_access_is_normalized_and_quota_is_reserved_once():
     store = FakeStore()
+    store.rows[0][5] = 0
 
     record = store.reserve_execution("user@example.com")
 
     assert record.available == 0
     assert store.updates == [("'Accesos'!F2", [[50]])]
-    with pytest.raises(RuntimeError, match="No quedan"):
+    with pytest.raises(RuntimeError, match="bolsa suficiente"):
         store.reserve_execution("user@example.com")
+
+
+def test_client_cycle_charges_exactly_fifty_and_refund_reverses_the_same_charge():
+    store = FakeStore()
+    store.rows[0][5] = 0
+
+    record = store.reserve_execution("user@example.com")
+    store.refund_execution("user@example.com")
+
+    assert record.used == 50
+    assert store.updates == [
+        ("'Accesos'!F2", [[50]]),
+        ("'Accesos'!F2", [[0]]),
+    ]
 
 
 def test_client_quota_renews_to_fifty_when_cycle_is_old():
@@ -289,7 +304,7 @@ def test_automation_schedule_persists_filters_and_clamps_interval():
 
     assert result["enabled"] is True
     assert result["interval_minutes"] == 5
-    assert result["adjustments"]["lead_count"] == 12
+    assert result["adjustments"]["lead_count"] == 5
     assert result["name"] == "Tecnología · Madrid"
     assert result["favorite"] is True
     assert store.appends[0][0] == "'Automatizaciones'!A:N"

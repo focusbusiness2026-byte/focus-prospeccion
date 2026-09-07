@@ -42,7 +42,7 @@ from app.lead_reviews import (
     decorate_prospects,
     is_admin_role,
 )
-from app.sheet_store import SheetStore, is_active_access_state
+from app.sheet_store import CONTACTS_PER_PROSPECTION_CYCLE, SheetStore, is_active_access_state
 
 
 class GoogleCredential(BaseModel):
@@ -68,7 +68,7 @@ class DeleteLeadRequest(BaseModel):
 
 
 class ResearchAdjustments(BaseModel):
-    lead_count: int = Field(default=5, ge=1, le=5)
+    lead_count: Literal[CONTACTS_PER_PROSPECTION_CYCLE] = CONTACTS_PER_PROSPECTION_CYCLE
     target_city: str = ""
     target_region: str = ""
     target_countries: list[str] = Field(default_factory=list)
@@ -256,22 +256,24 @@ def _client_execution_summary(execution: dict, prospects: list[dict]) -> dict:
         or str(prospect.get("execution_id") or "").startswith(f"{execution_id}-")
     )
     adjustments = execution.get("adjustments") or {}
-    try:
-        objective = max(1, min(5, int(adjustments.get("lead_count") or 5)))
-    except (TypeError, ValueError):
-        objective = 5
+    objective = CONTACTS_PER_PROSPECTION_CYCLE
     deficit = max(0, objective - found)
     status = str(execution.get("status") or "Pendiente")
-    if status.lower().startswith("complet"):
+    diagnostic = " ".join(str(execution.get(field) or "") for field in ("status", "error", "no_prospect_reason", "research_summary")).lower()
+    if "429" in diagnostic or "rate limit" in diagnostic or "rate_limit" in diagnostic:
+        public_status = "Esperando turno"
+    elif status.lower().startswith("complet"):
         public_status = "Completada"
     elif any(word in status.lower() for word in ("pendiente", "proceso", "inici")):
         public_status = "En proceso"
     else:
-        public_status = "Revisión necesaria"
+        public_status = "En proceso de sincronización"
     reason = str(execution.get("no_prospect_reason") or "").strip()
     technical_markers = ("http", "api", "openai", "traceback", "exception", "error", "token", "quota")
-    if reason and any(marker in reason.lower() for marker in technical_markers):
-        reason = "La ejecución necesita revisión interna antes de volver a intentarse."
+    if public_status == "Esperando turno":
+        reason = "Estamos esperando un turno de procesamiento. No necesitas realizar ninguna acción."
+    elif reason and any(marker in reason.lower() for marker in technical_markers):
+        reason = "La ejecución se está sincronizando. No necesitas realizar ninguna acción."
     elif not reason and deficit:
         reason = (
             "No hubo suficientes empresas que cumplieran todos los criterios y la evidencia requerida."
@@ -331,7 +333,8 @@ def _run_onboarding_research(
             progress=20,
             message="Buscando empresas reales en fuentes públicas verificables…",
         )
-        prospects, trace = OpenAIProspectDiscovery(settings).discover(source.prospecting_profile(), adjustments)
+        cycle_adjustments = {**(adjustments or {}), "lead_count": CONTACTS_PER_PROSPECTION_CYCLE}
+        prospects, trace = OpenAIProspectDiscovery(settings).discover(source.prospecting_profile(), cycle_adjustments)
         report(
             phase="validating",
             progress=65,

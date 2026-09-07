@@ -19,6 +19,8 @@ from app.onboarding import OnboardingSource
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _quota_lock = threading.Lock()
 CLIENT_MONTHLY_SCRAPES = 50
+CONTACTS_PER_PROSPECTION_CYCLE = 5
+CLIENT_CYCLE_COST = 50
 KANBAN_STATUSES = {"Nuevo", "En revisión", "Aprobado para descarga", "Descartado"}
 LEGACY_KANBAN_STATUS = {
     "aprobado": "Aprobado para descarga",
@@ -394,7 +396,7 @@ class SheetStore:
             "Programada" if enabled else "Desactivada",
             now,
             existing["last_execution_id"] if existing else "",
-            json.dumps({**(adjustments or {}), "runs_per_cycle": max(1, min(8, int(runs_per_cycle)))}, ensure_ascii=False),
+            json.dumps({**(adjustments or {}), "lead_count": CONTACTS_PER_PROSPECTION_CYCLE, "runs_per_cycle": max(1, min(8, int(runs_per_cycle)))}, ensure_ascii=False),
             name.strip()[:80] or "Automatización de prospección",
             favorite,
             created_by_email.strip().lower(),
@@ -418,7 +420,7 @@ class SheetStore:
             "last_status": "Programada" if enabled else "Desactivada",
             "updated_at": now,
             "last_execution_id": existing["last_execution_id"] if existing else "",
-            "adjustments": {**(adjustments or {}), "runs_per_cycle": max(1, min(8, int(runs_per_cycle)))},
+            "adjustments": {**(adjustments or {}), "lead_count": CONTACTS_PER_PROSPECTION_CYCLE, "runs_per_cycle": max(1, min(8, int(runs_per_cycle)))},
             "name": name.strip()[:80] or "Automatización de prospección",
             "favorite": favorite,
             "created_by_email": created_by_email.strip().lower(),
@@ -570,16 +572,17 @@ class SheetStore:
                 raise PermissionError("Correo no autorizado o inactivo")
             if is_admin_role(record.role):
                 return record
-            if record.available <= 0:
-                raise RuntimeError("No quedan ejecuciones disponibles")
-            self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[record.used + 1]])
-            return AccessRecord(record.row, record.email, record.role, record.state, record.assigned, record.used + 1, record.renewed_at)
+            if record.available < CLIENT_CYCLE_COST:
+                raise RuntimeError("No queda bolsa suficiente para un ciclo de prospección")
+            used_after_cycle = record.used + CLIENT_CYCLE_COST
+            self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[used_after_cycle]])
+            return AccessRecord(record.row, record.email, record.role, record.state, record.assigned, used_after_cycle, record.renewed_at)
 
     def refund_execution(self, email: str) -> None:
         with _quota_lock:
             record = self.get_access(email)
-            if record and record.used > 0:
-                self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[record.used - 1]])
+            if record and not is_admin_role(record.role) and record.used > 0:
+                self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[max(0, record.used - CLIENT_CYCLE_COST)]])
 
     def append_execution(
         self,

@@ -745,7 +745,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .research-builder > .builder-card { display: none; min-height: 330px; }
 .research-builder > .builder-card.active { display: block; }
 .research-builder > .builder-card.two-card.active { display: grid; }
-.automation-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, .8fr) auto auto; align-items: center; gap: 16px; padding: 17px 18px; border: 1px solid #34465a; border-radius: 12px; background: linear-gradient(135deg, #101c2a, #0a121d); }
+.automation-panel { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(200px, .85fr) auto auto; align-items: end; gap: 16px; padding: 17px 18px; border: 1px solid #34465a; border-radius: 12px; background: linear-gradient(135deg, #101c2a, #0a121d); }
 .automation-panel h4 { margin: 0; font-size: 17px; }
 .automation-panel p { margin: 3px 0 0; color: #8998aa; font-size: 11px; }
 .automation-countdown { display: grid; gap: 4px; align-self: stretch; padding: 12px; border: 1px solid #3e5368; border-radius: 10px; background: #07121e; }
@@ -775,11 +775,13 @@ tbody tr:last-child td { border-bottom: 0; }
 .intro-video-card p { color: #aab7c5; line-height: 1.55; }
 .automation-panel > small { grid-column: 1 / -1; color: #8998aa; }
 .automation-name { min-width: 0; }
-.schedule-fields { grid-column: 1 / -1; justify-self: stretch; }
+.schedule-fields { grid-column: 1 / -1; justify-self: stretch; min-width: 0; }
 .automation-switch { display: flex; align-items: center; gap: 9px; color: #d9e2ec; font-weight: 700; }
 .automation-switch input { width: 19px; height: 19px; accent-color: var(--lime); }
-.schedule-fields { display: grid; grid-template-columns: 92px 120px auto; align-items: end; gap: 8px; }
-.schedule-fields .secondary { white-space: nowrap; }
+.schedule-fields { display: grid; grid-template-columns: minmax(92px, .65fr) minmax(120px, .85fr) minmax(150px, auto); align-items: end; gap: 10px; }
+.schedule-fields button { min-width: 150px; white-space: nowrap; }
+.saved-automation-actions { min-width: 150px; }
+.saved-automation-actions button { width: 100%; }
 
 .audience-export-dialog, .briefing-dialog { width: min(860px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; border: 1px solid #3b4c62; border-radius: 18px; background: #0b1625; color: #edf3fa; }
 .audience-export-dialog::backdrop, .briefing-dialog::backdrop { background: #02060dcc; backdrop-filter: blur(5px); }
@@ -803,8 +805,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .admin-lead-delivery-dialog { border-color: #6f5b29; }
 
 @media (max-width: 1380px) {
-  .automation-panel, .schedule-fields { grid-template-columns: 1fr; }
-  .schedule-fields { grid-column: auto; }
+  .automation-panel { grid-template-columns: minmax(0, 1fr) minmax(220px, .9fr); }
+  .schedule-fields { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(150px, auto); }
 }
 
 @media (max-width: 1500px) and (min-width: 1181px) {
@@ -822,7 +824,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .account-menu > summary::after { position: static; content: "CU"; font-size: 11px; }
   .account-menu summary span, .account-menu summary i { display: none; }
   .automation-panel { grid-template-columns: 1fr auto; }
-  .schedule-fields { grid-column: 1 / -1; grid-template-columns: 1fr 1fr auto; }
+  .schedule-fields { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(150px, auto); }
   .dashboard-automation-quick { grid-template-columns: 1fr 1fr; }
   .dashboard-automation-quick > div:first-child, .dashboard-automation-quick .preview-safety-note { grid-column: 1 / -1; }
 }
@@ -849,7 +851,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .builder-tabs { grid-template-columns: 1fr 1fr; }
   .research-builder > .builder-card { min-height: 0; }
   .automation-panel, .schedule-fields { grid-template-columns: 1fr; }
-  .schedule-fields { grid-column: auto; }
+  .schedule-fields { grid-column: 1 / -1; }
+  .schedule-fields button, .saved-automation-actions { width: 100%; min-width: 0; }
   .section-heading { align-items: flex-start; }
   .heading-actions { justify-content: flex-start; }
   .prompt-criteria-summary { grid-template-columns: 1fr 1fr; }
