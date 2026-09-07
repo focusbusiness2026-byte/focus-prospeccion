@@ -371,7 +371,7 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .crm-board-card[draggable="true"] { cursor: grab; }
 .crm-board-card[draggable="true"]:active { cursor: grabbing; }
 .crm-board-card button, .crm-board-card a, .crm-board-card select { cursor: pointer; }
-.crm-board-card.dragging { opacity: .48; pointer-events: none; transform: none; }
+.crm-board-card.dragging { opacity: .48; transform: none; }
 .crm-drag-handle { display: flex; align-items: center; justify-content: center; gap: 6px; margin: -4px -4px 10px; padding: 7px; border: 1px dashed #5f7188; border-radius: 7px; background: #0a1421; color: #aebdcd; font-size: 10px; font-weight: 800; letter-spacing: .4px; user-select: none; }
 .crm-drag-handle:active { cursor: grabbing; }
 .crm-drag-handle:focus-visible { border-color: var(--gold); outline: 2px solid #d9af4333; }

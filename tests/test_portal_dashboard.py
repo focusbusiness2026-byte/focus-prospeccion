@@ -188,17 +188,18 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
 
     assert 'class="crm-board-card ${persisting?' in html
-    assert 'draggable="true"' in html
+    assert 'draggable="${persisting?\'false\':\'true\'}"' in html
     assert 'class="crm-drag-handle" aria-hidden="true"' in html
     assert "addEventListener('dragstart'" in html
-    assert "addEventListener('dragover'" in html
+    assert "column.addEventListener('dragover',handleCrmColumnDragOver)" in html
     assert "addEventListener('drop'" in html
     assert "addEventListener('dragend'" in html
     assert "addEventListener('dragleave'" in html
     assert "isCrmInteractiveTarget" in html
     assert "card.getAttribute('draggable')!=='true'" in html
     assert "crmDragIdFromEvent" in html
-    assert "clearCrmDrag();if(!column||!prospectId||!currentColumn)return" in html
+    assert "function bindCrmColumnDropTargets(container)" in html
+    assert "bindCrmColumnDropTargets(container)" in html
     assert ".crm-board-card.moved { animation: kanban-card-arrive 160ms ease-out both; }" in Path('app/static/app.css').read_text(encoding='utf-8')
     assert "crmMovesInFlight.has(id)" in html
     assert "moveCrmProspect(prospectId,column.dataset.crmColumn)" in html
@@ -211,6 +212,46 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "prospect.lead_status=previousStatus" in html
     assert "Se restauró la columna anterior." in html
     assert "Tarjeta movida. Sincronizando en segundo plano…" in html
+
+
+def test_kanban_native_drop_listener_prevents_default_and_moves_the_transferred_card():
+    """Exercise the actual column handlers with an empty-column-style DOM target."""
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    handlers = re.search(
+        r"\s{4}const allowedCrmColumn=.*?function bindCrmColumnDropTargets\(container\)\{.*?\}\n",
+        html,
+        re.DOTALL,
+    ).group(0)
+    script = f"""
+const assert = require('assert');
+const moved=[];
+const dataTransfer={{value:'LEAD-1',dropEffect:'',getData(){{return this.value;}}}};
+const destination={{dataset:{{crmColumn:'Aprobado para descarga'}},listeners:{{}},contains(){{return false;}},closest(){{return this;}},addEventListener(name,handler){{this.listeners[name]=handler;}}}};
+const cards={{closest(){{return destination;}}}};
+const container={{querySelectorAll(){{return [destination];}}}};
+destination.querySelector=selector=>selector==='.crm-column-cards'?cards:null;
+const card={{dataset:{{currentColumn:'Nuevo'}}}};
+const document={{querySelector(){{return card;}}}};
+const CSS={{escape:value=>value}};
+const readCrmBoard=()=>({{columns:[{{id:'Nuevo'}},{{id:'En revisión'}},{{id:'Aprobado para descarga'}}]}});
+const crmDragIdFromEvent=e=>e.dataTransfer.getData('text/plain');
+const setCrmDropTarget=column=>{{destination.highlighted=column===destination;}};
+const clearCrmDrag=()=>{{destination.cleared=true;}};
+const moveCrmProspect=(id,status)=>moved.push([id,status]);
+{handlers}
+bindCrmColumnDropTargets(container);
+const over={{currentTarget:destination,target:cards,dataTransfer,prevented:false,preventDefault(){{this.prevented=true;}}}};
+destination.listeners.dragover(over);
+assert.equal(over.prevented,true,'dragover debe habilitar el drop');
+assert.equal(dataTransfer.dropEffect,'move');
+const drop={{currentTarget:destination,target:cards,dataTransfer,prevented:false,preventDefault(){{this.prevented=true;}}}};
+destination.listeners.drop(drop);
+assert.equal(drop.prevented,true,'drop debe impedir el comportamiento nativo');
+assert.deepEqual(moved,[['LEAD-1','Aprobado para descarga']]);
+assert.equal(destination.cleared,true);
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_kanban_only_offers_the_three_persistable_columns_and_resets_stale_drag_state():
