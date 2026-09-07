@@ -1,4 +1,7 @@
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
@@ -267,6 +270,25 @@ class DashboardAfterKanbanStore(ApiStore):
         ]
 
 
+class ConcurrentDashboardStore(DashboardAfterKanbanStore):
+    """Makes a concurrent snapshot overlap observable without Google Sheets."""
+
+    active_reads = 0
+    max_active_reads = 0
+    read_lock = threading.Lock()
+
+    def recent_prospects(self, email=None, limit=1000):
+        with self.read_lock:
+            type(self).active_reads += 1
+            type(self).max_active_reads = max(type(self).max_active_reads, type(self).active_reads)
+        try:
+            time.sleep(0.02)
+            return super().recent_prospects(email, limit)
+        finally:
+            with self.read_lock:
+                type(self).active_reads -= 1
+
+
 def api_client(monkeypatch, identity: Identity, store_class=ApiStore):
     monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
     monkeypatch.setenv("FOCUS_ADMIN_EMAILS", "admin@example.com")
@@ -353,6 +375,37 @@ def test_dashboard_returns_after_kanban_status_update_without_treating_audit_as_
         assert prospect_payload["lead_status"] == "Aprobado para descarga"
         assert prospect_payload["decision_history"] == []
         assert [event["event_type"] for event in prospect_payload["audit_history"]] == ["crm_update"]
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_concurrent_kanban_updates_and_dashboard_reads_are_serialized_consistently(monkeypatch):
+    reset_api_state()
+    ConcurrentDashboardStore.active_reads = 0
+    ConcurrentDashboardStore.max_active_reads = 0
+    client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"), ConcurrentDashboardStore)
+    try:
+        def update(status):
+            return client.post(
+                "/api/prospects/EXEC-BETA/status",
+                headers={"X-CSRF-Token": "csrf-test"},
+                json={"status": status},
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            updates = list(pool.map(update, ("En revisión", "Aprobado para descarga")))
+        assert all(response.status_code == 200 for response in updates)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            dashboards = list(pool.map(lambda _: client.get("/api/portal-dashboard"), range(2)))
+        assert all(response.status_code == 200 for response in dashboards)
+        assert all(
+            next(item for item in response.json()["prospects"] if item["execution_id"] == "EXEC-BETA")["lead_status"]
+            in {"En revisión", "Aprobado para descarga"}
+            for response in dashboards
+        )
+        assert ConcurrentDashboardStore.max_active_reads == 1
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()

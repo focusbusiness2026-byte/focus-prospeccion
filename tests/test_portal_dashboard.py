@@ -208,7 +208,9 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "prospect.lead_status=columnId;renderCrmBoard()" in html
     assert "crmMovesInFlight.add(id)" in html
     assert "crmMovesInFlight.has(id)" in html
-    assert "void refreshDashboardStateInBackground(id,columnId)" in html
+    assert "scheduleDashboardRefresh()" in html
+    assert "DASHBOARD_REFRESH_QUIET_MS = 750" in html
+    assert "crmConfirmedStatuses" in html
     assert "prospect.lead_status=previousStatus" in html
     assert "Se restauró la columna anterior." in html
     assert "Tarjeta movida. Sincronizando en segundo plano…" in html
@@ -273,6 +275,7 @@ def test_kanban_move_is_immediate_single_post_persistent_and_rolls_back_on_error
 const assert = require('assert');
 let dashboardData={{prospects:[{{execution_id:'LEAD-1',lead_status:'Nuevo'}}]}};
 const crmMovesInFlight=new Set();
+const crmConfirmedStatuses=new Map();
 const readCrmBoard=()=>({{columns:[{{id:'Nuevo'}},{{id:'En revisión'}}]}});
 let renders=[];
 const renderCrmBoard=()=>renders.push({{status:dashboardData.prospects[0].lead_status,at:Date.now()}});
@@ -283,7 +286,7 @@ let lastRequest;
 let persisted='Nuevo';
 let fail=false;
 const fetch=async(url,request)=>{{fetchCalls++;lastRequest={{url,request}};await new Promise(resolve=>setTimeout(resolve,250));if(fail)return {{ok:false,json:async()=>({{detail:'fallo controlado'}})}};persisted='En revisión';return {{ok:true,json:async()=>({{prospect:{{lead_status:persisted}}}})}};}};
-const refreshDashboardStateInBackground=()=>Promise.resolve();
+const scheduleDashboardRefresh=()=>Promise.resolve();
 {function_source}
 (async()=>{{
   const started=Date.now();
@@ -305,6 +308,35 @@ const refreshDashboardStateInBackground=()=>Promise.resolve();
   await moveCrmProspect('LEAD-1','Nuevo');
   assert.equal(dashboardData.prospects[0].lead_status,'En revisión');
   assert.ok(message.textContent.includes('Se restauró la columna anterior.'));
+}})().catch(error=>{{console.error(error);process.exit(1);}});
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_kanban_two_confirmed_moves_debounce_dashboard_refresh_without_freezing_other_cards():
+    """Two cards persist independently, while the expensive dashboard GET is coalesced."""
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    move = re.search(r"^\s*(async function moveCrmProspect\(.*)$", html, re.MULTILINE).group(1)
+    scheduler = re.search(r"^\s*(function scheduleDashboardRefresh\(\)\{.*\})$", html, re.MULTILINE).group(1)
+    script = f"""
+const assert=require('assert');
+let dashboardData={{prospects:[{{execution_id:'LEAD-1',lead_status:'Nuevo'}},{{execution_id:'LEAD-2',lead_status:'Nuevo'}}]}};
+const crmMovesInFlight=new Set(),crmConfirmedStatuses=new Map();
+const readCrmBoard=()=>({{columns:[{{id:'Nuevo'}},{{id:'En revisión'}},{{id:'Aprobado para descarga'}}]}});
+const renderCrmBoard=()=>{{}};const message={{textContent:''}};const headers=()=>({{}});
+let statusPosts=0,dashboardGets=0;
+const fetch=async(url,request)=>{{if(request?.method==='POST'){{statusPosts++;return {{ok:true,json:async()=>({{prospect:{{lead_status:JSON.parse(request.body).status}}}})}};}}dashboardGets++;return {{ok:true,text:async()=>JSON.stringify({{prospects:[]}})}};}};
+const DASHBOARD_REFRESH_QUIET_MS=20;let dashboardRefreshTimer=null,dashboardRefreshInFlight=false,dashboardRefreshQueued=false;
+const refreshDashboardStateInBackground=async()=>{{dashboardGets++;}};
+{scheduler}
+{move}
+(async()=>{{
+  await Promise.all([moveCrmProspect('LEAD-1','En revisión'),moveCrmProspect('LEAD-2','Aprobado para descarga')]);
+  assert.equal(statusPosts,2,'cada tarjeta debe persistir su propio estado');
+  assert.equal(crmMovesInFlight.size,0,'ninguna tarjeta deja bloqueada la otra');
+  await new Promise(resolve=>setTimeout(resolve,60));
+  assert.equal(dashboardGets,1,'dos movimientos cercanos solo deben actualizar una vez el dashboard');
 }})().catch(error=>{{console.error(error);process.exit(1);}});
 """
     completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)

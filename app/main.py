@@ -10,7 +10,8 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from threading import Lock
+from functools import wraps
+from threading import Lock, RLock
 from typing import Callable, Literal
 from urllib.parse import quote
 
@@ -122,6 +123,20 @@ _RESEARCH_JOBS: dict[str, dict] = {}
 _ACTIVE_RESEARCH_JOBS: dict[tuple[str, str], str] = {}
 _RESEARCH_JOBS_LOCK = Lock()
 _RESEARCH_JOB_LIMIT = 100
+# Google Sheets is the shared persistence boundary for the portal.  A dashboard
+# snapshot must not interleave with the read/update/append sequence of a Kanban
+# move: Sheets can otherwise expose a partially-created review tab to the
+# reader.  Keep this process-local lock deliberately narrow in scope (only the
+# affected portal endpoints), so unrelated UI work remains concurrent.
+_PORTAL_SHEETS_LOCK = RLock()
+
+
+def _serialize_portal_sheets(handler):
+    @wraps(handler)
+    def wrapped(*args, **kwargs):
+        with _PORTAL_SHEETS_LOCK:
+            return handler(*args, **kwargs)
+    return wrapped
 
 
 def _utc_now() -> str:
@@ -744,6 +759,7 @@ def logout(request: Request):
 
 
 @app.get("/api/portal-dashboard")
+@_serialize_portal_sheets
 def portal_dashboard(
     view_as: str = Query(default="", max_length=320),
     presentation: str = Query(default="admin", max_length=16),
@@ -755,7 +771,10 @@ def portal_dashboard(
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    store.ensure_operational_schema()
+    # This endpoint is read-only.  Running the schema migration here made every
+    # background refresh perform multiple Sheets metadata writes and allowed
+    # concurrent refreshes to race those writes.  Mutating entry points perform
+    # the conservative migration before they need it.
     is_admin = _is_authorized_admin(identity, access, settings)
     requested_scope = view_as.strip().lower()
     requested_presentation = presentation.strip().lower()
@@ -1031,6 +1050,7 @@ def save_onboarding_automation(
 
 
 @app.post("/api/prospects/{execution_id}/status")
+@_serialize_portal_sheets
 def update_prospect_status(
     execution_id: str,
     payload: LeadStatusRequest,

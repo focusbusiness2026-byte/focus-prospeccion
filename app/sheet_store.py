@@ -18,6 +18,8 @@ from app.onboarding import OnboardingSource
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _quota_lock = threading.Lock()
+_lead_review_schema_lock = threading.RLock()
+_verified_lead_review_schemas: set[tuple[str, str]] = set()
 CLIENT_MONTHLY_SCRAPES = 50
 CONTACTS_PER_PROSPECTION_CYCLE = 5
 CLIENT_CYCLE_COST = 50
@@ -239,10 +241,24 @@ class SheetStore:
         )
 
     def ensure_lead_review_schema(self) -> None:
-        """Create the append-only review log only when a user records an action."""
+        """Create the append-only review log once per process and sheet.
+
+        A Kanban move appends an audit event.  Rechecking sheet metadata and
+        headers on every move made the critical status request unnecessarily
+        slow, and simultaneous first writes could race while creating the tab.
+        The first writer verifies the schema under a lock; later audit appends
+        use the already verified immutable header contract.
+        """
         tab = self.settings.google_lead_reviews_tab
-        self._ensure_sheet_capacity(tab, len(LEAD_REVIEW_HEADERS))
-        self._ensure_header_row(tab, LEAD_REVIEW_HEADERS)
+        key = (self.settings.google_sheet_id, tab)
+        if key in _verified_lead_review_schemas:
+            return
+        with _lead_review_schema_lock:
+            if key in _verified_lead_review_schemas:
+                return
+            self._ensure_sheet_capacity(tab, len(LEAD_REVIEW_HEADERS))
+            self._ensure_header_row(tab, LEAD_REVIEW_HEADERS)
+            _verified_lead_review_schemas.add(key)
 
     @staticmethod
     def _review_from_row(row: list) -> dict:
