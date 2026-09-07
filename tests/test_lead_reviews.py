@@ -276,6 +276,23 @@ def test_client_cannot_move_another_accounts_kanban_card(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_kanban_status_endpoint_accepts_every_persistable_column(monkeypatch):
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
+    try:
+        for status in ("Nuevo", "En revisión", "Aprobado para descarga"):
+            response = client.post(
+                "/api/prospects/EXEC-BETA/status",
+                headers={"X-CSRF-Token": "csrf-test", "Content-Type": "application/json"},
+                content=json.dumps({"status": status}),
+            )
+            assert response.status_code == 200
+            assert response.json()["prospect"]["lead_status"] == status
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_kanban_status_endpoint_rejects_non_column_status(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))

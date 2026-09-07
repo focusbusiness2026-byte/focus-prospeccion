@@ -235,11 +235,12 @@ const readCrmBoard=()=>({{columns:[{{id:'Nuevo'}},{{id:'En revisión'}}]}});
 let renders=[];
 const renderCrmBoard=()=>renders.push({{status:dashboardData.prospects[0].lead_status,at:Date.now()}});
 const message={{textContent:''}};
-const headers=()=>({{}});
+const headers=()=>({{'X-CSRF-Token':'csrf-test','X-Request-Source':'portal'}});
 let fetchCalls=0;
+let lastRequest;
 let persisted='Nuevo';
 let fail=false;
-const fetch=async()=>{{fetchCalls++;await new Promise(resolve=>setTimeout(resolve,250));if(fail)return {{ok:false,json:async()=>({{detail:'fallo controlado'}})}};persisted='En revisión';return {{ok:true,json:async()=>({{prospect:{{lead_status:persisted}}}})}};}};
+const fetch=async(url,request)=>{{fetchCalls++;lastRequest={{url,request}};await new Promise(resolve=>setTimeout(resolve,250));if(fail)return {{ok:false,json:async()=>({{detail:'fallo controlado'}})}};persisted='En revisión';return {{ok:true,json:async()=>({{prospect:{{lead_status:persisted}}}})}};}};
 const refreshDashboardStateInBackground=()=>Promise.resolve();
 {function_source}
 (async()=>{{
@@ -250,6 +251,12 @@ const refreshDashboardStateInBackground=()=>Promise.resolve();
   assert.ok(Date.now()-started<200,'el cambio visual no fue inmediato');
   await Promise.all([first,duplicate]);
   assert.equal(fetchCalls,1,'se envió más de un POST');
+  assert.equal(lastRequest.url,'/api/prospects/LEAD-1/status');
+  assert.equal(lastRequest.request.credentials,'same-origin');
+  assert.equal(lastRequest.request.headers['Content-Type'],'application/json');
+  assert.equal(lastRequest.request.headers['X-CSRF-Token'],'csrf-test');
+  assert.equal(lastRequest.request.headers['X-Request-Source'],'portal');
+  assert.deepEqual(JSON.parse(lastRequest.request.body),{{status:'En revisión'}});
   dashboardData.prospects[0].lead_status=persisted;
   assert.equal(dashboardData.prospects[0].lead_status,'En revisión');
   fail=true;
