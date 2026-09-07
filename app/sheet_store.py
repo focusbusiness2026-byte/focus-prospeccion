@@ -641,9 +641,7 @@ class SheetStore:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
-            if record.unlimited:
-                return record
-            if not record.has_available_scrape:
+            if not record.unlimited and not record.has_available_scrape:
                 raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
             return record
 
@@ -652,9 +650,7 @@ class SheetStore:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
-            if record.unlimited:
-                return record
-            if not record.has_available_scrape:
+            if not record.unlimited and not record.has_available_scrape:
                 raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
             used_after_scrape = record.used + SCRAPES_PER_SUCCESSFUL_RESEARCH
             self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[used_after_scrape]])

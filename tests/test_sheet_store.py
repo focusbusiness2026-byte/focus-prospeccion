@@ -70,7 +70,7 @@ def test_access_read_preserves_the_current_sheet_quota_without_rewriting_it():
     assert store.updates == []
 
 
-def test_administrator_has_unlimited_executions_without_charging_quota():
+def test_unlimited_assignment_records_successful_scrapes_without_enforcing_a_limit():
     store = FakeStore()
     store.rows[0][1] = "Administrador"
     store.rows[0][4] = "Ilimitado"
@@ -80,7 +80,8 @@ def test_administrator_has_unlimited_executions_without_charging_quota():
     record = store.consume_successful_scrape("user@example.com")
 
     assert record.role == "Administrador"
-    assert store.updates == []
+    assert record.used == 1000
+    assert store.updates == [("'Accesos'!F2", [[1000]])]
 
 
 def test_administrator_with_a_numeric_assignment_consumes_one_scrape():
