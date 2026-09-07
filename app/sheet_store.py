@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import unicodedata
 import uuid
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from urllib.parse import quote
 
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
+from requests import HTTPError, RequestException
 
 from app.config import Settings, get_settings
 from app.lead_reviews import is_admin_role
@@ -23,11 +25,35 @@ _verified_lead_review_schemas: set[tuple[str, str]] = set()
 CLIENT_MONTHLY_SCRAPES = 50
 CONTACTS_PER_PROSPECTION_CYCLE = 5
 CLIENT_CYCLE_COST = 50
+STATUS_WRITE_RETRIES = 3
+STATUS_WRITE_RETRY_DELAY_SECONDS = 0.15
 KANBAN_STATUSES = {"Nuevo", "En revisión", "Aprobado para descarga", "Descartado"}
 LEGACY_KANBAN_STATUS = {
     "aprobado": "Aprobado para descarga",
     "cerrado": "Descartado",
 }
+
+
+class TransientSheetWriteError(RuntimeError):
+    """A bounded status-write retry was exhausted.
+
+    The caller can safely report this as a temporary availability problem
+    instead of leaking a provider exception as an HTTP 500.
+    """
+
+
+def is_transient_sheet_write_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    if isinstance(exc, HTTPError):
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        return status_code in {408, 429, 500, 502, 503, 504}
+    if isinstance(exc, RequestException):
+        return True
+    # Local/in-process stores used for the same persistence contract can raise
+    # a DB-style lock error instead of an HTTP response. Match only the known
+    # transient lock wording, never arbitrary RuntimeErrors.
+    return "database is locked" in str(exc).lower() or "database table is locked" in str(exc).lower()
 
 
 def _normalized_access_text(value: str) -> str:
@@ -135,6 +161,24 @@ class SheetStore:
             timeout=30,
         )
         response.raise_for_status()
+
+    def _retry_status_write(self, operation) -> None:
+        """Retry only the idempotent cell update used by a Kanban status move.
+
+        Retrying a Sheets append after an ambiguous timeout could duplicate an
+        append-only audit event, so the audit remains a single write. The status
+        cell update is idempotent and is the lock-prone shared mutation.
+        """
+        for attempt in range(STATUS_WRITE_RETRIES):
+            try:
+                operation()
+                return
+            except Exception as exc:
+                if not is_transient_sheet_write_error(exc) or attempt == STATUS_WRITE_RETRIES - 1:
+                    if is_transient_sheet_write_error(exc):
+                        raise TransientSheetWriteError("Google Sheets está ocupado; inténtalo de nuevo.") from exc
+                    raise
+                time.sleep(STATUS_WRITE_RETRY_DELAY_SECONDS * (2 ** attempt))
 
     def _append(self, a1_range: str, values: list[list]) -> None:
         session = self._session()
@@ -887,7 +931,9 @@ class SheetStore:
             if not is_admin and str(padded[1]).strip().lower() != normalized_email:
                 raise PermissionError("No puedes modificar un lead de otra cuenta")
             now = datetime.now(timezone.utc).isoformat()
-            self._update(f"'{self.settings.google_sheet_tab}'!W{row_number}:X{row_number}", [[status, now]])
+            self._retry_status_write(
+                lambda: self._update(f"'{self.settings.google_sheet_tab}'!W{row_number}:X{row_number}", [[status, now]])
+            )
             padded[22] = status
             padded[23] = now
             return self._prospect_from_row(padded)

@@ -208,12 +208,13 @@ def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
     assert "prospect.lead_status=columnId;renderCrmBoard()" in html
     assert "crmMovesInFlight.add(id)" in html
     assert "crmMovesInFlight.has(id)" in html
-    assert "scheduleDashboardRefresh()" in html
-    assert "DASHBOARD_REFRESH_QUIET_MS = 750" in html
-    assert "crmConfirmedStatuses" in html
+    assert "enqueueCrmStatusWrite" in html
+    assert "crmStatusWriteQueue" in html
+    assert "scheduleDashboardRefresh" not in html
+    assert "refreshDashboardStateInBackground" not in html
     assert "prospect.lead_status=previousStatus" in html
     assert "Se restauró la columna anterior." in html
-    assert "Tarjeta movida. Sincronizando en segundo plano…" in html
+    assert "Tarjeta movida. Esperando turno de guardado…" in html
 
 
 def test_kanban_native_drop_listener_prevents_default_and_moves_the_transferred_card():
@@ -275,7 +276,8 @@ def test_kanban_move_is_immediate_single_post_persistent_and_rolls_back_on_error
 const assert = require('assert');
 let dashboardData={{prospects:[{{execution_id:'LEAD-1',lead_status:'Nuevo'}}]}};
 const crmMovesInFlight=new Set();
-const crmConfirmedStatuses=new Map();
+let crmStatusWriteQueue=Promise.resolve();
+function enqueueCrmStatusWrite(operation){{const queued=crmStatusWriteQueue.then(operation,operation);crmStatusWriteQueue=queued.catch(()=>{{}});return queued;}}
 const readCrmBoard=()=>({{columns:[{{id:'Nuevo'}},{{id:'En revisión'}}]}});
 let renders=[];
 const renderCrmBoard=()=>renders.push({{status:dashboardData.prospects[0].lead_status,at:Date.now()}});
@@ -286,7 +288,6 @@ let lastRequest;
 let persisted='Nuevo';
 let fail=false;
 const fetch=async(url,request)=>{{fetchCalls++;lastRequest={{url,request}};await new Promise(resolve=>setTimeout(resolve,250));if(fail)return {{ok:false,json:async()=>({{detail:'fallo controlado'}})}};persisted='En revisión';return {{ok:true,json:async()=>({{prospect:{{lead_status:persisted}}}})}};}};
-const scheduleDashboardRefresh=()=>Promise.resolve();
 {function_source}
 (async()=>{{
   const started=Date.now();
@@ -314,29 +315,32 @@ const scheduleDashboardRefresh=()=>Promise.resolve();
     assert completed.returncode == 0, completed.stderr
 
 
-def test_kanban_two_confirmed_moves_debounce_dashboard_refresh_without_freezing_other_cards():
-    """Two cards persist independently, while the expensive dashboard GET is coalesced."""
+def test_kanban_rapid_moves_are_optimistic_fifo_and_never_refetch_dashboard():
+    """Rapid moves paint immediately, serialize POSTs, and do not trigger a GET."""
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
     move = re.search(r"^\s*(async function moveCrmProspect\(.*)$", html, re.MULTILINE).group(1)
-    scheduler = re.search(r"^\s*(function scheduleDashboardRefresh\(\)\{.*\})$", html, re.MULTILINE).group(1)
     script = f"""
 const assert=require('assert');
-let dashboardData={{prospects:[{{execution_id:'LEAD-1',lead_status:'Nuevo'}},{{execution_id:'LEAD-2',lead_status:'Nuevo'}}]}};
-const crmMovesInFlight=new Set(),crmConfirmedStatuses=new Map();
+let dashboardData={{prospects:[{{execution_id:'LEAD-1',lead_status:'Nuevo'}},{{execution_id:'LEAD-2',lead_status:'Nuevo'}},{{execution_id:'LEAD-3',lead_status:'Nuevo'}},{{execution_id:'LEAD-4',lead_status:'Nuevo'}}]}};
+const crmMovesInFlight=new Set();let crmStatusWriteQueue=Promise.resolve();
+function enqueueCrmStatusWrite(operation){{const queued=crmStatusWriteQueue.then(operation,operation);crmStatusWriteQueue=queued.catch(()=>{{}});return queued;}}
 const readCrmBoard=()=>({{columns:[{{id:'Nuevo'}},{{id:'En revisión'}},{{id:'Aprobado para descarga'}}]}});
 const renderCrmBoard=()=>{{}};const message={{textContent:''}};const headers=()=>({{}});
-let statusPosts=0,dashboardGets=0;
-const fetch=async(url,request)=>{{if(request?.method==='POST'){{statusPosts++;return {{ok:true,json:async()=>({{prospect:{{lead_status:JSON.parse(request.body).status}}}})}};}}dashboardGets++;return {{ok:true,text:async()=>JSON.stringify({{prospects:[]}})}};}};
-const DASHBOARD_REFRESH_QUIET_MS=20;let dashboardRefreshTimer=null,dashboardRefreshInFlight=false,dashboardRefreshQueued=false;
-const refreshDashboardStateInBackground=async()=>{{dashboardGets++;}};
-{scheduler}
+let statusPosts=0,inFlight=0,maxInFlight=0,dashboardGets=0;const order=[];let failLead='LEAD-3';
+const fetch=async(url,request)=>{{if(request?.method!=='POST'){{dashboardGets++;return {{ok:true,json:async()=>({{}})}};}}statusPosts++;inFlight++;maxInFlight=Math.max(maxInFlight,inFlight);const id=url.split('/')[3];order.push(id);await new Promise(resolve=>setTimeout(resolve,15));inFlight--;if(id===failLead)return {{ok:false,json:async()=>({{detail:'fallo aislado'}})}};return {{ok:true,json:async()=>({{prospect:{{lead_status:JSON.parse(request.body).status}}}})}};}};
 {move}
 (async()=>{{
-  await Promise.all([moveCrmProspect('LEAD-1','En revisión'),moveCrmProspect('LEAD-2','Aprobado para descarga')]);
-  assert.equal(statusPosts,2,'cada tarjeta debe persistir su propio estado');
-  assert.equal(crmMovesInFlight.size,0,'ninguna tarjeta deja bloqueada la otra');
-  await new Promise(resolve=>setTimeout(resolve,60));
-  assert.equal(dashboardGets,1,'dos movimientos cercanos solo deben actualizar una vez el dashboard');
+  const moves=[moveCrmProspect('LEAD-1','En revisión'),moveCrmProspect('LEAD-2','Aprobado para descarga'),moveCrmProspect('LEAD-3','En revisión'),moveCrmProspect('LEAD-4','Aprobado para descarga')];
+  assert.deepEqual(dashboardData.prospects.map(item=>item.lead_status),['En revisión','Aprobado para descarga','En revisión','Aprobado para descarga'],'las cuatro mutaciones deben ser optimistas');
+  assert.equal(crmMovesInFlight.size,4,'solo las cuatro tarjetas encoladas quedan bloqueadas');
+  await Promise.all(moves);
+  assert.equal(statusPosts,4);
+  assert.equal(maxInFlight,1,'la cola debe mantener como máximo un POST en vuelo');
+  assert.deepEqual(order,['LEAD-1','LEAD-2','LEAD-3','LEAD-4'],'la cola debe respetar FIFO');
+  assert.equal(dashboardGets,0,'un drop no debe pedir el dashboard completo');
+  assert.equal(dashboardData.prospects[2].lead_status,'Nuevo','el fallo aislado debe restaurar solo esa tarjeta');
+  assert.equal(dashboardData.prospects[3].lead_status,'Aprobado para descarga','las tarjetas posteriores deben continuar');
+  assert.equal(crmMovesInFlight.size,0);
 }})().catch(error=>{{console.error(error);process.exit(1);}});
 """
     completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)

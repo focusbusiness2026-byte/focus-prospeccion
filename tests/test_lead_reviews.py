@@ -9,7 +9,7 @@ from app.auth import CSRF_COOKIE, Identity, require_identity
 from app.config import Settings
 from app.config import get_settings
 from app.lead_reviews import decorate_prospects, normalized_company, normalized_domain, summary_request_preview
-from app.sheet_store import AccessRecord, LEAD_REVIEW_HEADERS, SheetStore
+from app.sheet_store import AccessRecord, LEAD_REVIEW_HEADERS, SheetStore, TransientSheetWriteError
 import app.main as main_module
 
 
@@ -456,6 +456,26 @@ def test_kanban_status_endpoint_rejects_non_column_status(monkeypatch):
             json={"status": "Descartado"},
         )
         assert response.status_code == 422
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_kanban_status_returns_controlled_unavailable_error_when_write_retries_exhaust(monkeypatch):
+    class LockedStatusStore(ApiStore):
+        def update_prospect_status(self, *args, **kwargs):
+            raise TransientSheetWriteError("Google Sheets está ocupado; inténtalo de nuevo.")
+
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"), LockedStatusStore)
+    try:
+        response = client.post(
+            "/api/prospects/EXEC-BETA/status",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"status": "En revisión"},
+        )
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Google Sheets está ocupado; inténtalo de nuevo."
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()

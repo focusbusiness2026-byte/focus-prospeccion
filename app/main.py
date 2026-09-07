@@ -43,7 +43,13 @@ from app.lead_reviews import (
     decorate_prospects,
     is_admin_role,
 )
-from app.sheet_store import CONTACTS_PER_PROSPECTION_CYCLE, SheetStore, is_active_access_state
+from app.sheet_store import (
+    CONTACTS_PER_PROSPECTION_CYCLE,
+    SheetStore,
+    TransientSheetWriteError,
+    is_active_access_state,
+    is_transient_sheet_write_error,
+)
 
 
 class GoogleCredential(BaseModel):
@@ -1088,6 +1094,16 @@ def update_prospect_status(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except TransientSheetWriteError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        # The append-only audit is intentionally not retried after an ambiguous
+        # provider response (a retry could duplicate evidence). It still must
+        # surface a known transient provider/lock failure as controlled 503,
+        # rather than a bare 500; permanent failures retain their real error.
+        if is_transient_sheet_write_error(exc):
+            raise HTTPException(status_code=503, detail="Google Sheets está ocupado; inténtalo de nuevo.") from exc
+        raise
     return {"ok": True, "prospect": prospect}
 
 

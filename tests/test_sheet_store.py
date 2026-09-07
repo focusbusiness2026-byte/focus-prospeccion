@@ -3,7 +3,14 @@ from datetime import datetime, timezone
 import pytest
 
 from app.config import Settings
-from app.sheet_store import AUTOMATION_HEADERS, DASHBOARD_HEADERS, EXECUTION_HEADERS, PROSPECT_HEADERS, SheetStore
+from app.sheet_store import (
+    AUTOMATION_HEADERS,
+    DASHBOARD_HEADERS,
+    EXECUTION_HEADERS,
+    PROSPECT_HEADERS,
+    SheetStore,
+    TransientSheetWriteError,
+)
 
 
 class FakeStore(SheetStore):
@@ -137,6 +144,45 @@ def test_client_cannot_change_another_accounts_lead():
 
     with pytest.raises(PermissionError, match="otra cuenta"):
         store.update_prospect_status("exec-2", "owner@example.com", "Aprobado para descarga")
+
+
+def test_kanban_status_write_retries_a_transient_database_lock(monkeypatch):
+    store = ProspectStore()
+    attempts = 0
+    original_update = store._update
+
+    def locked_once(a1_range, values):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("database is locked")
+        original_update(a1_range, values)
+
+    monkeypatch.setattr(store, "_update", locked_once)
+    monkeypatch.setattr("app.sheet_store.time.sleep", lambda _: None)
+
+    updated = store.update_prospect_status("exec-2", "admin@example.com", "Aprobado para descarga", is_admin=True)
+
+    assert updated["lead_status"] == "Aprobado para descarga"
+    assert attempts == 2
+    assert len(store.updates) == 1
+
+
+def test_kanban_status_write_returns_controlled_error_after_retries_exhaust(monkeypatch):
+    store = ProspectStore()
+    attempts = 0
+
+    def always_locked(*_):
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(store, "_update", always_locked)
+    monkeypatch.setattr("app.sheet_store.time.sleep", lambda _: None)
+
+    with pytest.raises(TransientSheetWriteError, match="Google Sheets está ocupado"):
+        store.update_prospect_status("exec-2", "admin@example.com", "Aprobado para descarga", is_admin=True)
+    assert attempts == 3
 
 
 class AppendStore(SheetStore):
