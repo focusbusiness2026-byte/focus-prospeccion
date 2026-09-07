@@ -33,30 +33,27 @@ class FakeStore(SheetStore):
             self.rows[0][5] = values[0][0]
 
 
-def test_access_is_normalized_and_quota_is_reserved_once():
+def test_access_is_normalized_and_quota_is_consumed_after_one_successful_scrape():
     store = FakeStore()
     store.rows[0][5] = 0
 
-    record = store.reserve_execution("user@example.com")
+    record = store.consume_successful_scrape("user@example.com")
 
-    assert record.available == 0
-    assert store.updates == [("'Accesos'!F2", [[50]])]
-    with pytest.raises(RuntimeError, match="bolsa suficiente"):
-        store.reserve_execution("user@example.com")
+    assert record.available == 49
+    assert store.updates == [("'Accesos'!F2", [[1]])]
+    store.rows[0][5] = 50
+    with pytest.raises(PermissionError, match="Límite de raspados alcanzado"):
+        store.check_scrape_limit("user@example.com")
 
 
-def test_client_cycle_charges_exactly_fifty_and_refund_reverses_the_same_charge():
+def test_limit_check_does_not_consume_quota_before_scrape():
     store = FakeStore()
     store.rows[0][5] = 0
 
-    record = store.reserve_execution("user@example.com")
-    store.refund_execution("user@example.com")
+    record = store.check_scrape_limit("user@example.com")
 
-    assert record.used == 50
-    assert store.updates == [
-        ("'Accesos'!F2", [[50]]),
-        ("'Accesos'!F2", [[0]]),
-    ]
+    assert record.used == 0
+    assert store.updates == []
 
 
 def test_client_quota_renews_to_fifty_when_cycle_is_old():
@@ -81,7 +78,7 @@ def test_administrator_has_unlimited_executions_without_charging_quota():
     store.rows[0][5] = 999
     store.updates.clear()
 
-    record = store.reserve_execution("user@example.com")
+    record = store.consume_successful_scrape("user@example.com")
 
     assert record.role == "Administrador"
     assert store.updates == []
@@ -91,7 +88,7 @@ def test_inactive_or_missing_email_is_rejected():
     store = FakeStore()
 
     with pytest.raises(PermissionError):
-        store.reserve_execution("missing@example.com")
+        store.check_scrape_limit("missing@example.com")
 
 
 class ProspectStore(SheetStore):

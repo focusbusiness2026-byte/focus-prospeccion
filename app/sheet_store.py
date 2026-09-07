@@ -24,7 +24,7 @@ _lead_review_schema_lock = threading.RLock()
 _verified_lead_review_schemas: set[tuple[str, str]] = set()
 CLIENT_MONTHLY_SCRAPES = 50
 CONTACTS_PER_PROSPECTION_CYCLE = 5
-CLIENT_CYCLE_COST = 50
+SCRAPES_PER_SUCCESSFUL_RESEARCH = 1
 STATUS_WRITE_RETRIES = 3
 STATUS_WRITE_RETRY_DELAY_SECONDS = 0.15
 KANBAN_STATUSES = {"Nuevo", "En revisión", "Aprobado para descarga", "Descartado"}
@@ -116,10 +116,21 @@ class AccessRecord:
     assigned: int
     used: int
     renewed_at: str = ""
+    unlimited: bool = False
 
     @property
     def available(self) -> int:
+        if self.unlimited:
+            return 0
         return max(0, self.assigned - self.used)
+
+    @property
+    def has_available_scrape(self) -> bool:
+        return self.unlimited or self.used < self.assigned
+
+
+class ScrapeQuotaExceeded(PermissionError):
+    """The current client has exhausted the Sheets-backed scrape allowance."""
 
 
 class SheetStore:
@@ -538,6 +549,7 @@ class SheetStore:
                     assigned=self._int(padded[4], 0),
                     used=self._int(padded[5], 0),
                     renewed_at=str(padded[9]).strip(),
+                    unlimited=_normalized_access_text(padded[4]) == "ilimitado",
                 )
             )
         return records
@@ -562,7 +574,7 @@ class SheetStore:
         return None
 
     def _renew_client_quota_if_needed(self, record: AccessRecord) -> AccessRecord:
-        if is_admin_role(record.role):
+        if is_admin_role(record.role) or record.unlimited:
             return record
         now = datetime.now(timezone.utc)
         current_month = (now.year, now.month)
@@ -625,24 +637,38 @@ class SheetStore:
             None,
         )
 
-    def reserve_execution(self, email: str) -> AccessRecord:
+    def check_scrape_limit(self, email: str) -> AccessRecord:
         with _quota_lock:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
-            if is_admin_role(record.role):
+            if is_admin_role(record.role) or record.unlimited:
                 return record
-            if record.available < CLIENT_CYCLE_COST:
-                raise RuntimeError("No queda bolsa suficiente para un ciclo de prospección")
-            used_after_cycle = record.used + CLIENT_CYCLE_COST
-            self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[used_after_cycle]])
-            return AccessRecord(record.row, record.email, record.role, record.state, record.assigned, used_after_cycle, record.renewed_at)
+            if not record.has_available_scrape:
+                raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
+            return record
 
-    def refund_execution(self, email: str) -> None:
+    def consume_successful_scrape(self, email: str) -> AccessRecord:
         with _quota_lock:
             record = self.get_access(email)
-            if record and not is_admin_role(record.role) and record.used > 0:
-                self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[max(0, record.used - CLIENT_CYCLE_COST)]])
+            if not record:
+                raise PermissionError("Correo no autorizado o inactivo")
+            if is_admin_role(record.role) or record.unlimited:
+                return record
+            if not record.has_available_scrape:
+                raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
+            used_after_scrape = record.used + SCRAPES_PER_SUCCESSFUL_RESEARCH
+            self._update(f"'{self.settings.google_access_tab}'!F{record.row}", [[used_after_scrape]])
+            return AccessRecord(
+                record.row,
+                record.email,
+                record.role,
+                record.state,
+                record.assigned,
+                used_after_scrape,
+                record.renewed_at,
+                record.unlimited,
+            )
 
     def append_execution(
         self,

@@ -7,12 +7,12 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import app.main as main_module
-from app.auth import Identity, require_identity
+from app.auth import CSRF_COOKIE, Identity, require_identity
 from app.config import Settings
 from app.config import get_settings
 from app.build_info import portal_build_id
 from app.main import AutomationRequest, ResearchAdjustments, _client_execution_summary, _require_real_sheets
-from app.sheet_store import AccessRecord
+from app.sheet_store import AccessRecord, ScrapeQuotaExceeded
 
 
 def test_automation_request_supports_cycle_runs_without_changing_internal_limit():
@@ -26,6 +26,40 @@ def test_real_sheet_source_is_required_when_unavailable():
     with pytest.raises(HTTPException) as exc:
         _require_real_sheets(Settings(google_sheets_enabled=False))
     assert exc.value.status_code == 503
+
+
+def test_research_start_rejects_an_exhausted_client_before_scheduling_provider_work(monkeypatch):
+    class ExhaustedStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, email):
+            return AccessRecord(2, email, "Cliente", "Activo", 50, 50)
+
+        def get_onboarding_source(self, record_id, email=None):
+            return type("Source", (), {"record_id": record_id, "email": email, "ready": True, "blockers": []})()
+
+        def check_scrape_limit(self, email):
+            raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    monkeypatch.setenv("OPENAI_API_KEY", "fixture-only")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", ExhaustedStore)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity("client@example.com", "Cliente", "client")
+    try:
+        client = TestClient(main_module.app)
+        client.cookies.set(CSRF_COOKIE, "csrf-test")
+        response = client.post(
+            "/api/onboarding-sources/ONB-LIMIT/research-jobs",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"lead_count": 5},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Límite de raspados alcanzado. Contacta con soporte."
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
 
 
 def test_portal_has_selected_account_real_schedule_and_kanban_exports():

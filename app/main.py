@@ -45,6 +45,7 @@ from app.lead_reviews import (
 )
 from app.sheet_store import (
     CONTACTS_PER_PROSPECTION_CYCLE,
+    ScrapeQuotaExceeded,
     SheetStore,
     TransientSheetWriteError,
     is_active_access_state,
@@ -162,6 +163,7 @@ def _public_research_job(job: dict) -> dict:
             "leads_found",
             "saved_leads",
             "execution_id",
+            "quota",
             "created_at",
             "updated_at",
         )
@@ -340,7 +342,6 @@ def _run_onboarding_research(
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY_REQUIRED")
     execution_id = str(uuid.uuid4())
-    reserved = False
     try:
         report(
             phase="preparing",
@@ -348,9 +349,10 @@ def _run_onboarding_research(
             message="Validando la configuración y los límites de la cuenta…",
         )
         store.ensure_operational_schema()
-        if not bypass_user_limit:
-            store.reserve_execution(source.email)
-            reserved = True
+        # Always charge/check the account that owns the Onboarding source. An
+        # administrator acting on a client account must not bypass that client
+        # quota; only an ``Ilimitado`` assignment is exempt.
+        store.check_scrape_limit(source.email)
         report(
             phase="searching",
             progress=20,
@@ -410,6 +412,7 @@ def _run_onboarding_research(
             message="Registrando la ejecución y actualizando el panel…",
             leads_found=total_to_save,
         )
+        quota_after_success = store.consume_successful_scrape(source.email)
         store.append_execution(
             execution_id=execution_id,
             email=source.email,
@@ -452,13 +455,22 @@ def _run_onboarding_research(
             leads_found=len(prospects),
             execution_id=execution_id,
         )
-        return {"ok": True, "execution_id": execution_id, "prospects": prospects, "trace": trace}
+        return {
+            "ok": True,
+            "execution_id": execution_id,
+            "prospects": prospects,
+            "trace": trace,
+            "quota": (
+                {
+                    "assigned": quota_after_success.assigned,
+                    "used": quota_after_success.used,
+                    "available": quota_after_success.available,
+                    "unlimited": quota_after_success.unlimited,
+                }
+                if quota_after_success else None
+            ),
+        }
     except Exception as exc:
-        if reserved and settings.refund_failed_searches:
-            try:
-                store.refund_execution(source.email)
-            except Exception:
-                pass
         try:
             store.append_execution(
                 execution_id=execution_id,
@@ -512,6 +524,7 @@ def _execute_research_job(
             progress=100,
             leads_found=len(result["prospects"]),
             execution_id=result["execution_id"],
+            quota=result.get("quota"),
         )
     except Exception as exc:
         _update_research_job(
@@ -911,6 +924,10 @@ def start_research_job(
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     if not source.ready:
         raise HTTPException(status_code=422, detail="; ".join(source.blockers))
+    try:
+        store.check_scrape_limit(source.email)
+    except ScrapeQuotaExceeded as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     actor_email = identity.email.strip().lower()
     active_key = (source.record_id, actor_email)

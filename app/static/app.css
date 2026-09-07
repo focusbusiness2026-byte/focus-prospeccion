@@ -909,7 +909,9 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 520px) {
-  .site-header .brand span { display: none; }
+  .site-header .brand { min-width: 0; gap: 6px; overflow: hidden; font-size: 14px; letter-spacing: 1.5px; white-space: nowrap; }
+  .site-header .brand span { display: block; min-width: 0; overflow: hidden; }
+  .site-header .brand small { display: none; }
   .site-header .brand i { width: 40px; height: 40px; }
   .site-header { grid-template-columns: auto 1fr auto; }
   .top-navigation { grid-template-columns: 1fr; }
