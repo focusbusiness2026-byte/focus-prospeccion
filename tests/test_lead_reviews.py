@@ -67,6 +67,21 @@ def test_admin_review_does_not_replace_client_decision_and_external_gate_is_expl
     assert required_review["external_action_ready"] is False
 
 
+def test_crm_update_is_preserved_as_audit_without_becoming_a_review_decision():
+    lead = prospect("EXEC-1", "client@example.com", "Empresa", "https://empresa.example")
+    events = [
+        event("EXEC-1", "client@example.com", "crm_update", "Aprobado para descarga", "2026-08-19T10:00:00Z"),
+    ]
+
+    decorated = decorate_prospects([lead], events)[0]
+
+    assert decorated["client_decision"]["decision"] == "Pendiente"
+    assert decorated["admin_review"]["decision"] == "Pendiente"
+    assert decorated["decision_history"] == []
+    assert decorated["audit_history"] == events
+    assert decorated["external_action_ready"] is False
+
+
 def test_duplicate_signals_use_normalized_domain_and_company_without_merging():
     leads = [
         prospect("EXEC-1", "client@example.com", "Acme S.L.", "https://www.acme.example/contact"),
@@ -225,6 +240,33 @@ class AuditedApiStore(ApiStore):
     append_review_event = SheetStore.append_review_event
 
 
+class DashboardAfterKanbanStore(ApiStore):
+    """Offline store exercising the dashboard immediately after a CRM audit."""
+
+    def ensure_operational_schema(self):
+        return None
+
+    def onboarding_sources(self, email=None):
+        return []
+
+    def recent_executions(self, email=None, *, hide_admin=False):
+        return []
+
+    def prospect_metrics(self, email=None):
+        prospects = self.recent_prospects(email)
+        return {"total": len(prospects), "classifications": {}, "statuses": {}}
+
+    def global_metrics(self):
+        return {"remaining": 0, "used": 0, "assigned": 0}
+
+    def access_records(self):
+        return [
+            AccessRecord(2, "admin@example.com", "Administrador", "Activo", 10, 0),
+            AccessRecord(3, "alpha@example.com", "Cliente", "Activo", 10, 0),
+            AccessRecord(4, "beta@example.com", "Cliente", "Activo", 10, 0),
+        ]
+
+
 def api_client(monkeypatch, identity: Identity, store_class=ApiStore):
     monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
     monkeypatch.setenv("FOCUS_ADMIN_EMAILS", "admin@example.com")
@@ -289,6 +331,28 @@ def test_client_cannot_move_another_accounts_kanban_card(monkeypatch):
         )
         assert response.status_code == 404
         assert ApiStore.status_updates == []
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_dashboard_returns_after_kanban_status_update_without_treating_audit_as_decision(monkeypatch):
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"), DashboardAfterKanbanStore)
+    try:
+        update = client.post(
+            "/api/prospects/EXEC-BETA/status",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"status": "Aprobado para descarga"},
+        )
+        assert update.status_code == 200
+
+        dashboard = client.get("/api/portal-dashboard")
+        assert dashboard.status_code == 200
+        prospect_payload = next(item for item in dashboard.json()["prospects"] if item["execution_id"] == "EXEC-BETA")
+        assert prospect_payload["lead_status"] == "Aprobado para descarga"
+        assert prospect_payload["decision_history"] == []
+        assert [event["event_type"] for event in prospect_payload["audit_history"]] == ["crm_update"]
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()

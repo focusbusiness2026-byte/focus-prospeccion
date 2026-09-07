@@ -7,6 +7,10 @@ from urllib.parse import urlsplit
 
 CLIENT_DECISIONS = {"Aprobado", "Descartado", "En revisión"}
 ADMIN_DECISIONS = {"Confirmada", "Rechazada", "En revisión"}
+# The review log is append-only and also contains operational audit records.
+# Only these two types express a client or administrative decision; in
+# particular, a Kanban ``crm_update`` must never change either decision state.
+DECISION_EVENT_TYPES = {"client_decision", "admin_review"}
 
 
 def is_admin_role(role: str) -> bool:
@@ -71,8 +75,12 @@ def decorate_prospects(
             by_owner_and_execution.get((owner_email, execution_id), []),
             key=lambda item: str(item.get("created_at") or ""),
         )
-        client_decision = _latest(history, "client_decision")
-        admin_review = _latest(history, "admin_review")
+        decision_history = [
+            event for event in history
+            if event.get("event_type") in DECISION_EVENT_TYPES
+        ]
+        client_decision = _latest(decision_history, "client_decision")
+        admin_review = _latest(decision_history, "admin_review")
         domain = normalized_domain(prospect.get("website", ""))
         company = normalized_company(prospect.get("company", ""))
         matched_ids = sorted({
@@ -102,7 +110,12 @@ def decorate_prospects(
                 "created_at": "",
                 "reason": "",
             },
-            "decision_history": history,
+            # Keep the complete scoped audit trail for callers that need it,
+            # but expose only actual decisions through the decision contract.
+            # This prevents a CRM status (e.g. "Aprobado para descarga") from
+            # being interpreted as a customer or administrator approval.
+            "decision_history": decision_history,
+            "audit_history": history,
             "duplicate_signals": {
                 "status": "Revisión necesaria" if matched_ids else "Sin coincidencias visibles",
                 "normalized_domain": domain,
