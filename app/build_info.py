@@ -9,6 +9,11 @@ TEMPLATE_DIR = APP_DIR / "templates"
 STATIC_DIR = APP_DIR / "static"
 
 
+def _normalized_source_bytes(path: Path) -> bytes:
+    """Make the fingerprint independent from the checkout's line endings."""
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
 def portal_build_id() -> str:
     """Identify the exact application code and portal assets in this checkout.
 
@@ -24,6 +29,6 @@ def portal_build_id() -> str:
     for path in paths:
         digest.update(path.relative_to(APP_DIR).as_posix().encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(_normalized_source_bytes(path))
         digest.update(b"\0")
     return digest.hexdigest()[:12]
