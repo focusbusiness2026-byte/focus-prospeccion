@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     openai_request_budget: int = 500
     openai_web_search_max_calls: int = 5
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_timeout_seconds: float = 20.0
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_timeout_seconds: float = 30.0
     auto_research_enabled: bool = True
     auto_research_poll_seconds: int = 60
     render_keepalive_enabled: bool = False

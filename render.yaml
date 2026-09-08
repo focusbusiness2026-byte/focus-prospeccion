@@ -44,6 +44,12 @@ services:
         value: "500"
       - key: OPENAI_WEB_SEARCH_MAX_CALLS
         value: "5"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_TIMEOUT_SECONDS
+        value: "30"
       - key: AUTO_RESEARCH_ENABLED
         value: "true"
       - key: AUTO_RESEARCH_POLL_SECONDS

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.auth import CSRF_COOKIE, Identity, require_identity
 from app.config import get_settings
+from app.config import Settings
 from app.sheet_store import AccessRecord
 
 
@@ -200,6 +201,37 @@ def test_gemini_is_not_called_when_server_key_is_missing(monkeypatch):
         assert response.status_code == 503
         assert called is False
         assert "servidor" in response.json()["detail"]
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_suggestion_provider_uses_production_timeout_and_stable_model_defaults():
+    settings = Settings(_env_file=None)
+
+    assert settings.gemini_timeout_seconds == 30.0
+    assert settings.gemini_model == "gemini-3.5-flash"
+
+
+def test_suggestion_errors_return_provider_neutral_payload(monkeypatch):
+    def timeout(self, **kwargs):
+        raise main_module.GeminiSuggestionsTimeout("SUGGESTIONS_TIMEOUT")
+
+    monkeypatch.setattr(main_module.GeminiCriteriaSuggestions, "suggest", timeout)
+    client = _client(monkeypatch)
+    try:
+        response = client.post(
+            "/api/onboarding-sources/ONB-CLIENT/prospecting-improvements",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"adjustments": {"lead_count": 5}},
+        )
+        assert response.status_code == 504
+        assert response.json()["detail"] == {
+            "code": "SUGGESTIONS_TIMEOUT",
+            "message": "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde.",
+        }
+        assert "Gemini" not in response.text
+        assert "OpenAI" not in response.text
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()

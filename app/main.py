@@ -258,7 +258,7 @@ def _source_view(source, settings, latest: dict | None = None, automation: dict 
     elif not source.ready:
         automation_state = "Bloqueado por datos incompletos"
     elif not configured:
-        automation_state = "Pendiente de configurar OpenAI"
+        automation_state = "Pendiente de configurar el proveedor de investigación"
     else:
         automation_state = "Listo para investigación automática"
     schedule = automation or {
@@ -566,7 +566,7 @@ def _sync_automations_once() -> None:
             store.mark_automation_run(config, f"Bloqueada: {'; '.join(source.blockers)}")
             continue
         if not settings.openai_api_key:
-            store.mark_automation_run(config, "Pendiente: falta configurar OpenAI")
+            store.mark_automation_run(config, "Pendiente: falta configurar el proveedor de investigación")
             continue
         try:
             creator_email = str(config.get("created_by_email") or config.get("email") or "").strip().lower()
@@ -932,7 +932,7 @@ def start_research_job(
     if not settings.openai_api_key:
         raise HTTPException(
             status_code=503,
-            detail="Investigación pendiente: configura OPENAI_API_KEY como secreto del servidor.",
+            detail="Investigación pendiente: falta configurar el proveedor de investigación en el servidor.",
         )
     store = SheetStore(settings)
     access = store.get_access(identity.email)
@@ -1044,7 +1044,7 @@ def research_onboarding_source(
         if str(exc) == "OPENAI_API_KEY_REQUIRED":
             raise HTTPException(
                 status_code=503,
-                detail="Investigación pendiente: configura OPENAI_API_KEY como secreto del servidor.",
+                detail="Investigación pendiente: falta configurar el proveedor de investigación en el servidor.",
             ) from exc
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -1099,7 +1099,7 @@ def suggest_prospecting_improvements(
     request: Request,
     identity: Identity = Depends(require_identity),
 ):
-    """Return three Gemini suggestions using only the selected account's leads."""
+    """Return three provider-neutral suggestions using only the selected account's leads."""
     validate_csrf(request)
     settings = get_settings()
     _require_real_sheets(settings)
@@ -1209,9 +1209,15 @@ def suggest_prospecting_improvements(
                 "adjustments": validated.model_dump(exclude={"lead_count"}),
             })
     except GeminiSuggestionsTimeout as exc:
-        raise HTTPException(status_code=504, detail="Gemini no respondió dentro del tiempo permitido.") from exc
+        raise HTTPException(
+            status_code=504,
+            detail={"code": "SUGGESTIONS_TIMEOUT", "message": "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde."},
+        ) from exc
     except (GeminiSuggestionsResponseError, GeminiSuggestionsError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail="Gemini no pudo generar tres sugerencias válidas.") from exc
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "SUGGESTIONS_UNAVAILABLE", "message": "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde."},
+        ) from exc
     return {
         "ok": True,
         "onboarding_id": source.record_id,

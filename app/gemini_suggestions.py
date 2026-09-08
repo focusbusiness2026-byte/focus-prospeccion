@@ -35,7 +35,7 @@ class GeminiSuggestionsResponseError(GeminiSuggestionsError):
 class GeminiCriteriaSuggestions:
     def __init__(self, settings: Settings):
         self.api_key = settings.gemini_api_key.strip()
-        self.model = settings.gemini_model.strip() or "gemini-2.5-flash"
+        self.model = settings.gemini_model.strip() or "gemini-3.5-flash"
         self.timeout = max(1.0, min(float(settings.gemini_timeout_seconds), 60.0))
 
     def suggest(self, *, source_profile: dict, leads: list[dict]) -> list[dict]:
@@ -75,24 +75,24 @@ class GeminiCriteriaSuggestions:
                 )
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
-            raise GeminiSuggestionsTimeout("Gemini no respondió dentro del tiempo permitido") from exc
+            raise GeminiSuggestionsTimeout("SUGGESTIONS_TIMEOUT") from exc
         except httpx.HTTPError as exc:
-            raise GeminiSuggestionsError("Gemini no está disponible temporalmente") from exc
+            raise GeminiSuggestionsError("SUGGESTIONS_PROVIDER_ERROR") from exc
         try:
             text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
             raw = json.loads(text)["suggestions"]
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise GeminiSuggestionsResponseError("Gemini devolvió una respuesta no válida") from exc
+            raise GeminiSuggestionsResponseError("SUGGESTIONS_INVALID_RESPONSE") from exc
         if not isinstance(raw, list) or len(raw) != 3:
-            raise GeminiSuggestionsResponseError("Gemini debe devolver exactamente 3 sugerencias")
+            raise GeminiSuggestionsResponseError("SUGGESTIONS_INVALID_COUNT")
         suggestions = []
         for index, item in enumerate(raw, start=1):
             if not isinstance(item, dict) or not isinstance(item.get("adjustments"), dict):
-                raise GeminiSuggestionsResponseError("Gemini devolvió una sugerencia no válida")
+                raise GeminiSuggestionsResponseError("SUGGESTIONS_INVALID_ITEM")
             title = str(item.get("title") or "").strip()[:120]
             reason = str(item.get("reason") or "").strip()[:600]
             adjustments = {key: value for key, value in item["adjustments"].items() if key in SUGGESTION_ADJUSTMENT_FIELDS}
             if not title or not reason or not adjustments:
-                raise GeminiSuggestionsResponseError("Gemini devolvió una sugerencia incompleta")
+                raise GeminiSuggestionsResponseError("SUGGESTIONS_INCOMPLETE_ITEM")
             suggestions.append({"id": f"suggestion-{index}", "title": title, "reason": reason, "adjustments": adjustments})
         return suggestions

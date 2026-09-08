@@ -111,6 +111,7 @@ def test_portal_restores_full_operational_controls_and_styles():
 
 
 def test_mobile_header_keeps_the_account_control_next_to_the_menu_toggle():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
     css = Path('app/static/app.css').read_text(encoding='utf-8')
 
     mobile_header = css[css.index('@media (max-width: 1180px)'):css.index('@media (max-width: 900px)')]
@@ -118,6 +119,10 @@ def test_mobile_header_keeps_the_account_control_next_to_the_menu_toggle():
     assert '.menu-toggle { display: grid; grid-column: 2; grid-row: 1;' in mobile_header
     assert '.site-header .header-actions { grid-column: 3; grid-row: 1;' in mobile_header
     assert '.site-header .account-menu { position: relative; margin: 0;' in mobile_header
+    navigation = html[html.index('id="top-navigation"'):html.index('</nav>')]
+    assert 'id="admin-client-view"' in navigation
+    assert '.top-navigation .admin-client-view:not([hidden]) { position: static;' in mobile_header
+    assert '@media (max-width: 768px)' in css
 
 
 def test_admin_can_switch_to_an_isolated_client_presentation():
@@ -136,7 +141,7 @@ def test_admin_can_switch_to_an_isolated_client_presentation():
     assert "switchAdminPresentation('client')" in html
     assert "clientSelectionDelay(minimumMs)" in html
     assert "document.querySelector('#global-card').hidden=!isAdmin" in html
-    assert "document.querySelector('#openai-card').hidden=!isAdmin" in html
+    assert "document.querySelector('#ai-search-card').hidden=!isAdmin" in html
 
 
 def test_client_identity_never_receives_admin_presentation_access(monkeypatch):
@@ -490,6 +495,16 @@ def test_improvement_ui_uses_server_contract_and_saves_favorite():
     assert "favorite:true" in portal
     assert "suggestion.adjustments" in portal
     assert "GEMINI_API_KEY" not in portal
+
+
+def test_visible_suggestion_copy_is_strictly_provider_neutral():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+
+    assert "ASISTENCIA CON GEMINI" not in portal
+    assert "Búsqueda OpenAI" not in portal
+    assert "Gemini no" not in portal
+    assert "RECOMENDACIONES INTELIGENTES" in portal
+    assert "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde." in portal
 
 
 def test_kanban_quality_is_accessible_and_derived_from_score_only():
