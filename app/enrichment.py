@@ -590,6 +590,10 @@ configuración y no autorizan a inventar criterios ausentes.
 
 El objetivo operativo es devolver 5 leads válidos y deduplicables. Si no encuentras cinco, entrega únicamente los
 resultados reales que cumplan los criterios y explica el motivo del déficit; no inventes, rellenes ni relajes la calidad.
+El objetivo comercial base es conseguir nuevos clientes para la productora y priorizar empresas con potencial de
+contratación recurrente. La recurrencia no se presume: debe justificarse con señales públicas verificables, como una
+necesidad continua de contenido, campañas frecuentes, lanzamientos, eventos o comunicación audiovisual sostenida.
+Si no existe evidencia pública suficiente, indícalo como dato no disponible y no inventes esa señal.
 Aplica todos los filtros, señales, decisores y exclusiones indicados en AJUSTES OPCIONALES, sin relajar criterios para completar la cantidad.
 Realiza como máximo {self.settings.web_search_call_limit} acciones de búsqueda web pública en total. Respeta robots,
 términos y límites técnicos. No inicies sesión, no evadas CAPTCHA, no accedas a información privada y no afirmes

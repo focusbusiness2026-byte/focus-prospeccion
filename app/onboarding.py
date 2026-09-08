@@ -233,6 +233,8 @@ class OnboardingSource:
             f"Cliente ideal: {targeting['ideal_profile_detail'] or targeting['ideal_company_size'] or 'por confirmar'}. "
             f"Decisor: {targeting['decision_maker'] or 'por confirmar'}. "
             f"Excluir: {targeting['prospect_exclusions'] or 'clientes actuales, empresas ya contactadas y competidores'}. "
+            "Objetivo base: conseguir nuevos clientes y priorizar oportunidades con potencial de contratación "
+            "recurrente cuando exista evidencia pública verificable. "
             "No ejecutar búsquedas ni consumir créditos hasta recibir una orden explícita."
         )
 

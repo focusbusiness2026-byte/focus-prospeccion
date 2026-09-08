@@ -88,7 +88,7 @@ actor_role, decision, reason, created_at, scope_json, result_status, result_ref
 
 La productora autenticada solo ve y decide sobre sus leads. La administración autorizada puede revisar todas las cuentas, pero su decisión se conserva separada y no sustituye la del cliente. Cada cambio registra cuenta, actor, rol, fecha y motivo opcional. La solicitud de resumen se confirma por el cliente y solo crea un estado pendiente: no llama IA, no consume cuota ni inicia importaciones.
 
-La automatización parte desactivada para cada productora. Al activarla, la primera investigación se agenda al finalizar el intervalo elegido y reutiliza los filtros guardados. El servidor fuerza un mínimo de 5 minutos y un máximo de 4320 minutos (3 días). El nombre es obligatorio y solo puede existir una favorita por cuenta.
+La automatización parte desactivada para cada productora. Al activarla, la primera investigación se agenda al finalizar el intervalo elegido y reutiliza los filtros guardados. El portal ofrece cadencias simples de 3, 6, 12 y 24 horas, 3 días y 1 semana; el servidor fuerza un mínimo de 5 minutos y un máximo de 10080 minutos (1 semana). El nombre es obligatorio y solo puede existir una favorita por cuenta.
 
 La administración puede ejecutar las veces necesarias sin consumir la cuota individual del cliente. Este privilegio no elimina los límites técnicos por ejecución, el presupuesto global ni las salvaguardas del proveedor. El historial registra quién ejecutó y desde qué origen: la administración puede revisar actividad de cliente y administrativa, mientras la vista de cliente excluye las ejecuciones identificadas como administrativas.
 

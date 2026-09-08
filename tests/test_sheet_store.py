@@ -366,6 +366,22 @@ def test_automation_schedule_persists_filters_and_clamps_interval():
     assert store.appends[0][1][0][1] == "owner@example.com"
 
 
+def test_automation_schedule_accepts_one_week_interval():
+    store = AutomationStore()
+    result = store.upsert_automation_config(
+        "ONB-001",
+        "owner@example.com",
+        enabled=False,
+        interval_minutes=10080,
+        adjustments={"lead_count": 5},
+        name="Semanal",
+        favorite=False,
+        created_by_email="admin@example.com",
+        created_by_role="Administrador",
+    )
+    assert result["interval_minutes"] == 10080
+
+
 def test_client_execution_history_hides_explicit_admin_runs():
     store = ProspectStore()
     store.executions = [

@@ -38,6 +38,8 @@ def test_discovery_clamps_web_search_to_five_and_keeps_traceable_public_data():
 
     assert payload["max_tool_calls"] == 5
     assert "server-only" not in json.dumps(payload)
+    assert "potencial de\ncontratación recurrente" in payload["input"]
+    assert "no se presume" in payload["input"]
     assert trace["web_search_calls"] == 1
     assert trace["web_search_call_limit"] == 5
     assert trace["research_provider"] == "OpenAI Responses API + web_search"

@@ -170,6 +170,7 @@ def test_onboarding_trigger_prepares_profile_without_starting_search():
     assert result["automation"]["enabled"] is False
     assert result["automation"]["adjustments"]["lead_count"] == 5
     assert "No ejecutar búsquedas" in result["prompt_preview"]
+    assert "potencial de contratación recurrente" in result["prompt_preview"]
     assert result["viral_radar_profile"]["client_key"] == "onb-pipeline"
 
 

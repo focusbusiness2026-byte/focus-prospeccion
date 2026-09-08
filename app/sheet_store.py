@@ -416,7 +416,7 @@ class SheetStore:
                 "onboarding_id": str(padded[0]).strip(),
                 "email": owner_email,
                 "enabled": str(padded[2]).strip().lower() in {"true", "1", "si", "sí"},
-                "interval_minutes": max(5, min(4320, self._int(padded[3], 1440))),
+                "interval_minutes": max(5, min(10080, self._int(padded[3], 1440))),
                 "next_run_at": str(padded[4]).strip(),
                 "last_run_at": str(padded[5]).strip(),
                 "last_status": str(padded[6]).strip(),
@@ -453,7 +453,7 @@ class SheetStore:
         created_by_email: str = "",
         created_by_role: str = "",
     ) -> dict:
-        interval = max(5, min(4320, int(interval_minutes)))
+        interval = max(5, min(10080, int(interval_minutes)))
         existing = self.get_automation_config(onboarding_id)
         now = datetime.now(timezone.utc).isoformat()
         next_run = self._iso_after(interval) if enabled else ""

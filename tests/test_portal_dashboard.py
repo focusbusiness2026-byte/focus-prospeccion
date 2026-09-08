@@ -22,6 +22,11 @@ def test_automation_request_supports_cycle_runs_without_changing_internal_limit(
     assert payload.adjustments.lead_count == 5
 
 
+def test_automation_request_supports_the_weekly_quick_option():
+    payload = AutomationRequest(name="Semanal", interval_minutes=10080, runs_per_cycle=1)
+    assert payload.interval_minutes == 10080
+
+
 def test_real_sheet_source_is_required_when_unavailable():
     with pytest.raises(HTTPException) as exc:
         _require_real_sheets(Settings(google_sheets_enabled=False))
@@ -64,15 +69,22 @@ def test_research_start_rejects_an_exhausted_client_before_scheduling_provider_w
 
 def test_portal_has_selected_account_real_schedule_and_kanban_exports():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    assert 'Tipo de venta' not in html
+    assert 'salesModels:' not in html
+    assert "sales_models:['Proyecto puntual','Recurrente / retainer']" not in html
+    assert '<link rel="icon" href="/static/favicon.svg"' in html
     assert 'data-schedule-frequency' in html
-    assert 'Cada 3 horas' in html
-    assert 'Cada 6 horas' in html
-    assert 'Cada 12 horas' in html
-    assert 'Cada 24 horas' in html
+    assert "label:'3 horas'" in html
+    assert "label:'6 horas'" in html
+    assert "label:'12 horas'" in html
+    assert "label:'24 horas'" in html
     assert 'data-automation-countdown' in html
     assert 'updatePersistedAutomationCountdown' in html
-    assert 'pauseAutomation' in html
-    assert 'Detener programación' in html
+    assert 'setAutomationState' in html
+    assert 'data-action="start-automation"' in html
+    assert 'data-action="stop-automation"' in html
+    assert "label:'3 días'" in html
+    assert "label:'1 semana'" in html
     assert 'portalReadOnly' not in html
     prospeccion = html[html.index('id="sources"'):html.index('id="results"')]
     assert 'raspado' not in prospeccion
@@ -120,7 +132,11 @@ def test_admin_can_switch_to_an_isolated_client_presentation():
     assert 'Selecciona una cuenta para habilitar la vista de cliente.' in html
     assert "control.hidden=!context.is_admin" in html
     assert "toggle.hidden=false" in html
-    assert "adminPresentation='admin';loadDashboard()" in html
+    assert "switchAdminPresentation('admin')" in html
+    assert "switchAdminPresentation('client')" in html
+    assert "clientSelectionDelay(minimumMs)" in html
+    assert "document.querySelector('#global-card').hidden=!isAdmin" in html
+    assert "document.querySelector('#openai-card').hidden=!isAdmin" in html
 
 
 def test_client_identity_never_receives_admin_presentation_access(monkeypatch):
@@ -223,6 +239,14 @@ def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeyp
         assert context["authenticated_email"] == "admin@example.com"
         assert context["viewing_as"] == "client@example.com"
         assert context["presentation_mode"] == "client"
+        assert response.json()["user"] == {
+            "email": "client@example.com",
+            "role": "Cliente",
+            "assigned": 50,
+            "used": 0,
+            "available": 50,
+            "unlimited": False,
+        }
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
@@ -397,7 +421,7 @@ def test_admin_client_selection_has_a_four_second_loading_state_and_clear_empty_
 
     assert 'id="client-selection-loading"' in html
     assert 'Cargando…' in html
-    assert 'clientSelectionDelay(4000)' in html
+    assert "switchAdminPresentation('admin',4000)" in html
     assert 'Debes seleccionar un cliente' in html
     assert 'Configuración bloqueada' not in html
     assert '.client-selection-loading[hidden]' in css
@@ -407,8 +431,9 @@ def test_admin_client_selection_has_a_four_second_loading_state_and_clear_empty_
 def test_home_has_real_saved_schedule_controls_and_intro_video_placeholder():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
     assert 'id="favorite-automation-select"' in html
-    assert 'id="quick-toggle-automation"' in html
-    assert 'id="quick-run-automation"' in html
+    assert 'id="dashboard-frequency-buttons"' in html
+    assert 'id="quick-start-automation"' in html
+    assert 'id="quick-stop-automation"' in html
     assert 'id="dashboard-preview-countdown"' in html
     assert 'Video pendiente de configurar' in html
 

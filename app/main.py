@@ -121,7 +121,7 @@ class AutomationRequest(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     enabled: bool = False
     favorite: bool = False
-    interval_minutes: int = Field(default=1440, ge=5, le=4320)
+    interval_minutes: int = Field(default=1440, ge=5, le=10080)
     runs_per_cycle: int = Field(default=1, ge=1, le=8)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
 
@@ -851,6 +851,7 @@ def portal_dashboard(
             "assigned": scoped_access.assigned if scoped_access else (0 if requested_scope else visible_access.assigned),
             "used": scoped_access.used if scoped_access else (0 if requested_scope else visible_access.used),
             "available": scoped_access.available if scoped_access else (0 if requested_scope else visible_access.available),
+            "unlimited": scoped_access.unlimited if scoped_access else (False if requested_scope else visible_access.unlimited),
         },
         "global": global_metrics,
         "metrics": store.prospect_metrics(scope_email),
