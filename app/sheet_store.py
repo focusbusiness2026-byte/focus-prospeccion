@@ -5,7 +5,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -607,6 +607,61 @@ class SheetStore:
             None,
         )
 
+    def reconciled_access(self, record: AccessRecord) -> AccessRecord:
+        """Return the effective quota using successful executions in this renewal cycle.
+
+        Older successful runs may exist in ``Ejecuciones`` even when the legacy
+        counter in ``Accesos`` was not incremented.  The execution log is the
+        auditable source for that gap.  Count every completed run attached to
+        the account (including runs launched by an administrator), from the
+        exact renewal boundary, while ignoring duplicate execution IDs.
+        """
+        if record.unlimited:
+            return record
+        raw_renewal = str(record.renewed_at or "").strip()
+        renewal_start = None
+        try:
+            renewal_start = datetime.fromisoformat(raw_renewal.replace("Z", "+00:00"))
+        except ValueError:
+            # The Sheets Values API normally returns dates formatted with the
+            # spreadsheet locale (es_ES), not as ISO strings.
+            for pattern in ("%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y"):
+                try:
+                    renewal_start = datetime.strptime(raw_renewal, pattern)
+                    break
+                except ValueError:
+                    continue
+        if renewal_start is None:
+            return record
+        if renewal_start.tzinfo is None:
+            renewal_start = renewal_start.replace(tzinfo=timezone.utc)
+        else:
+            renewal_start = renewal_start.astimezone(timezone.utc)
+        successful_ids: set[str] = set()
+        for execution in self.recent_executions(record.email, limit=1000):
+            if not str(execution.get("status") or "").casefold().startswith("complet"):
+                continue
+            execution_id = str(execution.get("execution_id") or "").strip()
+            if not execution_id:
+                continue
+            try:
+                created_at = datetime.fromisoformat(str(execution.get("created_at") or "").strip().replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            else:
+                created_at = created_at.astimezone(timezone.utc)
+            if created_at >= renewal_start:
+                successful_ids.add(execution_id)
+        # Never reopen quota merely because an older execution row is missing;
+        # Sheets remains authoritative when its counter is already higher.
+        effective_used = min(
+            record.assigned,
+            max(record.used, len(successful_ids) * SCRAPES_PER_SUCCESSFUL_RESEARCH),
+        )
+        return record if effective_used == record.used else replace(record, used=effective_used)
+
     def onboarding_sources(self, email: str | None = None, limit: int = 200) -> list[OnboardingSource]:
         rows = self._get(f"'{self.settings.google_onboarding_tab}'!A1:ZZ1000")
         if not rows:
@@ -641,6 +696,7 @@ class SheetStore:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
+            record = self.reconciled_access(record)
             if not record.unlimited and not record.has_available_scrape:
                 raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
             return record
@@ -650,6 +706,7 @@ class SheetStore:
             record = self.get_access(email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
+            record = self.reconciled_access(record)
             if not record.unlimited and not record.has_available_scrape:
                 raise ScrapeQuotaExceeded("Límite de raspados alcanzado. Contacta con soporte.")
             used_after_scrape = record.used + SCRAPES_PER_SUCCESSFUL_RESEARCH
@@ -892,11 +949,16 @@ class SheetStore:
                 if "admin" not in str((row + [""] * 27)[25]).strip().lower()
             ]
         output = []
+        seen_execution_ids: set[str] = set()
         for row in reversed(rows[-limit:]):
             padded = row + [""] * (27 - len(row))
+            execution_id = str(padded[0]).strip()
+            if not execution_id or execution_id in seen_execution_ids:
+                continue
+            seen_execution_ids.add(execution_id)
             output.append(
                 {
-                    "execution_id": padded[0],
+                    "execution_id": execution_id,
                     "created_at": padded[1],
                     "email": padded[2],
                     "company": padded[3],

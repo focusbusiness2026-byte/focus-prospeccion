@@ -36,6 +36,12 @@ from app.config import get_settings
 from app.db import create_schema
 from app.dedupe import company_dedupe_key
 from app.enrichment import OpenAIProspectDiscovery
+from app.gemini_suggestions import (
+    GeminiCriteriaSuggestions,
+    GeminiSuggestionsError,
+    GeminiSuggestionsResponseError,
+    GeminiSuggestionsTimeout,
+)
 from app.keepalive import render_keepalive_loop, render_keepalive_ready
 from app.lead_reviews import (
     ADMIN_DECISIONS,
@@ -58,9 +64,7 @@ class GoogleCredential(BaseModel):
 
 
 class LeadStatusRequest(BaseModel):
-    # Estas son las únicas columnas operativas del tablero.  ``Descartado``
-    # sigue siendo una decisión de revisión, pero no es un destino de drag/drop.
-    status: Literal["Nuevo", "En revisión", "Aprobado para descarga"]
+    status: Literal["Nuevo", "En revisión", "Aprobado para descarga", "Descartado"]
 
 
 class LeadDecisionRequest(BaseModel):
@@ -123,6 +127,11 @@ class AutomationRequest(BaseModel):
     favorite: bool = False
     interval_minutes: int = Field(default=1440, ge=5, le=10080)
     runs_per_cycle: int = Field(default=1, ge=1, le=8)
+    adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
+
+
+class CriteriaSuggestionsRequest(BaseModel):
+    execution_id: str = Field(default="", max_length=160)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
 
 
@@ -810,6 +819,11 @@ def portal_dashboard(
         raise HTTPException(status_code=404, detail="El cliente solicitado no está registrado")
     scope_email = requested_scope or (None if is_admin else identity.email)
     visible_access = scoped_access or access
+    reconcile_access = getattr(store, "reconciled_access", None)
+    if callable(reconcile_access):
+        visible_access = reconcile_access(visible_access)
+        if scoped_access:
+            scoped_access = visible_access
     source_records = scoped_sources if requested_scope and scoped_sources else store.onboarding_sources(scope_email)
     sources = [
         _source_view(
@@ -828,6 +842,11 @@ def portal_dashboard(
     )
     client_presentation = (not is_admin) or requested_presentation == "client"
     visible_executions = store.recent_executions(scope_email, hide_admin=client_presentation)
+    if client_presentation:
+        visible_executions = [
+            execution for execution in visible_executions
+            if str(execution.get("status") or "").casefold().startswith("complet")
+        ]
 
     summary_events = [event for event in review_events if event.get("event_type") == "summary_request"]
     for source in sources:
@@ -1071,6 +1090,134 @@ def save_onboarding_automation(
         created_by_role=access.role,
     )
     return {"ok": True, "automation": schedule}
+
+
+@app.post("/api/onboarding-sources/{record_id}/prospecting-improvements")
+def suggest_prospecting_improvements(
+    record_id: str,
+    payload: CriteriaSuggestionsRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    """Return three Gemini suggestions using only the selected account's leads."""
+    validate_csrf(request)
+    settings = get_settings()
+    _require_real_sheets(settings)
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    if not settings.gemini_api_key.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="Las sugerencias inteligentes no están configuradas en el servidor.",
+        )
+
+    requested_execution_id = payload.execution_id.strip()
+    execution_context = None
+    if requested_execution_id:
+        execution = next(
+            (
+                item for item in store.recent_executions(source.email, limit=1000)
+                if str(item.get("execution_id") or "").strip() == requested_execution_id
+                and str(item.get("onboarding_id") or "").strip() == source.record_id
+                and str(item.get("email") or "").strip().casefold() == source.email.casefold()
+            ),
+            None,
+        )
+        if not execution:
+            raise HTTPException(status_code=404, detail="No se encontró la ejecución para esta productora.")
+        if not str(execution.get("status") or "").casefold().startswith("complet"):
+            raise HTTPException(status_code=422, detail="La ejecución seleccionada todavía no está completada.")
+        execution_context = {
+            "execution_id": requested_execution_id,
+            "created_at": execution.get("created_at"),
+            "status": execution.get("status"),
+            "adjustments": {
+                key: value
+                for key, value in (execution.get("adjustments") or {}).items()
+                if key in ResearchAdjustments.model_fields and key != "lead_count"
+            },
+        }
+
+    isolated_leads = [
+        prospect
+        for prospect in store.recent_prospects(source.email, limit=1000)
+        if str(prospect.get("onboarding_id") or "").strip() == source.record_id
+        and str(prospect.get("email") or "").strip().casefold() == source.email.casefold()
+        and (
+            not requested_execution_id
+            or str(prospect.get("execution_id") or "").startswith(f"{requested_execution_id}-")
+        )
+    ]
+    if not isolated_leads:
+        raise HTTPException(status_code=422, detail="No hay leads completados de esta productora para analizar.")
+    safe_leads = [
+        {
+            key: prospect.get(key)
+            for key in (
+                "company", "sector", "business_model", "country", "city", "employees",
+                "score", "classification", "lead_status", "prospect_found",
+                "no_prospect_reason", "no_contacts_reason", "public_signals_status",
+            )
+        }
+        for prospect in isolated_leads
+    ]
+    source_profile = {
+        "onboarding_id": source.record_id,
+        "productora": source.company,
+        "activity": source.activity,
+        "location": source.location,
+        "targeting": {
+            "main_service": source.main_service,
+            "services": list(source.services),
+            "audience": list(source.audience),
+            "sectors": list(source.sectors),
+            "markets": list(source.markets),
+            "target_city": source.target_city,
+            "target_region": source.target_region,
+            "target_countries": list(source.target_countries),
+            "target_client_types": list(source.target_client_types),
+            "ideal_company_size": source.ideal_company_size,
+            "minimum_budget": source.minimum_budget,
+            "exclusions": source.prospect_exclusions,
+            "preferences": source.prospect_preferences,
+        },
+        "current_adjustments": payload.adjustments.model_dump(),
+    }
+    if execution_context:
+        source_profile["selected_execution"] = execution_context
+    try:
+        suggestions = GeminiCriteriaSuggestions(settings).suggest(
+            source_profile=source_profile,
+            leads=safe_leads,
+        )
+        response_suggestions = []
+        for suggestion in suggestions:
+            validated = ResearchAdjustments.model_validate({
+                "lead_count": CONTACTS_PER_PROSPECTION_CYCLE,
+                **suggestion["adjustments"],
+            })
+            response_suggestions.append({
+                "id": suggestion["id"],
+                "title": suggestion["title"],
+                "summary": suggestion["reason"],
+                "adjustments": validated.model_dump(exclude={"lead_count"}),
+            })
+    except GeminiSuggestionsTimeout as exc:
+        raise HTTPException(status_code=504, detail="Gemini no respondió dentro del tiempo permitido.") from exc
+    except (GeminiSuggestionsResponseError, GeminiSuggestionsError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail="Gemini no pudo generar tres sugerencias válidas.") from exc
+    return {
+        "ok": True,
+        "onboarding_id": source.record_id,
+        "lead_count_analyzed": len(safe_leads),
+        "suggestions": response_suggestions,
+    }
 
 
 @app.post("/api/prospects/{execution_id}/status")

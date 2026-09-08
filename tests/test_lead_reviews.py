@@ -415,7 +415,7 @@ def test_kanban_status_endpoint_accepts_every_persistable_column(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
     try:
-        for status in ("Nuevo", "En revisión", "Aprobado para descarga"):
+        for status in ("Nuevo", "En revisión", "Aprobado para descarga", "Descartado"):
             response = client.post(
                 "/api/prospects/EXEC-BETA/status",
                 headers={"X-CSRF-Token": "csrf-test", "Content-Type": "application/json"},
@@ -432,7 +432,7 @@ def test_kanban_status_endpoint_uses_the_real_allow_listed_audit_contract(monkey
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"), AuditedApiStore)
     try:
-        for status in ("Nuevo", "En revisión", "Aprobado para descarga"):
+        for status in ("Nuevo", "En revisión", "Aprobado para descarga", "Descartado"):
             response = client.post(
                 "/api/prospects/EXEC-BETA/status",
                 headers={"X-CSRF-Token": "csrf-test"},
@@ -440,20 +440,20 @@ def test_kanban_status_endpoint_uses_the_real_allow_listed_audit_contract(monkey
             )
             assert response.status_code == 200
         events = [values[0][1] for _, values in AuditedApiStore.appended_rows]
-        assert events == ["crm_update", "crm_update", "crm_update"]
+        assert events == ["crm_update", "crm_update", "crm_update", "crm_update"]
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
 
 
-def test_kanban_status_endpoint_rejects_non_column_status(monkeypatch):
+def test_kanban_status_endpoint_rejects_unknown_status(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
     try:
         response = client.post(
             "/api/prospects/EXEC-BETA/status",
             headers={"X-CSRF-Token": "csrf-test"},
-            json={"status": "Descartado"},
+            json={"status": "Archivado"},
         )
         assert response.status_code == 422
     finally:

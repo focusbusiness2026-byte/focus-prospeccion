@@ -479,3 +479,68 @@ def test_render_runs_the_same_fastapi_application_used_locally():
     assert "GOOGLE_SHEETS_ENABLED" in render
     assert "CENTRAL_AUTH_ENABLED" in render
     assert "DEMO_AUTH_BYPASS" not in render or 'value: "false"' in render
+
+
+def test_improvement_ui_uses_server_contract_and_saves_favorite():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert 'data-action="improve-prospecting"' in portal
+    assert "/prospecting-improvements`" in portal
+    assert "body:JSON.stringify({adjustments:collectResearchConfig(workspace)})" in portal
+    assert "suggestions.length!==3" in portal
+    assert "favorite:true" in portal
+    assert "suggestion.adjustments" in portal
+    assert "GEMINI_API_KEY" not in portal
+
+
+def test_kanban_quality_is_accessible_and_derived_from_score_only():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+    assert "function scoreQualityPercent(score)" in portal
+    assert "score===null||score===undefined||score===''" in portal
+    assert "Math.round((numeric/10)*100)" in portal
+    assert 'aria-label="Calidad ${quality} por ciento"' in portal
+    assert "Calidad no disponible" in portal
+    assert "conic-gradient" in css
+
+
+def test_client_execution_view_only_shows_completed_and_hides_admin_metrics():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert "filter(x=>x.status==='Completada')" in portal
+    assert "document.querySelectorAll('[data-admin-execution-metric]')" in portal
+    client_branch = portal.split("if(!isAdminView){", 1)[1].split("return;", 1)[0]
+    assert "x.error" not in client_branch
+    assert "research_provider" not in client_branch
+    assert "search_trace" not in client_branch
+
+
+def test_improvement_panel_collapses_to_one_column_on_small_screens():
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+    assert "@media (max-width: 700px)" in css
+    assert ".improvement-suggestions { grid-template-columns: 1fr; }" in css
+
+
+def test_completed_client_execution_can_request_and_save_three_safe_improvements():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert "filter(x=>x.status==='Completada')" in portal
+    assert "Mejorar esta búsqueda" in portal
+    assert "data-improve-execution" in portal
+    assert "JSON.stringify({adjustments,execution_id:execution.execution_id})" in portal
+    assert "suggestions.length!==3" in portal
+    assert "data-save-execution-improvement" in portal
+    assert "favorite:true" in portal
+    client_function = portal.split("async function improveClientExecution", 1)[1].split("async function saveClientExecutionImprovement", 1)[0]
+    assert "data.detail" not in client_function
+    assert "error.message" not in client_function
+    assert "No pudimos preparar las mejoras ahora" in client_function
+
+
+def test_client_presentation_hides_admin_result_controls_and_keeps_search():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+
+    assert 'id="result-search"' in portal
+    assert "const effectiveClientView=!context.is_admin||clientMode" in portal
+    assert "document.querySelector('[data-admin-results-heading]').hidden=effectiveClientView" in portal
+    assert "document.querySelectorAll('[data-admin-result-filter]')" in portal
+    assert "classList.toggle('client-search-only',effectiveClientView)" in portal
+    assert ".filters.client-search-only { grid-template-columns: minmax(0, 1fr); }" in css

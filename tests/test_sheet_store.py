@@ -56,6 +56,92 @@ def test_limit_check_does_not_consume_quota_before_scrape():
     assert store.updates == []
 
 
+def test_quota_reconciles_successful_executions_from_the_current_renewal_cycle():
+    class ReconciledStore(FakeStore):
+        def _get(self, a1_range):
+            if "Accesos" in a1_range:
+                return self.rows
+            if "Ejecuciones" in a1_range:
+                admin_run = ["admin-run", "2026-09-08T11:00:00Z", "user@example.com", "Cliente", "", "Completado"] + [""] * 19 + ["Administrador", "manual"]
+                return [
+                    ["same-month-before-renewal", "2026-09-06T23:59:59Z", "user@example.com", "Cliente", "", "Completado"],
+                    ["ok-1", "2026-09-07T00:00:00Z", "user@example.com", "Cliente", "", "Completado"],
+                    ["ok-1", "2026-09-07T00:00:00Z", "user@example.com", "Cliente", "", "Completado"],
+                    ["failed", "2026-09-07T10:00:00Z", "user@example.com", "Cliente", "", "Fallido"],
+                    ["ok-2", "2026-09-08T09:00:00Z", "user@example.com", "Cliente", "", "Completado sin prospectos"],
+                    admin_run,
+                ]
+            return []
+
+    store = ReconciledStore()
+    store.rows[0][5] = 0
+    store.rows[0][9] = "2026-09-07"
+
+    record = store.check_scrape_limit("user@example.com")
+
+    assert record.used == 3
+    assert record.available == 47
+    assert store.updates == []
+
+
+def test_quota_reconciliation_accepts_spanish_formatted_renewal_date():
+    class ReconciledStore(FakeStore):
+        def _get(self, a1_range):
+            if "Accesos" in a1_range:
+                return self.rows
+            if "Ejecuciones" in a1_range:
+                return [["ok-1", "2026-09-08T09:00:00Z", "user@example.com", "Cliente", "", "Completado"]]
+            return []
+
+    store = ReconciledStore()
+    store.rows[0][5] = 0
+    store.rows[0][9] = "7/09/2026"
+
+    record = store.check_scrape_limit("user@example.com")
+
+    assert record.used == 1
+    assert record.available == 49
+
+
+def test_recent_executions_deduplicates_execution_ids_and_keeps_latest_row():
+    class ExecutionStore(FakeStore):
+        def _get(self, a1_range):
+            if "Ejecuciones" in a1_range:
+                return [
+                    ["same-id", "2026-09-08T08:00:00Z", "user@example.com", "", "", "Pendiente"],
+                    ["same-id", "2026-09-08T09:00:00Z", "user@example.com", "", "", "Completado"],
+                    ["other-id", "2026-09-08T10:00:00Z", "user@example.com", "", "", "Fallido"],
+                ]
+            return super()._get(a1_range)
+
+    executions = ExecutionStore().recent_executions("user@example.com")
+
+    assert [item["execution_id"] for item in executions] == ["other-id", "same-id"]
+    assert executions[1]["status"] == "Completado"
+
+
+def test_next_successful_scrape_persists_reconciled_usage_plus_one():
+    class ReconciledStore(FakeStore):
+        def _get(self, a1_range):
+            if "Accesos" in a1_range:
+                return self.rows
+            if "Ejecuciones" in a1_range:
+                return [
+                    ["ok-1", "2026-09-07T09:00:00Z", "user@example.com", "Cliente", "", "Completado"],
+                    ["ok-2", "2026-09-08T09:00:00Z", "user@example.com", "Cliente", "", "Completado"],
+                ]
+            return []
+
+    store = ReconciledStore()
+    store.rows[0][5] = 0
+    store.rows[0][9] = "2026-09-07"
+
+    record = store.consume_successful_scrape("user@example.com")
+
+    assert record.used == 3
+    assert store.updates == [("'Accesos'!F2", [[3]])]
+
+
 def test_access_read_preserves_the_current_sheet_quota_without_rewriting_it():
     store = FakeStore()
     store.rows[0][5] = 50
