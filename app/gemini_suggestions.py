@@ -25,6 +25,29 @@ RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 504})
 RETRY_DELAYS_SECONDS = (1.0, 2.0)
 logger = logging.getLogger(__name__)
 
+BOOLEAN_ADJUSTMENT_FIELDS = {
+    "require_marketing_department", "require_sales_team", "require_ad_investment",
+    "require_active_linkedin", "require_updated_website", "require_identifiable_decision_maker",
+    "exclude_current_clients", "exclude_contacted_companies", "exclude_competitors",
+}
+ARRAY_ADJUSTMENT_FIELDS = {
+    "target_countries", "sectors", "excluded_sectors", "client_types", "organization_types",
+    "business_models", "sales_models", "employee_ranges", "revenue_ranges", "technologies",
+    "opportunity_signals", "decision_roles", "keywords", "lookalike_companies",
+}
+
+
+def _adjustment_schema() -> dict:
+    properties = {}
+    for field in sorted(SUGGESTION_ADJUSTMENT_FIELDS):
+        if field in BOOLEAN_ADJUSTMENT_FIELDS:
+            properties[field] = {"type": "BOOLEAN"}
+        elif field in ARRAY_ADJUSTMENT_FIELDS:
+            properties[field] = {"type": "ARRAY", "items": {"type": "STRING"}}
+        else:
+            properties[field] = {"type": "STRING"}
+    return {"type": "OBJECT", "properties": properties}
+
 
 class GeminiSuggestionsError(RuntimeError):
     def __init__(
@@ -63,6 +86,7 @@ class GeminiCriteriaSuggestions:
             "task": (
                 "Analiza exclusivamente estos leads ya aislados para una productora. "
                 "Devuelve exactamente tres mejoras concretas de criterios de prospección. "
+                "Cada propuesta debe incluir entre uno y cinco ajustes no vacíos, usando únicamente las claves permitidas. "
                 "No inventes datos ni propongas acciones externas; usa solo patrones del conjunto recibido."
             ),
             "productora": source_profile,
@@ -79,7 +103,7 @@ class GeminiCriteriaSuggestions:
                     "properties": {"suggestions": {
                         "type": "ARRAY", "minItems": 3, "maxItems": 3,
                         "items": {"type": "OBJECT", "required": ["title", "reason", "adjustments"],
-                                  "properties": {"title": {"type": "STRING"}, "reason": {"type": "STRING"}, "adjustments": {"type": "OBJECT"}}},
+                                  "properties": {"title": {"type": "STRING"}, "reason": {"type": "STRING"}, "adjustments": _adjustment_schema()}},
                     }},
                 },
             },

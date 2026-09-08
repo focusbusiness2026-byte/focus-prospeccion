@@ -234,9 +234,11 @@ def _provider_success_response(url: str) -> httpx.Response:
 def test_suggestion_provider_retries_transient_statuses_with_short_backoff(monkeypatch):
     calls = []
     sleeps = []
+    request_bodies = []
 
     def fake_post(self, url, **kwargs):
         calls.append(url)
+        request_bodies.append(kwargs["json"])
         if len(calls) == 1:
             return httpx.Response(429, request=httpx.Request("POST", url), json={"error": {"status": "RESOURCE_EXHAUSTED"}})
         if len(calls) == 2:
@@ -253,6 +255,10 @@ def test_suggestion_provider_retries_transient_statuses_with_short_backoff(monke
     assert sleeps == [1.0, 2.0]
     assert len(calls) == 3
     assert all("gemini-3.5-flash:generateContent" in url for url in calls)
+    adjustment_properties = request_bodies[0]["generationConfig"]["responseSchema"]["properties"]["suggestions"]["items"]["properties"]["adjustments"]["properties"]
+    assert adjustment_properties["sectors"] == {"type": "ARRAY", "items": {"type": "STRING"}}
+    assert adjustment_properties["require_updated_website"] == {"type": "BOOLEAN"}
+    assert adjustment_properties["target_city"] == {"type": "STRING"}
 
 
 def test_suggestion_provider_uses_stable_fallback_on_primary_503(monkeypatch):
