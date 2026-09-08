@@ -4,6 +4,7 @@ import csv
 import asyncio
 import io
 import json
+import logging
 import re
 import secrets
 import time
@@ -57,6 +58,9 @@ from app.sheet_store import (
     is_active_access_state,
     is_transient_sheet_write_error,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleCredential(BaseModel):
@@ -1209,11 +1213,26 @@ def suggest_prospecting_improvements(
                 "adjustments": validated.model_dump(exclude={"lead_count"}),
             })
     except GeminiSuggestionsTimeout as exc:
+        logger.warning(
+            "Intelligent suggestions exhausted timeout retries model=%s",
+            getattr(exc, "model", ""),
+        )
         raise HTTPException(
             status_code=504,
             detail={"code": "SUGGESTIONS_TIMEOUT", "message": "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde."},
         ) from exc
-    except (GeminiSuggestionsResponseError, GeminiSuggestionsError, ValueError) as exc:
+    except GeminiSuggestionsResponseError as exc:
+        logger.warning("Intelligent suggestions returned an invalid structured response: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "SUGGESTIONS_INVALID_RESPONSE", "message": "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde."},
+        ) from exc
+    except (GeminiSuggestionsError, ValueError) as exc:
+        logger.warning(
+            "Intelligent suggestions failed status=%s model=%s",
+            getattr(exc, "status_code", None),
+            getattr(exc, "model", ""),
+        )
         raise HTTPException(
             status_code=502,
             detail={"code": "SUGGESTIONS_UNAVAILABLE", "message": "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde."},

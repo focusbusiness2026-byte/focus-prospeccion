@@ -48,6 +48,8 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.5-flash
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-3.5-flash-lite
       - key: GEMINI_TIMEOUT_SECONDS
         value: "30"
       - key: AUTO_RESEARCH_ENABLED

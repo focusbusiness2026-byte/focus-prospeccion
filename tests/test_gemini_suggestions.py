@@ -1,8 +1,11 @@
 from types import SimpleNamespace
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_module
+import app.gemini_suggestions as suggestions_module
 from app.auth import CSRF_COOKIE, Identity, require_identity
 from app.config import get_settings
 from app.config import Settings
@@ -211,6 +214,82 @@ def test_suggestion_provider_uses_production_timeout_and_stable_model_defaults()
 
     assert settings.gemini_timeout_seconds == 30.0
     assert settings.gemini_model == "gemini-3.5-flash"
+    assert settings.gemini_fallback_model == "gemini-3.5-flash-lite"
+
+
+def _provider_success_response(url: str) -> httpx.Response:
+    payload = {
+        "suggestions": [
+            {"title": f"Mejora {index}", "reason": "Motivo", "adjustments": {"target_city": "Madrid"}}
+            for index in range(1, 4)
+        ]
+    }
+    return httpx.Response(
+        200,
+        request=httpx.Request("POST", url),
+        json={"candidates": [{"content": {"parts": [{"text": __import__("json").dumps(payload)}]}}]},
+    )
+
+
+def test_suggestion_provider_retries_transient_statuses_with_short_backoff(monkeypatch):
+    calls = []
+    sleeps = []
+
+    def fake_post(self, url, **kwargs):
+        calls.append(url)
+        if len(calls) == 1:
+            return httpx.Response(429, request=httpx.Request("POST", url), json={"error": {"status": "RESOURCE_EXHAUSTED"}})
+        if len(calls) == 2:
+            return httpx.Response(500, request=httpx.Request("POST", url), json={"error": {"status": "INTERNAL"}})
+        return _provider_success_response(url)
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    monkeypatch.setattr(suggestions_module.time, "sleep", sleeps.append)
+    service = suggestions_module.GeminiCriteriaSuggestions(Settings(_env_file=None, gemini_api_key="fixture"))
+
+    result = service.suggest(source_profile={"productora": "Demo"}, leads=[{"company": "Uno"}])
+
+    assert len(result) == 3
+    assert sleeps == [1.0, 2.0]
+    assert len(calls) == 3
+    assert all("gemini-3.5-flash:generateContent" in url for url in calls)
+
+
+def test_suggestion_provider_uses_stable_fallback_on_primary_503(monkeypatch):
+    calls = []
+
+    def fake_post(self, url, **kwargs):
+        calls.append(url)
+        if "gemini-3.5-flash:generateContent" in url:
+            return httpx.Response(503, request=httpx.Request("POST", url), json={"error": {"status": "UNAVAILABLE"}})
+        return _provider_success_response(url)
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    service = suggestions_module.GeminiCriteriaSuggestions(Settings(_env_file=None, gemini_api_key="fixture"))
+
+    result = service.suggest(source_profile={"productora": "Demo"}, leads=[{"company": "Uno"}])
+
+    assert len(result) == 3
+    assert len(calls) == 2
+    assert "gemini-3.5-flash:generateContent" in calls[0]
+    assert "gemini-3.5-flash-lite:generateContent" in calls[1]
+
+
+def test_suggestion_provider_does_not_retry_non_transient_403(monkeypatch):
+    calls = []
+
+    def fake_post(self, url, **kwargs):
+        calls.append(url)
+        return httpx.Response(403, request=httpx.Request("POST", url), json={"error": {"status": "PERMISSION_DENIED"}})
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    service = suggestions_module.GeminiCriteriaSuggestions(Settings(_env_file=None, gemini_api_key="fixture"))
+
+    with pytest.raises(suggestions_module.GeminiSuggestionsError) as exc_info:
+        service.suggest(source_profile={"productora": "Demo"}, leads=[{"company": "Uno"}])
+
+    assert len(calls) == 1
+    assert exc_info.value.status_code == 403
 
 
 def test_suggestion_errors_return_provider_neutral_payload(monkeypatch):
