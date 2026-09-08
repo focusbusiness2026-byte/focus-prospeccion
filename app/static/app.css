@@ -752,6 +752,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .portal-role-banner.admin .portal-role-badge { border-color: #80631f; background: #302713; color: #f7d876; }
 .account-menu { position: relative; }
 .account-menu > summary { display: grid; min-width: 180px; padding: 8px 34px 8px 13px; border: 1px solid #34465b; border-radius: 10px; list-style: none; cursor: pointer; }
+.account-avatar { display: none; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .account-menu > summary::-webkit-details-marker { display: none; }
 .account-menu > summary::after { position: absolute; top: 18px; right: 13px; content: "⌄"; color: var(--gold); }
 .account-menu summary span { max-width: 210px; overflow: hidden; color: #e7edf5; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -879,8 +880,9 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 1100px) {
   .site-header { grid-template-columns: auto 1fr auto; gap: 16px; }
   .top-navigation { grid-template-columns: repeat(5, minmax(82px, 1fr)); }
-  .account-menu > summary { min-width: 52px; width: 52px; height: 42px; padding: 0; place-items: center; }
-  .account-menu > summary::after { position: static; content: "CU"; font-size: 11px; }
+  .account-menu > summary { min-width: 40px; width: 42px; min-height: 40px; height: 42px; padding: 0; place-items: center; color: var(--gold-soft); }
+  .account-menu > summary::after { content: none; }
+  .account-menu .account-avatar { display: block; }
   .account-menu summary span, .account-menu summary i { display: none; }
   .automation-panel { grid-template-columns: 1fr auto; }
   .schedule-fields { grid-column: 1 / -1; }

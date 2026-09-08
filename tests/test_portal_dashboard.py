@@ -119,6 +119,11 @@ def test_mobile_header_keeps_the_account_control_next_to_the_menu_toggle():
     assert '.menu-toggle { display: grid; grid-column: 2; grid-row: 1;' in mobile_header
     assert '.site-header .header-actions { grid-column: 3; grid-row: 1;' in mobile_header
     assert '.site-header .account-menu { position: relative; margin: 0;' in mobile_header
+    assert 'class="account-avatar"' in html
+    assert 'aria-label="Abrir menú de usuario"' in html
+    assert 'content: "CU"' not in css
+    assert '.account-menu > summary { min-width: 40px; width: 42px; min-height: 40px; height: 42px;' in css
+    assert '.account-menu .account-avatar { display: block; }' in css
     navigation = html[html.index('id="top-navigation"'):html.index('</nav>')]
     assert 'id="admin-client-view"' in navigation
     assert '.top-navigation .admin-client-view:not([hidden]) { position: static;' in mobile_header

@@ -30,7 +30,7 @@
         {% if radar_portal_url %}<a class="top-link portal-switch" href="{{ radar_portal_url }}">Radar</a>{% endif %}
         <div id="admin-client-view" class="admin-client-view" hidden><label><span>Cliente seleccionado</span><select id="admin-view-as"><option value="">Todas las cuentas</option></select></label><div id="admin-presentation-toggle" class="admin-presentation-toggle" role="group" aria-label="Modo de visualización" hidden><button id="view-as-admin" class="active" type="button">Ver como administrador</button><button id="view-as-client" type="button">Ver como cliente</button></div><small id="admin-view-status">Control total · vista global</small></div>
       </nav>
-      <div class="header-actions"><details class="account-menu"><summary><span>{{ identity.email }}</span><i>{{ identity.role }}</i></summary><div>{% if radar_portal_url %}<a href="{{ radar_portal_url }}">Abrir Radar viral</a>{% endif %}<button id="logout" type="button">Cerrar sesión</button></div></details></div>
+      <div class="header-actions"><details class="account-menu"><summary aria-label="Abrir menú de usuario"><svg class="account-avatar" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.25"></circle><path d="M5.75 19c.45-3.2 2.63-5 6.25-5s5.8 1.8 6.25 5"></path></svg><span>{{ identity.email }}</span><i>{{ identity.role }}</i></summary><div>{% if radar_portal_url %}<a href="{{ radar_portal_url }}">Abrir Radar viral</a>{% endif %}<button id="logout" type="button">Cerrar sesión</button></div></details></div>
     </header>
 
     <main class="content">
