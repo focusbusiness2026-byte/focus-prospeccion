@@ -522,6 +522,21 @@ def test_improvement_ui_uses_server_contract_and_saves_favorite():
     assert "favorite:true" in portal
     assert "suggestion.adjustments" in portal
     assert "GEMINI_API_KEY" not in portal
+    assert "new AbortController()" in portal
+    assert "timeoutMs=count>10?75000:45000" in portal
+    assert "Cargando preguntas…" in portal
+    assert "form.setAttribute('aria-busy','true')" in portal
+    assert "error?.name==='AbortError'&&count>10" in portal
+
+
+def test_improvement_names_sync_with_research_choice_without_reload():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert "function updateProspectingImprovementName(workspace,index,value)" in portal
+    assert "suggestion.title=value" in portal
+    assert "option.textContent=value.trim()||`Propuesta ${index+1}`" in portal
+    assert "if(choice?.value===String(index))" in portal
+    assert "updateProspectingImprovementName(workspace,Number(input.dataset.improvementName),input.value)" in portal
+    assert "if(suggestion&&scheduleName)scheduleName.value=suggestion.title" in portal
 
 
 def test_visible_suggestion_copy_is_strictly_provider_neutral():

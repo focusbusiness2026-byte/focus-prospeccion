@@ -851,6 +851,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .question-options input { accent-color: #37c5a8; }
 .improvement-status, .improvement-suggestions { grid-column: 1 / -1; }
 .improvement-status:empty { display: none; }
+.improvement-status.loading { display: flex; align-items: center; gap: 9px; color: #d9e6f2; }
+.improvement-status.loading::before { content: ''; flex: 0 0 18px; width: 18px; height: 18px; border: 2px solid #385169; border-top-color: #48c9b0; border-radius: 50%; animation: spin .8s linear infinite; }
 .improvement-suggestions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .improvement-suggestion { display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #091320; }
 .improvement-suggestion > span { color: var(--gold); font-size: 12px; font-weight: 800; text-transform: uppercase; }
