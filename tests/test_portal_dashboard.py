@@ -583,6 +583,12 @@ def test_compact_header_and_named_export_controls_are_present():
     assert "safeExportFilename" in portal
 
 
+def test_optional_legacy_refresh_control_cannot_block_portal_boot():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert "document.querySelector('#refresh')?.addEventListener('click',loadDashboard)" in portal
+    assert "loadDashboard().finally(()=>setTimeout(finishPortalBoot,280))" in portal
+
+
 def test_completed_client_execution_can_request_and_save_three_safe_improvements():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
     assert "x.status==='Completada'?clientExecutionImprovementMarkup(x):''" in portal
