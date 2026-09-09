@@ -298,18 +298,16 @@ def _client_execution_summary(execution: dict, prospects: list[dict]) -> dict:
     deficit = max(0, objective - found)
     status = str(execution.get("status") or "Pendiente")
     diagnostic = " ".join(str(execution.get(field) or "") for field in ("status", "error", "no_prospect_reason", "research_summary")).lower()
-    if "429" in diagnostic or "rate limit" in diagnostic or "rate_limit" in diagnostic:
-        public_status = "Esperando turno"
-    elif status.lower().startswith("complet"):
+    if status.lower().startswith("complet"):
         public_status = "Completada"
     elif any(word in status.lower() for word in ("pendiente", "proceso", "inici")):
         public_status = "En proceso"
     else:
-        public_status = "En proceso de sincronización"
+        public_status = "Fallida"
     reason = str(execution.get("no_prospect_reason") or "").strip()
     technical_markers = ("http", "api", "openai", "traceback", "exception", "error", "token", "quota")
-    if public_status == "Esperando turno":
-        reason = "Estamos esperando un turno de procesamiento. No necesitas realizar ninguna acción."
+    if "429" in diagnostic or "rate limit" in diagnostic or "rate_limit" in diagnostic:
+        reason = "La investigación no pudo completarse en ese momento. Puedes intentarlo de nuevo más tarde."
     elif reason and any(marker in reason.lower() for marker in technical_markers):
         reason = "La ejecución se está sincronizando. No necesitas realizar ninguna acción."
     elif not reason and deficit:
@@ -1164,7 +1162,8 @@ def suggest_prospecting_improvements(
         {
             key: prospect.get(key)
             for key in (
-                "company", "sector", "business_model", "country", "city", "employees",
+                "company", "website", "linkedin", "instagram", "facebook", "youtube", "tiktok",
+                "sector", "business_model", "client_type", "country", "city", "employees",
                 "score", "classification", "lead_status", "prospect_found",
                 "no_prospect_reason", "no_contacts_reason", "public_signals_status",
             )
@@ -1174,8 +1173,10 @@ def suggest_prospecting_improvements(
     source_profile = {
         "onboarding_id": source.record_id,
         "productora": source.company,
+        "website": getattr(source, "website", ""),
         "activity": source.activity,
         "location": source.location,
+        "description": getattr(source, "description", ""),
         "targeting": {
             "main_service": source.main_service,
             "services": list(source.services),
@@ -1190,6 +1191,12 @@ def suggest_prospecting_improvements(
             "minimum_budget": source.minimum_budget,
             "exclusions": source.prospect_exclusions,
             "preferences": source.prospect_preferences,
+            "ideal_profile_detail": getattr(source, "ideal_profile_detail", ""),
+            "decision_maker": getattr(source, "decision_maker", ""),
+            "monthly_capacity": getattr(source, "monthly_capacity", ""),
+            "portfolio_highlights": getattr(source, "portfolio_highlights", ""),
+            "reference_companies": list(getattr(source, "reference_companies", ())),
+            "objectives": list(getattr(source, "objectives", ())),
         },
         "current_adjustments": payload.adjustments.model_dump(),
     }

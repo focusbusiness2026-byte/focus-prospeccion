@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from pathlib import Path
 
 import httpx
 import pytest
@@ -118,17 +119,23 @@ def test_gemini_suggestions_are_isolated_and_return_exactly_three(monkeypatch):
         assert response.status_code == 200
         assert len(response.json()["suggestions"]) == 3
         assert response.json()["lead_count_analyzed"] == 2
-        assert captured["leads"][0] == {
-            "company": "Empresa Uno", "sector": "Tecnología", "business_model": None,
-            "country": None, "city": None, "employees": None, "score": None,
-            "classification": "green", "lead_status": None, "prospect_found": None,
-            "no_prospect_reason": None, "no_contacts_reason": None, "public_signals_status": None,
-        }
+        assert captured["leads"][0]["company"] == "Empresa Uno"
+        assert captured["leads"][0]["sector"] == "Tecnología"
+        assert captured["leads"][0]["classification"] == "green"
+        assert "website" in captured["leads"][0]
+        assert "linkedin" in captured["leads"][0]
         assert "email" not in captured["source_profile"]
-        assert "website" not in captured["source_profile"]
+        assert captured["source_profile"]["website"] == ""
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
+
+
+def test_suggestion_prompt_targets_recurrence_without_claiming_web_visits():
+    source = Path("app/gemini_suggestions.py").read_text(encoding="utf-8")
+    assert "relaciones comerciales" in source
+    assert "B2B o B2C" in source
+    assert "no afirmes haberlos visitado" in source
 
 
 def test_gemini_suggestions_can_be_limited_to_one_completed_execution(monkeypatch):

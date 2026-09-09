@@ -464,7 +464,7 @@ def test_client_execution_summary_hides_technical_provider_errors():
 
     summary = _client_execution_summary(execution, prospects)
 
-    assert summary["status"] == "Esperando turno"
+    assert summary["status"] == "Fallida"
     assert summary["found"] == 2
     assert summary["deficit"] == 3
     assert summary["duplicates_excluded"] == 1
@@ -523,9 +523,11 @@ def test_kanban_quality_is_accessible_and_derived_from_score_only():
     assert "conic-gradient" in css
 
 
-def test_client_execution_view_only_shows_completed_and_hides_admin_metrics():
+def test_client_execution_view_shows_terminal_statuses_and_hides_admin_metrics():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
-    assert "filter(x=>x.status==='Completada')" in portal
+    assert "['Completada','Fallida'].includes(x.status)" in portal
+    assert 'id="client-execution-order"' in portal
+    assert "effectiveness-desc" in portal
     assert "document.querySelectorAll('[data-admin-execution-metric]')" in portal
     client_branch = portal.split("if(!isAdminView){", 1)[1].split("return;", 1)[0]
     assert "x.error" not in client_branch
@@ -539,14 +541,37 @@ def test_improvement_panel_collapses_to_one_column_on_small_screens():
     assert ".improvement-suggestions { grid-template-columns: 1fr; }" in css
 
 
+def test_improvements_use_focus_loading_screen_and_named_options():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+    assert 'id="portal-operation-loading"' in portal
+    assert "showOperationLoading('Mejorando tu prospección'" in portal
+    assert "finally{hideOperationLoading();}" in portal
+    assert 'data-improvement-name="${index}"' in portal
+    assert 'data-recommended-choice' in portal
+    assert ".portal-operation-loading[hidden]" in css
+
+
+def test_compact_header_and_named_export_controls_are_present():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+    assert "min-height: 54px" in css
+    assert ".top-navigation {" in css and "display: flex" in css
+    assert "function ensureExportControls" in portal
+    assert "Nombre de la descarga" in portal
+    assert "safeExportFilename" in portal
+
+
 def test_completed_client_execution_can_request_and_save_three_safe_improvements():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
-    assert "filter(x=>x.status==='Completada')" in portal
+    assert "x.status==='Completada'?clientExecutionImprovementMarkup(x):''" in portal
     assert "Mejorar esta búsqueda" in portal
     assert "data-improve-execution" in portal
     assert "JSON.stringify({adjustments,execution_id:execution.execution_id})" in portal
     assert "suggestions.length!==3" in portal
     assert "data-save-execution-improvement" in portal
+    assert "data-run-execution-improvement" in portal
+    assert "data-execution-improvement-name" in portal
     assert "favorite:true" in portal
     client_function = portal.split("async function improveClientExecution", 1)[1].split("async function saveClientExecutionImprovement", 1)[0]
     assert "data.detail" not in client_function

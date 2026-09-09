@@ -87,7 +87,12 @@ class GeminiCriteriaSuggestions:
                 "Analiza exclusivamente estos leads ya aislados para una productora. "
                 "Devuelve exactamente tres mejoras concretas de criterios de prospección. "
                 "Cada propuesta debe incluir entre uno y cinco ajustes no vacíos, usando únicamente las claves permitidas. "
-                "No inventes datos ni propongas acciones externas; usa solo patrones del conjunto recibido."
+                "Cruza los resultados con los datos del formulario: empresa, web, actividad, servicios, objetivos, "
+                "cliente ideal, referencias, capacidad, mercados y modelo B2B o B2C. Usa los enlaces corporativos "
+                "públicos recibidos únicamente como contexto verificable; no afirmes haberlos visitado ni inventes "
+                "contenido que no esté en la entrada. Prioriza criterios que puedan producir relaciones comerciales "
+                "recurrentes y explica por qué cada propuesta se adapta a esa productora. No propongas contacto, "
+                "mensajería ni acciones externas; usa solo patrones del conjunto recibido."
             ),
             "productora": source_profile,
             "leads": leads,
