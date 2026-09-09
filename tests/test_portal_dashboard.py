@@ -489,6 +489,8 @@ def test_client_execution_summary_hides_technical_provider_errors():
     assert "OpenAI" not in summary["reason"]
     assert "429" not in summary["reason"]
     assert "error" not in summary
+    assert "search_queries" not in summary
+    assert "criteria_summary" in summary
 
 
 def test_portal_assets_use_the_build_fingerprint_instead_of_a_manual_cache_key():
@@ -568,7 +570,32 @@ def test_contact_export_is_simplified_for_gohighlevel_and_custom_scrape_is_safe(
     assert 'id="ghl-contact-count"' not in dialog
     assert 'id="ghl-lead-list"' not in dialog
     assert 'id="open-custom-scrape"' in portal
-    assert "document.querySelector('#open-custom-scrape').addEventListener('click',()=>showView('sources',true))" in portal
+    assert "document.querySelector('#open-custom-scrape').addEventListener('click',()=>openCustomScrape())" in portal
+    assert "function openCustomScrape(columnId=''){showView('sources',false)" in portal
+
+
+def test_questionnaire_keeps_context_and_renders_proposals_in_dialog():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert 'id="prospecting-questionnaire-results"' in portal
+    assert "await improveProspecting(workspace,answers,true)" in portal
+    assert "prospecting-questionnaire-dialog').close();improveProspecting" not in portal
+    assert "function renderQuestionnaireImprovementResults(workspace)" in portal
+
+
+def test_kanban_has_add_and_horizontal_canvas_controls():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+    assert "DESPLAZAR CANVAS" in portal
+    assert "data-add-to-column" in portal
+    assert "function bindCrmCanvasControls(container,previousScroll=0)" in portal
+    assert ".crm-canvas-scroll" in css
+
+
+def test_lead_detail_has_individual_and_complete_copy_actions():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert "data-copy-value" in portal
+    assert "Copiar notas" in portal
+    assert "Copiar ficha completa" in portal
 
 
 def test_client_execution_view_shows_terminal_statuses_metrics_and_safe_traceability():
@@ -583,6 +610,8 @@ def test_client_execution_view_shows_terminal_statuses_metrics_and_safe_traceabi
     assert "x.error" not in client_branch
     assert "research_provider" not in client_branch
     assert "search_trace" not in client_branch
+    assert "x.search_queries" not in client_branch
+    assert "x.criteria_summary" in client_branch
 
 
 def test_improvement_panel_collapses_to_one_column_on_small_screens():

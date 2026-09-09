@@ -299,6 +299,8 @@ def _client_execution_summary(execution: dict, prospects: list[dict]) -> dict:
         or str(prospect.get("execution_id") or "").startswith(f"{execution_id}-")
     )
     adjustments = execution.get("adjustments") or {}
+    if not isinstance(adjustments, dict):
+        adjustments = {}
     objective = CONTACTS_PER_PROSPECTION_CYCLE
     deficit = max(0, objective - found)
     status = str(execution.get("status") or "Pendiente")
@@ -324,13 +326,36 @@ def _client_execution_summary(execution: dict, prospects: list[dict]) -> dict:
     search_summary = str(execution.get("research_summary") or "").strip()
     if public_status != "Completada" or any(marker in search_summary.lower() for marker in technical_markers):
         search_summary = "Búsqueda según la configuración guardada de la cuenta."
+    friendly_parts: list[str] = []
+    friendly_fields = (
+        ("Sectores", "sectors"),
+        ("Países", "target_countries"),
+        ("Tipos de cliente", "client_types"),
+        ("Tamaño de empresa", "employee_ranges"),
+        ("Perfiles responsables", "decision_roles"),
+    )
+    for label, field in friendly_fields:
+        values = adjustments.get(field) or []
+        if isinstance(values, str):
+            values = [values]
+        cleaned = [str(value).strip() for value in values if str(value).strip()]
+        if cleaned:
+            friendly_parts.append(f"{label}: {', '.join(cleaned)}")
+    location = ", ".join(
+        str(adjustments.get(field) or "").strip()
+        for field in ("target_city", "target_region")
+        if str(adjustments.get(field) or "").strip()
+    )
+    if location:
+        friendly_parts.append(f"Ubicación concreta: {location}")
+    criteria_summary = ". ".join(friendly_parts)
     return {
         "execution_id": execution_id,
         "created_at": execution.get("created_at"),
         "productora": execution.get("productora") or execution.get("company"),
         "status": public_status,
         "search_summary": search_summary or "Búsqueda según la configuración guardada de la cuenta.",
-        "search_queries": execution.get("search_queries") or [],
+        "criteria_summary": criteria_summary or "Empresas ajustadas a los sectores, mercados y perfil objetivo guardados.",
         "objective": objective,
         "found": found,
         "duplicates_excluded": int(execution.get("duplicates_discarded") or 0),

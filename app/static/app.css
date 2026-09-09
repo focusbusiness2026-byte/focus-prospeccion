@@ -330,6 +330,10 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .crm-board-safety { position: sticky; left: 0; margin-bottom: 10px; padding: 10px 12px; border: 1px solid #80672e; border-radius: 9px; background: #292314; color: #e8cf86; font-size: 11px; font-weight: 700; }
 .crm-search-context { display: inline-flex; margin-left: 10px; padding-left: 10px; border-left: 1px solid #80672e; color: #fff0b9; }
 .crm-preview-board { max-width: 100%; overflow-x: auto; padding-bottom: 12px; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
+.crm-canvas-scroll { position: sticky; left: 0; z-index: 3; display: grid; grid-template-columns: 40px minmax(180px, 1fr) 40px; gap: 10px; align-items: center; width: min(620px, calc(100vw - 48px)); margin: 0 0 12px; padding: 9px 10px; border: 1px solid #43566d; border-radius: 10px; background: #0b1625f2; }
+.crm-canvas-scroll button { width: 40px; height: 40px; padding: 0; border: 1px solid #80672e; border-radius: 8px; background: #292314; color: var(--gold); font-size: 20px; cursor: pointer; }
+.crm-canvas-scroll label { display: grid; gap: 5px; color: #c6d1df; font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.crm-canvas-scroll input { width: 100%; accent-color: var(--gold); }
 .crm-board-track { display: flex; width: max-content; min-width: 100%; gap: 12px; align-items: flex-start; }
 .crm-column { width: 290px; min-width: 290px; min-height: 390px; padding: 12px; border: 1px solid #34465a; border-radius: 13px; background: #0a1421; }
 .crm-column.drop-target { border-color: var(--lime); background: #101d16; box-shadow: inset 0 0 0 2px #a9f41433, 0 0 24px #a9f4141f; }
@@ -368,9 +372,14 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .source-selection-empty p { margin: 8px 0 0; color: #aebdce; }
 @keyframes client-loading-spin { to { transform: rotate(360deg); } }
 .crm-column > header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.crm-column > header h3 { flex: 1; margin: 0; }
+.crm-column-add { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 1px solid #80672e; border-radius: 8px; background: #292314; color: var(--gold); font-size: 20px; line-height: 1; cursor: pointer; }
 .crm-column > header input { min-width: 0; flex: 1; padding: 8px; border: 1px solid transparent; background: transparent; color: #f0f3f7; font-weight: 800; }
 .crm-column > header input:focus { border-color: var(--gold); border-radius: 6px; outline: none; }
 .crm-column > header span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: #243349; color: #cbd4df; font-size: 11px; }
+.questionnaire-results { display: grid; gap: 12px; margin-top: 18px; }
+.questionnaire-results[hidden] { display: none; }
+.questionnaire-results .improvement-suggestion { padding: 14px; border: 1px solid #45576d; border-radius: 12px; background: #0b1625; }
 .crm-column-cards { display: grid; min-height: 300px; align-content: start; gap: 9px; }
 .crm-board-card, .crm-trello-card { padding: 14px; border: 1px solid #40536a; border-radius: 10px; background: linear-gradient(145deg, #15243a, #0e1b2c); box-shadow: 0 8px 20px #0003; }
 .crm-board-card[draggable="true"] { cursor: grab; }
