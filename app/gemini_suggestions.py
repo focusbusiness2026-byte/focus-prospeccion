@@ -72,6 +72,80 @@ class GeminiSuggestionsResponseError(GeminiSuggestionsError):
     pass
 
 
+def _request_structured_json(service: "GeminiCriteriaSuggestions", request_body: dict) -> dict:
+    """Call the configured models with the shared retry/fallback policy."""
+    models = tuple(dict.fromkeys((service.model, service.fallback_model)))
+    response: httpx.Response | None = None
+    last_error: Exception | None = None
+    with httpx.Client(timeout=service.timeout) as client:
+        for model_index, model in enumerate(models):
+            url = "https://generativelanguage.googleapis.com/v1beta/models/" + quote(model, safe="") + ":generateContent"
+            for attempt in range(len(RETRY_DELAYS_SECONDS) + 1):
+                try:
+                    candidate = client.post(
+                        url,
+                        headers={"x-goog-api-key": service.api_key, "Content-Type": "application/json"},
+                        json=request_body,
+                    )
+                except httpx.TimeoutException as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Intelligent assistance request timed out model=%s attempt=%s timeout=%ss",
+                        model,
+                        attempt + 1,
+                        service.timeout,
+                    )
+                    if attempt < len(RETRY_DELAYS_SECONDS):
+                        time.sleep(RETRY_DELAYS_SECONDS[attempt])
+                        continue
+                    raise GeminiSuggestionsTimeout("SUGGESTIONS_TIMEOUT", model=model) from exc
+                except httpx.HTTPError as exc:
+                    raise GeminiSuggestionsError("SUGGESTIONS_NETWORK_ERROR", model=model) from exc
+
+                if 200 <= candidate.status_code < 300:
+                    response = candidate
+                    break
+
+                response_body = candidate.text[:1500]
+                last_error = GeminiSuggestionsError(
+                    "SUGGESTIONS_PROVIDER_ERROR",
+                    status_code=candidate.status_code,
+                    model=model,
+                    response_body=response_body,
+                )
+                logger.warning(
+                    "Intelligent assistance provider rejected request model=%s status=%s attempt=%s body=%s",
+                    model,
+                    candidate.status_code,
+                    attempt + 1,
+                    response_body,
+                )
+                if candidate.status_code == 503 and model_index == 0 and len(models) > 1:
+                    break
+                retryable = candidate.status_code in RETRYABLE_STATUS_CODES or (
+                    candidate.status_code == 503 and model_index > 0
+                )
+                if retryable and attempt < len(RETRY_DELAYS_SECONDS):
+                    time.sleep(RETRY_DELAYS_SECONDS[attempt])
+                    continue
+                raise last_error
+            if response is not None:
+                break
+
+    if response is None:
+        if isinstance(last_error, GeminiSuggestionsError):
+            raise last_error
+        raise GeminiSuggestionsError("SUGGESTIONS_PROVIDER_ERROR")
+    try:
+        text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        result = json.loads(text)
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise GeminiSuggestionsResponseError("SUGGESTIONS_INVALID_RESPONSE") from exc
+    if not isinstance(result, dict):
+        raise GeminiSuggestionsResponseError("SUGGESTIONS_INVALID_RESPONSE")
+    return result
+
+
 class GeminiCriteriaSuggestions:
     def __init__(self, settings: Settings):
         self.api_key = settings.gemini_api_key.strip()
@@ -84,7 +158,8 @@ class GeminiCriteriaSuggestions:
             raise GeminiSuggestionsError("GEMINI_API_KEY_REQUIRED")
         prompt = {
             "task": (
-                "Analiza exclusivamente estos leads ya aislados para una productora. "
+                "Analiza los leads ya aislados para una productora cuando existan y, si todavía no hay leads, "
+                "usa su formulario y las respuestas del cuestionario para preparar la primera búsqueda. "
                 "Devuelve exactamente tres mejoras concretas de criterios de prospección. "
                 "Cada propuesta debe incluir entre uno y cinco ajustes no vacíos, usando únicamente las claves permitidas. "
                 "Cruza los resultados con los datos del formulario: empresa, web, actividad, servicios, objetivos, "
@@ -113,74 +188,9 @@ class GeminiCriteriaSuggestions:
                 },
             },
         }
-        models = tuple(dict.fromkeys((self.model, self.fallback_model)))
-        response: httpx.Response | None = None
-        last_error: Exception | None = None
-        with httpx.Client(timeout=self.timeout) as client:
-            for model_index, model in enumerate(models):
-                url = "https://generativelanguage.googleapis.com/v1beta/models/" + quote(model, safe="") + ":generateContent"
-                for attempt in range(len(RETRY_DELAYS_SECONDS) + 1):
-                    try:
-                        candidate = client.post(
-                            url,
-                            headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-                            json=request_body,
-                        )
-                    except httpx.TimeoutException as exc:
-                        last_error = exc
-                        logger.warning(
-                            "Intelligent suggestions request timed out model=%s attempt=%s timeout=%ss",
-                            model,
-                            attempt + 1,
-                            self.timeout,
-                        )
-                        if attempt < len(RETRY_DELAYS_SECONDS):
-                            time.sleep(RETRY_DELAYS_SECONDS[attempt])
-                            continue
-                        raise GeminiSuggestionsTimeout("SUGGESTIONS_TIMEOUT", model=model) from exc
-                    except httpx.HTTPError as exc:
-                        raise GeminiSuggestionsError("SUGGESTIONS_NETWORK_ERROR", model=model) from exc
-
-                    if 200 <= candidate.status_code < 300:
-                        response = candidate
-                        break
-
-                    response_body = candidate.text[:1500]
-                    last_error = GeminiSuggestionsError(
-                        "SUGGESTIONS_PROVIDER_ERROR",
-                        status_code=candidate.status_code,
-                        model=model,
-                        response_body=response_body,
-                    )
-                    logger.warning(
-                        "Intelligent suggestions provider rejected request model=%s status=%s attempt=%s body=%s",
-                        model,
-                        candidate.status_code,
-                        attempt + 1,
-                        response_body,
-                    )
-
-                    if candidate.status_code == 503 and model_index == 0 and len(models) > 1:
-                        break
-                    retryable = candidate.status_code in RETRYABLE_STATUS_CODES or (
-                        candidate.status_code == 503 and model_index > 0
-                    )
-                    if retryable and attempt < len(RETRY_DELAYS_SECONDS):
-                        time.sleep(RETRY_DELAYS_SECONDS[attempt])
-                        continue
-                    raise last_error
-
-                if response is not None:
-                    break
-
-        if response is None:
-            if isinstance(last_error, GeminiSuggestionsError):
-                raise last_error
-            raise GeminiSuggestionsError("SUGGESTIONS_PROVIDER_ERROR")
         try:
-            text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-            raw = json.loads(text)["suggestions"]
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raw = _request_structured_json(self, request_body)["suggestions"]
+        except KeyError as exc:
             raise GeminiSuggestionsResponseError("SUGGESTIONS_INVALID_RESPONSE") from exc
         if not isinstance(raw, list) or len(raw) != 3:
             raise GeminiSuggestionsResponseError("SUGGESTIONS_INVALID_COUNT")
@@ -195,3 +205,80 @@ class GeminiCriteriaSuggestions:
                 raise GeminiSuggestionsResponseError("SUGGESTIONS_INCOMPLETE_ITEM")
             suggestions.append({"id": f"suggestion-{index}", "title": title, "reason": reason, "adjustments": adjustments})
         return suggestions
+
+    def questionnaire(self, *, source_profile: dict, question_count: int) -> list[dict]:
+        if not self.api_key:
+            raise GeminiSuggestionsError("GEMINI_API_KEY_REQUIRED")
+        count = max(5, min(30, int(question_count)))
+        prompt = {
+            "task": (
+                f"Crea exactamente {count} preguntas breves y sencillas para que una productora audiovisual "
+                "afine su búsqueda de clientes potenciales. Parte de su formulario ya completado y no repitas "
+                "datos que ya estén claros. Prioriza tipo de cliente (empresas, personas o ambos), B2B/B2C, "
+                "sectores incluidos y excluidos, países y regiones, tamaño, presupuesto, decisores, señales de "
+                "oportunidad, servicios recurrentes y exclusiones. Alterna preguntas de selección múltiple y "
+                "respuesta escrita. Las opciones deben ser concretas, permitir varias selecciones y no pedir "
+                "datos sensibles. Usa únicamente los campos de ajuste permitidos."
+            ),
+            "productora": source_profile,
+            "allowed_adjustment_fields": sorted(SUGGESTION_ADJUSTMENT_FIELDS),
+        }
+        request_body = {
+            "contents": [{"role": "user", "parts": [{"text": json.dumps(prompt, ensure_ascii=False)}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "required": ["questions"],
+                    "properties": {
+                        "questions": {
+                            "type": "ARRAY",
+                            "minItems": count,
+                            "maxItems": count,
+                            "items": {
+                                "type": "OBJECT",
+                                "required": ["title", "help", "kind", "options", "adjustment_field"],
+                                "properties": {
+                                    "title": {"type": "STRING"},
+                                    "help": {"type": "STRING"},
+                                    "kind": {"type": "STRING", "enum": ["MULTIPLE_CHOICE", "TEXT"]},
+                                    "options": {"type": "ARRAY", "items": {"type": "STRING"}},
+                                    "adjustment_field": {"type": "STRING"},
+                                },
+                            },
+                        }
+                    },
+                },
+            },
+        }
+        try:
+            raw = _request_structured_json(self, request_body)["questions"]
+        except KeyError as exc:
+            raise GeminiSuggestionsResponseError("QUESTIONNAIRE_INVALID_RESPONSE") from exc
+        if not isinstance(raw, list) or len(raw) != count:
+            raise GeminiSuggestionsResponseError("QUESTIONNAIRE_INVALID_COUNT")
+        questions = []
+        for index, item in enumerate(raw, start=1):
+            if not isinstance(item, dict):
+                raise GeminiSuggestionsResponseError("QUESTIONNAIRE_INVALID_ITEM")
+            title = str(item.get("title") or "").strip()[:180]
+            help_text = str(item.get("help") or "").strip()[:300]
+            kind = str(item.get("kind") or "").strip().upper()
+            field = str(item.get("adjustment_field") or "").strip()
+            options = list(dict.fromkeys(
+                str(option).strip()[:100] for option in (item.get("options") or []) if str(option).strip()
+            ))[:8]
+            if kind not in {"MULTIPLE_CHOICE", "TEXT"} or field not in SUGGESTION_ADJUSTMENT_FIELDS:
+                raise GeminiSuggestionsResponseError("QUESTIONNAIRE_INVALID_ITEM")
+            if not title or not help_text or (kind == "MULTIPLE_CHOICE" and len(options) < 2):
+                raise GeminiSuggestionsResponseError("QUESTIONNAIRE_INCOMPLETE_ITEM")
+            questions.append({
+                "id": f"question-{index}",
+                "title": title,
+                "help": help_text,
+                "kind": kind.lower(),
+                "options": options if kind == "MULTIPLE_CHOICE" else [],
+                "adjustment_field": field,
+            })
+        return questions

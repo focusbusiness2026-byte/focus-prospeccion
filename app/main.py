@@ -137,6 +137,11 @@ class AutomationRequest(BaseModel):
 class CriteriaSuggestionsRequest(BaseModel):
     execution_id: str = Field(default="", max_length=160)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
+    questionnaire_answers: list[dict] = Field(default_factory=list, max_length=30)
+
+
+class ProspectingQuestionnaireRequest(BaseModel):
+    question_count: int = Field(default=10, ge=5, le=30)
 
 
 _RESEARCH_JOBS: dict[str, dict] = {}
@@ -1094,6 +1099,72 @@ def save_onboarding_automation(
     return {"ok": True, "automation": schedule}
 
 
+def _questionnaire_source_profile(source) -> dict:
+    return {
+        "onboarding_id": source.record_id,
+        "productora": source.company,
+        "website": getattr(source, "website", ""),
+        "activity": source.activity,
+        "location": source.location,
+        "description": getattr(source, "description", ""),
+        "targeting": {
+            "main_service": source.main_service,
+            "services": list(source.services),
+            "audience": list(source.audience),
+            "sectors": list(source.sectors),
+            "markets": list(source.markets),
+            "target_city": source.target_city,
+            "target_region": source.target_region,
+            "target_countries": list(source.target_countries),
+            "target_client_types": list(source.target_client_types),
+            "ideal_company_size": source.ideal_company_size,
+            "minimum_budget": source.minimum_budget,
+            "exclusions": source.prospect_exclusions,
+            "preferences": source.prospect_preferences,
+            "ideal_profile_detail": getattr(source, "ideal_profile_detail", ""),
+            "decision_maker": getattr(source, "decision_maker", ""),
+            "monthly_capacity": getattr(source, "monthly_capacity", ""),
+            "portfolio_highlights": getattr(source, "portfolio_highlights", ""),
+            "reference_companies": list(getattr(source, "reference_companies", ())),
+            "objectives": list(getattr(source, "objectives", ())),
+        },
+    }
+
+
+@app.post("/api/onboarding-sources/{record_id}/prospecting-questionnaire")
+def create_prospecting_questionnaire(
+    record_id: str,
+    payload: ProspectingQuestionnaireRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    """Create a provider-neutral questionnaire from the isolated onboarding profile."""
+    validate_csrf(request)
+    settings = get_settings()
+    _require_real_sheets(settings)
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    if not settings.gemini_api_key.strip():
+        raise HTTPException(status_code=503, detail="El asistente de mejora no está configurado en el servidor.")
+    try:
+        questions = GeminiCriteriaSuggestions(settings).questionnaire(
+            source_profile=_questionnaire_source_profile(source),
+            question_count=payload.question_count,
+        )
+    except GeminiSuggestionsTimeout as exc:
+        raise HTTPException(status_code=504, detail="No se pudo preparar el cuestionario en este momento.") from exc
+    except (GeminiSuggestionsError, GeminiSuggestionsResponseError, ValueError) as exc:
+        logger.warning("Intelligent questionnaire failed status=%s", getattr(exc, "status_code", None))
+        raise HTTPException(status_code=502, detail="No se pudo preparar el cuestionario en este momento.") from exc
+    return {"ok": True, "onboarding_id": source.record_id, "questions": questions}
+
+
 @app.post("/api/onboarding-sources/{record_id}/prospecting-improvements")
 def suggest_prospecting_improvements(
     record_id: str,
@@ -1156,7 +1227,7 @@ def suggest_prospecting_improvements(
             or str(prospect.get("execution_id") or "").startswith(f"{requested_execution_id}-")
         )
     ]
-    if not isolated_leads:
+    if not isolated_leads and not payload.questionnaire_answers:
         raise HTTPException(status_code=422, detail="No hay leads completados de esta productora para analizar.")
     safe_leads = [
         {
@@ -1170,36 +1241,18 @@ def suggest_prospecting_improvements(
         }
         for prospect in isolated_leads
     ]
-    source_profile = {
-        "onboarding_id": source.record_id,
-        "productora": source.company,
-        "website": getattr(source, "website", ""),
-        "activity": source.activity,
-        "location": source.location,
-        "description": getattr(source, "description", ""),
-        "targeting": {
-            "main_service": source.main_service,
-            "services": list(source.services),
-            "audience": list(source.audience),
-            "sectors": list(source.sectors),
-            "markets": list(source.markets),
-            "target_city": source.target_city,
-            "target_region": source.target_region,
-            "target_countries": list(source.target_countries),
-            "target_client_types": list(source.target_client_types),
-            "ideal_company_size": source.ideal_company_size,
-            "minimum_budget": source.minimum_budget,
-            "exclusions": source.prospect_exclusions,
-            "preferences": source.prospect_preferences,
-            "ideal_profile_detail": getattr(source, "ideal_profile_detail", ""),
-            "decision_maker": getattr(source, "decision_maker", ""),
-            "monthly_capacity": getattr(source, "monthly_capacity", ""),
-            "portfolio_highlights": getattr(source, "portfolio_highlights", ""),
-            "reference_companies": list(getattr(source, "reference_companies", ())),
-            "objectives": list(getattr(source, "objectives", ())),
-        },
-        "current_adjustments": payload.adjustments.model_dump(),
-    }
+    source_profile = _questionnaire_source_profile(source)
+    source_profile["current_adjustments"] = payload.adjustments.model_dump()
+    source_profile["questionnaire_answers"] = [
+        {
+            "question": str(answer.get("question") or "")[:180],
+            "adjustment_field": str(answer.get("adjustment_field") or "")[:80],
+            "selected": [str(value)[:100] for value in (answer.get("selected") or [])[:8]],
+            "written_answer": str(answer.get("written_answer") or "")[:500],
+        }
+        for answer in payload.questionnaire_answers
+        if isinstance(answer, dict)
+    ]
     if execution_context:
         source_profile["selected_execution"] = execution_context
     try:

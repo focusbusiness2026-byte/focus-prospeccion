@@ -131,6 +131,84 @@ def test_gemini_suggestions_are_isolated_and_return_exactly_three(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_questionnaire_is_adapted_to_isolated_onboarding_profile(monkeypatch):
+    captured = {}
+
+    def fake_questionnaire(self, *, source_profile, question_count):
+        captured["source_profile"] = source_profile
+        captured["question_count"] = question_count
+        return [
+            {
+                "id": f"question-{index}",
+                "title": f"Pregunta {index}",
+                "help": "Ayuda sencilla",
+                "kind": "multiple_choice",
+                "options": ["Empresas", "Personas"],
+                "adjustment_field": "client_types",
+            }
+            for index in range(1, question_count + 1)
+        ]
+
+    monkeypatch.setattr(main_module.GeminiCriteriaSuggestions, "questionnaire", fake_questionnaire)
+    client = _client(monkeypatch)
+    try:
+        response = client.post(
+            "/api/onboarding-sources/ONB-CLIENT/prospecting-questionnaire",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"question_count": 7},
+        )
+        assert response.status_code == 200
+        assert len(response.json()["questions"]) == 7
+        assert captured["question_count"] == 7
+        assert captured["source_profile"]["productora"] == "Productora Cliente"
+        assert "email" not in captured["source_profile"]
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_questionnaire_answers_allow_first_improvement_without_existing_leads(monkeypatch):
+    captured = {}
+
+    class EmptyLeadStore(SuggestionStore):
+        def recent_prospects(self, email, limit=1000):
+            return []
+
+    def fake_suggest(self, *, source_profile, leads):
+        captured["source_profile"] = source_profile
+        captured["leads"] = leads
+        return [
+            {"id": f"suggestion-{index}", "title": f"Mejora {index}", "reason": "Motivo", "adjustments": {"target_city": "Madrid"}}
+            for index in range(1, 4)
+        ]
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    monkeypatch.setenv("GEMINI_API_KEY", "fixture-only")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", EmptyLeadStore)
+    monkeypatch.setattr(main_module.GeminiCriteriaSuggestions, "suggest", fake_suggest)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity("client@example.com", "Cliente", "client")
+    client = TestClient(main_module.app)
+    client.cookies.set(CSRF_COOKIE, "csrf-test")
+    try:
+        response = client.post(
+            "/api/onboarding-sources/ONB-CLIENT/prospecting-improvements",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={
+                "adjustments": {"lead_count": 5},
+                "questionnaire_answers": [
+                    {"question": "¿A quién buscas?", "selected": ["Empresas"], "written_answer": "Tecnología"}
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert captured["leads"] == []
+        assert captured["source_profile"]["questionnaire_answers"][0]["selected"] == ["Empresas"]
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_suggestion_prompt_targets_recurrence_without_claiming_web_visits():
     source = Path("app/gemini_suggestions.py").read_text(encoding="utf-8")
     assert "relaciones comerciales" in source

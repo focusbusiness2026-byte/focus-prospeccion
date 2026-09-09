@@ -88,9 +88,9 @@ def test_portal_has_selected_account_real_schedule_and_kanban_exports():
     assert 'portalReadOnly' not in html
     prospeccion = html[html.index('id="sources"'):html.index('id="results"')]
     assert 'raspado' not in prospeccion
-    assert 'Mueve un lead entre Nuevo, En revisión y Aprobado para descarga.' in html
-    assert 'Exportar para GoHighLevel' in html
-    assert 'Exportar Meta' in html
+    assert 'Arrastra una tarjeta o cambia su estado.' in html
+    assert 'Exportar para Google / CRM' in html
+    assert 'Exportar para Meta' in html
     assert 'Columnas incluidas en el CSV' in html
     assert 'selectedFields=[]' in html
 
@@ -120,14 +120,29 @@ def test_mobile_header_keeps_the_account_control_next_to_the_menu_toggle():
     assert '.site-header .header-actions { grid-column: 3; grid-row: 1;' in mobile_header
     assert '.site-header .account-menu { position: relative; margin: 0;' in mobile_header
     assert 'class="account-avatar"' in html
-    assert 'aria-label="Abrir menú de usuario"' in html
+    assert '<details class="account-menu"><summary aria-label=' in html
     assert 'content: "CU"' not in css
-    assert '.account-menu > summary { min-width: 40px; width: 42px; min-height: 40px; height: 42px;' in css
-    assert '.account-menu .account-avatar { display: block; }' in css
+    assert '.account-menu > summary { min-width: 40px; width: 40px; min-height: 40px; height: 40px;' in css
+    assert '.account-avatar { display: block;' in css
     navigation = html[html.index('id="top-navigation"'):html.index('</nav>')]
     assert 'id="admin-client-view"' in navigation
     assert '.top-navigation .admin-client-view:not([hidden]) { position: static;' in mobile_header
     assert '@media (max-width: 768px)' in css
+
+
+def test_desktop_header_uses_compact_admin_and_account_menus():
+    html = Path('app/templates/portal.html').read_text(encoding='utf-8')
+    css = Path('app/static/app.css').read_text(encoding='utf-8')
+
+    assert 'id="admin-control-menu"' in html
+    assert 'class="admin-control-popover"' in html
+    assert 'id="account-current-view"' in html
+    assert 'id="account-selected-client"' in html
+    account_summary = html[html.index('<details class="account-menu">'):html.index('</details></div>', html.index('<details class="account-menu">'))]
+    assert '{{ identity.email }}' not in account_summary.split('</summary>', 1)[0]
+    assert '.admin-control-menu > summary { display: flex; min-height: 32px;' in css
+    assert '.account-menu > summary { display: grid; width: 40px; height: 40px;' in css
+    assert "controlMenu.hidden=!context.is_admin" in html
 
 
 def test_admin_can_switch_to_an_isolated_client_presentation():
@@ -493,9 +508,13 @@ def test_render_runs_the_same_fastapi_application_used_locally():
 
 def test_improvement_ui_uses_server_contract_and_saves_favorite():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
-    assert 'data-action="improve-prospecting"' in portal
+    assert 'data-action="create-prospecting-questionnaire"' in portal
+    assert 'id="prospecting-questionnaire-dialog"' in portal
+    assert 'id="prospecting-question-count"' in portal
+    assert "Array.from({length:26}" in portal
+    assert "/prospecting-questionnaire`" in portal
     assert "/prospecting-improvements`" in portal
-    assert "body:JSON.stringify({adjustments:collectResearchConfig(workspace)})" in portal
+    assert "questionnaire_answers:questionnaireAnswers" in portal
     assert "suggestions.length!==3" in portal
     assert "favorite:true" in portal
     assert "suggestion.adjustments" in portal
@@ -523,12 +542,14 @@ def test_kanban_quality_is_accessible_and_derived_from_score_only():
     assert "conic-gradient" in css
 
 
-def test_client_execution_view_shows_terminal_statuses_and_hides_admin_metrics():
+def test_client_execution_view_shows_terminal_statuses_metrics_and_safe_traceability():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
     assert "['Completada','Fallida'].includes(x.status)" in portal
     assert 'id="client-execution-order"' in portal
     assert "effectiveness-desc" in portal
-    assert "document.querySelectorAll('[data-admin-execution-metric]')" in portal
+    assert "Resultado de la ejecución" in portal
+    assert "Ver trazabilidad" in portal
+    assert "Configuración utilizada" in portal
     client_branch = portal.split("if(!isAdminView){", 1)[1].split("return;", 1)[0]
     assert "x.error" not in client_branch
     assert "research_provider" not in client_branch
@@ -579,13 +600,14 @@ def test_completed_client_execution_can_request_and_save_three_safe_improvements
     assert "No pudimos preparar las mejoras ahora" in client_function
 
 
-def test_client_presentation_hides_admin_result_controls_and_keeps_search():
+def test_both_presentations_use_the_same_simple_lead_search_and_manual_exports():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
     css = Path("app/static/app.css").read_text(encoding="utf-8")
 
     assert 'id="result-search"' in portal
     assert "const effectiveClientView=!context.is_admin||clientMode" in portal
-    assert "document.querySelector('[data-admin-results-heading]').hidden=effectiveClientView" in portal
-    assert "document.querySelectorAll('[data-admin-result-filter]')" in portal
+    assert 'data-admin-results-heading' not in portal
+    assert 'data-admin-result-filter' not in portal
     assert "classList.toggle('client-search-only',effectiveClientView)" in portal
-    assert ".filters.client-search-only { grid-template-columns: minmax(0, 1fr); }" in css
+    assert ".filters { display: grid; grid-template-columns: minmax(0, 1fr);" in css
+    assert "if(!isPortalAdmin())return;renderGhlExport" not in portal
