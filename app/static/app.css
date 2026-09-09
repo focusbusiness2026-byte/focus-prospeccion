@@ -373,9 +373,13 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 @keyframes client-loading-spin { to { transform: rotate(360deg); } }
 .crm-column > header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .crm-column > header h3 { flex: 1; margin: 0; }
+.crm-column > header h3.editable-column-title { cursor: text; }
+.crm-column-edit { display: grid; width: 28px; height: 28px; min-width: 28px; padding: 0; place-items: center; border: 1px solid #42556a; border-radius: 7px; background: #101d2d; color: #b9c7d6; font-size: 15px; line-height: 1; cursor: pointer; }
+.crm-column-edit:hover, .crm-column-edit:focus-visible { border-color: var(--gold); color: var(--gold); outline: none; }
 .crm-column-add { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 1px solid #80672e; border-radius: 8px; background: #292314; color: var(--gold); font-size: 20px; line-height: 1; cursor: pointer; }
 .crm-column > header input { min-width: 0; flex: 1; padding: 8px; border: 1px solid transparent; background: transparent; color: #f0f3f7; font-weight: 800; }
 .crm-column > header input:focus { border-color: var(--gold); border-radius: 6px; outline: none; }
+.crm-column > header .crm-column-title-input { padding: 6px 8px; border: 1px solid var(--gold); border-radius: 7px; background: #111d2b; font: inherit; font-weight: 800; outline: none; }
 .crm-column > header span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: #243349; color: #cbd4df; font-size: 11px; }
 .questionnaire-results { display: grid; gap: 12px; margin-top: 18px; }
 .questionnaire-results[hidden] { display: none; }

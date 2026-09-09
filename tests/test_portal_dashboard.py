@@ -604,6 +604,45 @@ def test_kanban_adds_columns_only_from_the_end_of_the_horizontal_canvas():
     assert ".crm-add-column" in css
 
 
+def test_custom_kanban_columns_can_be_renamed_without_changing_their_status_id():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+
+    assert "function saveKanbanColumnName(columnId,value)" in portal
+    assert "column.name=name" in portal
+    assert "column.id=" not in portal[portal.index("function saveKanbanColumnName"):portal.index("function startKanbanColumnRename")]
+    assert "function startKanbanColumnRename(columnId)" in portal
+    assert "data-edit-kanban-column" in portal
+    assert "data-kanban-column-title" in portal
+    assert "addEventListener('dblclick'" in portal
+    assert "if(e.key==='Enter')" in portal
+    assert "addEventListener('focusout'" in portal
+    assert ".crm-column-edit" in css
+    assert ".crm-column-title-input" in css
+
+
+def test_custom_kanban_column_rename_updates_only_the_visible_name():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    function_source = re.search(r"^\s*(function saveKanbanColumnName\(.*)$", portal, re.MULTILINE).group(1)
+    script = f"""
+const assert=require('assert');
+let custom=[{{id:'Revisión',name:'Revisión'}}],written=null,renders=0;
+const readCustomKanbanColumns=()=>custom.map(column=>({{...column}}));
+const writeCustomKanbanColumns=columns=>{{written=columns;custom=columns;}};
+const readCrmBoard=()=>({{columns:[{{id:'Nuevo',name:'Nuevo'}},...custom]}});
+const renderCrmBoard=()=>{{renders++;}};
+const message={{textContent:''}};
+{function_source}
+assert.equal(saveKanbanColumnName('Revisión','Seguimiento comercial'),true);
+assert.equal(written[0].id,'Revisión');
+assert.equal(written[0].name,'Seguimiento comercial');
+assert.equal(renders,1);
+assert.ok(message.textContent.includes('Seguimiento comercial'));
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_lead_detail_has_individual_and_complete_copy_actions():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
     assert "data-copy-value" in portal
