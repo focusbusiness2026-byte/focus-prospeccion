@@ -353,7 +353,7 @@ assert.equal(destination.cleared,true);
     assert completed.returncode == 0, completed.stderr
 
 
-def test_kanban_only_offers_the_three_persistable_columns_and_resets_stale_drag_state():
+def test_kanban_starts_with_three_columns_and_discovers_safe_custom_columns():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
 
     seed = re.search(r"const crmBoardSeed=.*", html).group(0)
@@ -361,7 +361,9 @@ def test_kanban_only_offers_the_three_persistable_columns_and_resets_stale_drag_
     assert "{id:'En revisión'" in seed
     assert "{id:'Aprobado para descarga'" in seed
     assert "{id:'Descartado'" not in seed
-    assert "allowed.has(item.lead_status)?item.lead_status:'Nuevo'" in seed
+    assert "readCustomKanbanColumns()" in seed
+    assert "discovered.push({id:status,name:status})" in seed
+    assert "known.has(item.lead_status)?item.lead_status:'Nuevo'" in seed
     assert "function clearCrmDrag(){draggedProspectId='';" in html
 
 
@@ -573,7 +575,7 @@ def test_contact_export_is_simplified_for_gohighlevel_and_custom_scrape_is_safe(
     assert "document.querySelector('#open-custom-scrape').addEventListener('click',()=>openCustomScrape())" in portal
     assert 'id="custom-scrape-dialog"' in portal
     assert "function openCustomScrape(){const dialog=document.querySelector('#custom-scrape-dialog')" in portal
-    assert "showView('sources'" not in portal[portal.index("function openCustomScrape()"):portal.index("const quickKanbanStorageKey")]
+    assert "showView('sources'" not in portal[portal.index("function openCustomScrape()"):portal.index("const customKanbanStorageKey")]
 
 
 def test_questionnaire_keeps_context_and_renders_proposals_in_dialog():
@@ -584,19 +586,22 @@ def test_questionnaire_keeps_context_and_renders_proposals_in_dialog():
     assert "function renderQuestionnaireImprovementResults(workspace)" in portal
 
 
-def test_kanban_has_add_and_horizontal_canvas_controls():
+def test_kanban_adds_columns_only_from_the_end_of_the_horizontal_canvas():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
     css = Path("app/static/app.css").read_text(encoding="utf-8")
     assert "DESPLAZAR CANVAS" in portal
     assert "data-add-to-column" in portal
     assert "function bindCrmCanvasControls(container,previousScroll=0)" in portal
-    assert "createQuickKanbanTask(add.dataset.addToColumn)" in portal
+    assert "function enhanceKanbanColumns(container)" in portal
+    assert "querySelectorAll('[data-add-to-column]').forEach(button=>button.remove())" in portal
+    assert "data-add-kanban-column" in portal
+    assert "createKanbanColumn()" in portal
+    assert "focus_custom_kanban_columns_v1:" in portal
     assert 'id="kanban-quick-add-dialog"' not in portal
-    assert "button.dataset.addToColumn!=='Aprobado para descarga'" in portal
-    assert "function createQuickKanbanTask(columnId){if(columnId!=='Aprobado para descarga')return;" in portal
-    assert "focus_quick_kanban_tasks_v1:" in portal
-    assert "moveCrmProspect=async function(id,columnId)" in portal
+    assert "createQuickKanbanTask" not in portal
+    assert "focus_quick_kanban_tasks_v1:" not in portal
     assert ".crm-canvas-scroll" in css
+    assert ".crm-add-column" in css
 
 
 def test_lead_detail_has_individual_and_complete_copy_actions():

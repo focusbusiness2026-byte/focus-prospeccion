@@ -413,8 +413,9 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .copy-field-button { min-width: 56px; min-height: 24px; padding: 3px 8px; border: 1px solid #596c82; border-radius: 999px; background: #162438; color: #d7e1ed; font-size: 10px; font-weight: 800; line-height: 1.15; cursor: pointer; }
 .copy-field-button:hover, .copy-field-button.copied { border-color: var(--gold); color: var(--gold); }
 .custom-scrape-dialog form { display: grid; gap: 16px; }
-.crm-quick-task { border-style: dashed; border-color: #d2a92e; }
-.crm-quick-task-title { width: 100%; min-height: 36px; padding: 7px 9px; border: 1px solid #43566d; border-radius: 7px; background: #09131f; color: #eef2f6; font-weight: 800; }
+.crm-add-column { display: flex; width: 220px; min-width: 220px; min-height: 54px; align-items: center; justify-content: center; gap: 9px; padding: 12px; border: 1px dashed #80672e; border-radius: 13px; background: #16170f; color: var(--gold); font-weight: 800; cursor: pointer; }
+.crm-add-column span { font-size: 24px; line-height: 1; }
+.crm-add-column:hover { border-style: solid; background: #292314; }
 .copied { border-color: #3ddc84 !important; color: #75eda8 !important; }
 .warmup-preview-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .75fr); gap: 16px; margin-top: 18px; }
 .warmup-planner, .ghl-preview-card { padding: 22px; border: 1px solid #34465a; border-radius: 14px; background: #0a1625; }

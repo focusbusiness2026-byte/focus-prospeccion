@@ -234,6 +234,15 @@ def test_admin_can_change_status_and_metrics_are_calculated():
     assert metrics["classifications"] == {"green": 1, "yellow": 0, "red": 1}
 
 
+def test_admin_can_persist_a_safe_custom_kanban_column():
+    store = ProspectStore()
+
+    updated = store.update_prospect_status("exec-2", "admin@example.com", "Revisión comercial", is_admin=True)
+
+    assert updated["lead_status"] == "Revisión comercial"
+    assert store.updates[0][0] == "'Prospeccion'!W3:X3"
+
+
 def test_client_cannot_change_another_accounts_lead():
     store = ProspectStore()
 

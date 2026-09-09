@@ -415,7 +415,7 @@ def test_kanban_status_endpoint_accepts_every_persistable_column(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
     try:
-        for status in ("Nuevo", "En revisión", "Aprobado para descarga", "Descartado"):
+        for status in ("Nuevo", "En revisión", "Aprobado para descarga", "Descartado", "Revisión comercial"):
             response = client.post(
                 "/api/prospects/EXEC-BETA/status",
                 headers={"X-CSRF-Token": "csrf-test", "Content-Type": "application/json"},
@@ -446,14 +446,14 @@ def test_kanban_status_endpoint_uses_the_real_allow_listed_audit_contract(monkey
         get_settings.cache_clear()
 
 
-def test_kanban_status_endpoint_rejects_unknown_status(monkeypatch):
+def test_kanban_status_endpoint_rejects_unsafe_status(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"))
     try:
         response = client.post(
             "/api/prospects/EXEC-BETA/status",
             headers={"X-CSRF-Token": "csrf-test"},
-            json={"status": "Archivado"},
+            json={"status": "<script>"},
         )
         assert response.status_code == 422
     finally:

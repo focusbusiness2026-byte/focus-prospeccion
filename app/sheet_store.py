@@ -73,7 +73,12 @@ def normalized_kanban_status(value: str) -> str:
     raw = " ".join(str(value or "").split())
     if raw in KANBAN_STATUSES:
         return raw
-    return LEGACY_KANBAN_STATUS.get(_normalized_access_text(raw), "Nuevo")
+    legacy = LEGACY_KANBAN_STATUS.get(_normalized_access_text(raw))
+    if legacy:
+        return legacy
+    if raw and len(raw) <= 40 and not any(character in raw for character in "<>\r\n\t"):
+        return raw
+    return "Nuevo"
 
 PROSPECT_HEADERS = [
     "execution_id", "email", "created_at", "company", "website", "title", "description", "sector",
@@ -1003,8 +1008,10 @@ class SheetStore:
         return {"total": len(prospects), "classifications": classifications, "statuses": statuses}
 
     def update_prospect_status(self, execution_id: str, email: str, status: str, *, is_admin: bool = False) -> dict:
-        if status not in KANBAN_STATUSES:
+        raw_status = " ".join(str(status or "").split())
+        if not raw_status or len(raw_status) > 40 or any(character in raw_status for character in "<>\r\n\t"):
             raise ValueError("Estado Kanban no válido")
+        status = normalized_kanban_status(raw_status)
         rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
         normalized_email = email.strip().lower()
         for row_number, row in enumerate(rows, start=2):

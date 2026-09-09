@@ -68,7 +68,7 @@ class GoogleCredential(BaseModel):
 
 
 class LeadStatusRequest(BaseModel):
-    status: Literal["Nuevo", "En revisión", "Aprobado para descarga", "Descartado"]
+    status: str = Field(min_length=1, max_length=40, pattern=r"^[^\r\n\t<>]+$")
 
 
 class LeadDecisionRequest(BaseModel):
