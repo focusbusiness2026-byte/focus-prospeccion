@@ -741,6 +741,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .admin-presentation-toggle[hidden] { display: none; }
 .admin-presentation-toggle button { min-height: 27px; padding: 4px 6px; border: 1px solid #3e5065; border-radius: 7px; background: #0a1421; color: #9dabbc; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .admin-presentation-toggle button.active { border-color: var(--gold); background: #3a3015; color: #ffe08a; }
+.custom-scrape-button { border: 1px solid #59c7b5; border-radius: 8px; background: #123e3b; color: #c9fff5; font-weight: 800; cursor: pointer; }
+.custom-scrape-button:hover { border-color: #8ce4d5; background: #17534e; color: #fff; }
 .crm-scraped-at { color: #e7be52; font-variant-numeric: tabular-nums; }
 .public-work-guide { display: grid; gap: 8px; margin-top: 22px; padding: clamp(18px, 3vw, 28px); border: 1px solid #35475d; border-radius: 14px; background: linear-gradient(145deg, #0d1928, #08121e); }
 .public-work-guide h3 { margin: 10px 0 0; color: #f2cc63; }
@@ -861,9 +863,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .research-option-select { min-width: 210px; }
 .compact-export-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .crm-card-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.quality-ring { --quality: 0; flex: 0 0 46px; width: 46px; height: 46px; display: grid; place-items: center; position: relative; border-radius: 50%; background: conic-gradient(var(--gold) calc(var(--quality) * 1%), #243346 0); }
-.quality-ring::after { content: ''; position: absolute; inset: 4px; border-radius: inherit; background: #0b1625; }
-.quality-ring b { position: relative; z-index: 1; font-size: 11px; }
 .quality-unavailable { max-width: 62px; color: var(--muted); font-size: 10px; line-height: 1.15; text-align: right; }
 .execution-status.pending { background: #282817; color: #f2dc7d; }
 .execution-status.review { background: #332419; color: #f2b56f; }
@@ -921,7 +920,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .site-header .brand { grid-column: 1; grid-row: 1; }
   .top-navigation { grid-column: 2; grid-row: 1; min-width: 0; }
   .site-header .header-actions { grid-column: 3; grid-row: 1; min-width: 0; justify-content: flex-end; }
-  .top-navigation .admin-control-menu:not([hidden]) { display: block; }
+  .site-header .header-actions .admin-control-menu:not([hidden]) { display: block; }
 }
 
 @media (max-width: 1100px) {
@@ -942,12 +941,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .site-header .account-menu { position: relative; margin: 0; flex: 0 0 auto; }
   .top-navigation { position: absolute; top: calc(100% + 1px); right: 14px; left: 14px; display: none; grid-template-columns: 1fr 1fr; padding: 10px; border: 1px solid #34465b; border-radius: 12px; background: #07111ef8; box-shadow: 0 22px 50px #000b; }
   .top-navigation.open { display: grid; }
-  .top-navigation .admin-control-menu:not([hidden]) { display: block; grid-column: 1 / -1; }
-  .top-navigation .admin-control-menu > summary { min-height: 42px; justify-content: center; }
-  .top-navigation .admin-control-popover { position: static; width: 100%; margin-top: 6px; box-shadow: none; }
-  .top-navigation .admin-client-view:not([hidden]) { position: static; display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; width: 100%; min-width: 0; padding: 10px; border: 1px solid #34465b; border-radius: 10px; background: #0b1726; box-shadow: none; }
-  .top-navigation .admin-client-view label { max-width: none; }
-  .top-navigation .admin-client-view small { grid-column: 1 / -1; }
+  .site-header .header-actions .admin-control-menu:not([hidden]) { display: block; }
   .more-menu { grid-column: 1 / -1; }
   .more-menu > summary { min-height: 42px; }
   .more-menu > div { position: static; grid-template-columns: 1fr 1fr; margin-top: 5px; box-shadow: none; }
@@ -1038,8 +1032,8 @@ tbody tr:last-child td { border-bottom: 0; }
 
 @media (max-width: 768px) {
   .top-navigation { grid-template-columns: 1fr; }
-  .top-navigation .admin-client-view:not([hidden]) { grid-template-columns: 1fr; }
-  .top-navigation .admin-client-view small { grid-column: 1; white-space: normal; }
+  .site-header .header-actions .admin-client-view:not([hidden]) { grid-template-columns: 1fr; }
+  .site-header .header-actions .admin-client-view small { grid-column: 1; white-space: normal; }
   .admin-presentation-toggle { grid-template-columns: 1fr 1fr; }
 }
 

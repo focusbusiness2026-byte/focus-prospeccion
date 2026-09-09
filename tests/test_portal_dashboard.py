@@ -89,8 +89,9 @@ def test_portal_has_selected_account_real_schedule_and_kanban_exports():
     prospeccion = html[html.index('id="sources"'):html.index('id="results"')]
     assert 'raspado' not in prospeccion
     assert 'Arrastra una tarjeta o cambia su estado.' in html
-    assert 'Exportar para Google / CRM' in html
+    assert 'Exportar para GoHighLevel' in html
     assert 'Exportar para Meta' in html
+    assert 'Raspado Personalizado' in html
     assert 'Columnas incluidas en el CSV' in html
     assert 'selectedFields=[]' in html
 
@@ -125,8 +126,10 @@ def test_mobile_header_keeps_the_account_control_next_to_the_menu_toggle():
     assert '.account-menu > summary { min-width: 40px; width: 40px; min-height: 40px; height: 40px;' in css
     assert '.account-avatar { display: block;' in css
     navigation = html[html.index('id="top-navigation"'):html.index('</nav>')]
-    assert 'id="admin-client-view"' in navigation
-    assert '.top-navigation .admin-client-view:not([hidden]) { position: static;' in mobile_header
+    header_actions = html[html.index('<div class="header-actions">'):html.index('</header>')]
+    assert 'id="admin-client-view"' not in navigation
+    assert 'id="admin-client-view"' in header_actions
+    assert '.site-header .header-actions .admin-control-menu:not([hidden]) { display: block;' in mobile_header
     assert '@media (max-width: 768px)' in css
 
 
@@ -531,15 +534,26 @@ def test_visible_suggestion_copy_is_strictly_provider_neutral():
     assert "No se pudieron generar sugerencias en este momento. Inténtalo de nuevo más tarde." in portal
 
 
-def test_kanban_quality_is_accessible_and_derived_from_score_only():
+def test_kanban_cards_do_not_show_a_quality_percentage_ring():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
     css = Path("app/static/app.css").read_text(encoding="utf-8")
-    assert "function scoreQualityPercent(score)" in portal
-    assert "score===null||score===undefined||score===''" in portal
-    assert "Math.round((numeric/10)*100)" in portal
-    assert 'aria-label="Calidad ${quality} por ciento"' in portal
-    assert "Calidad no disponible" in portal
-    assert "conic-gradient" in css
+    assert "function scoreQualityPercent(score)" not in portal
+    assert 'aria-label="Calidad ${quality} por ciento"' not in portal
+    assert 'class="quality-ring"' not in portal
+    assert ".quality-ring" not in css
+
+
+def test_contact_export_is_simplified_for_gohighlevel_and_custom_scrape_is_safe():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    dialog = portal[portal.index('id="ghl-export-dialog"'):portal.index('id="briefing-dialog"')]
+    assert "Exportar contactos para GoHighLevel" in dialog
+    assert "Productora aislada" not in dialog
+    assert "Propósito" not in dialog
+    assert "Leads seleccionados y deduplicados" not in dialog
+    assert 'id="ghl-contact-count"' not in dialog
+    assert 'id="ghl-lead-list"' not in dialog
+    assert 'id="open-custom-scrape"' in portal
+    assert "document.querySelector('#open-custom-scrape').addEventListener('click',()=>showView('sources',true))" in portal
 
 
 def test_client_execution_view_shows_terminal_statuses_metrics_and_safe_traceability():
