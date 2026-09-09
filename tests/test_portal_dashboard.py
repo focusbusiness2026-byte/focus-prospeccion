@@ -571,7 +571,9 @@ def test_contact_export_is_simplified_for_gohighlevel_and_custom_scrape_is_safe(
     assert 'id="ghl-lead-list"' not in dialog
     assert 'id="open-custom-scrape"' in portal
     assert "document.querySelector('#open-custom-scrape').addEventListener('click',()=>openCustomScrape())" in portal
-    assert "function openCustomScrape(columnId=''){showView('sources',false)" in portal
+    assert 'id="custom-scrape-dialog"' in portal
+    assert "function openCustomScrape(){const dialog=document.querySelector('#custom-scrape-dialog')" in portal
+    assert "showView('sources'" not in portal[portal.index("function openCustomScrape()"):portal.index("function openKanbanQuickAdd")]
 
 
 def test_questionnaire_keeps_context_and_renders_proposals_in_dialog():
@@ -588,6 +590,8 @@ def test_kanban_has_add_and_horizontal_canvas_controls():
     assert "DESPLAZAR CANVAS" in portal
     assert "data-add-to-column" in portal
     assert "function bindCrmCanvasControls(container,previousScroll=0)" in portal
+    assert "openKanbanQuickAdd(add.dataset.addToColumn)" in portal
+    assert 'id="kanban-quick-add-dialog"' in portal
     assert ".crm-canvas-scroll" in css
 
 
@@ -596,6 +600,8 @@ def test_lead_detail_has_individual_and_complete_copy_actions():
     assert "data-copy-value" in portal
     assert "Copiar notas" in portal
     assert "Copiar ficha completa" in portal
+    assert 'class="copy-field-button"' in portal
+    assert ".copy-field-button { min-width: 56px; min-height: 24px; padding: 3px 8px;" in Path("app/static/app.css").read_text(encoding="utf-8")
 
 
 def test_client_execution_view_shows_terminal_statuses_metrics_and_safe_traceability():
