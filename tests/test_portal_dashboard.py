@@ -573,7 +573,7 @@ def test_contact_export_is_simplified_for_gohighlevel_and_custom_scrape_is_safe(
     assert "document.querySelector('#open-custom-scrape').addEventListener('click',()=>openCustomScrape())" in portal
     assert 'id="custom-scrape-dialog"' in portal
     assert "function openCustomScrape(){const dialog=document.querySelector('#custom-scrape-dialog')" in portal
-    assert "showView('sources'" not in portal[portal.index("function openCustomScrape()"):portal.index("function openKanbanQuickAdd")]
+    assert "showView('sources'" not in portal[portal.index("function openCustomScrape()"):portal.index("const quickKanbanStorageKey")]
 
 
 def test_questionnaire_keeps_context_and_renders_proposals_in_dialog():
@@ -590,8 +590,12 @@ def test_kanban_has_add_and_horizontal_canvas_controls():
     assert "DESPLAZAR CANVAS" in portal
     assert "data-add-to-column" in portal
     assert "function bindCrmCanvasControls(container,previousScroll=0)" in portal
-    assert "openKanbanQuickAdd(add.dataset.addToColumn)" in portal
-    assert 'id="kanban-quick-add-dialog"' in portal
+    assert "createQuickKanbanTask(add.dataset.addToColumn)" in portal
+    assert 'id="kanban-quick-add-dialog"' not in portal
+    assert "button.dataset.addToColumn!=='Aprobado para descarga'" in portal
+    assert "function createQuickKanbanTask(columnId){if(columnId!=='Aprobado para descarga')return;" in portal
+    assert "focus_quick_kanban_tasks_v1:" in portal
+    assert "moveCrmProspect=async function(id,columnId)" in portal
     assert ".crm-canvas-scroll" in css
 
 
