@@ -67,6 +67,62 @@ def test_research_start_rejects_an_exhausted_client_before_scheduling_provider_w
         get_settings.cache_clear()
 
 
+def test_client_can_save_and_delete_only_its_scoped_search_options(monkeypatch):
+    calls = []
+
+    class SavedSearchApiStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, email):
+            return AccessRecord(2, email, "Cliente", "Activo", 50, 0)
+
+        def get_onboarding_source(self, record_id, email=None):
+            calls.append(("source", record_id, email))
+            if record_id != "ONB-CLIENT" or email != "client@example.com":
+                return None
+            return type("Source", (), {"record_id": record_id, "email": email})()
+
+        def upsert_saved_search(self, onboarding_id, owner_email, **values):
+            calls.append(("save", onboarding_id, owner_email, values))
+            return {"saved_search_id": "SEARCH-ONE", "onboarding_id": onboarding_id, "owner_email": owner_email, **values}
+
+        def delete_saved_search(self, saved_search_id, onboarding_id, owner_email):
+            calls.append(("delete", saved_search_id, onboarding_id, owner_email))
+            return saved_search_id == "SEARCH-ONE"
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", SavedSearchApiStore)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity("client@example.com", "Cliente", "client")
+    try:
+        client = TestClient(main_module.app)
+        client.cookies.set(CSRF_COOKIE, "csrf-test")
+        created = client.post(
+            "/api/onboarding-sources/ONB-CLIENT/saved-searches",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"name": "Madrid B2B", "favorite": True, "adjustments": {"sectors": ["Tecnología"]}},
+        )
+        deleted = client.delete(
+            "/api/onboarding-sources/ONB-CLIENT/saved-searches/SEARCH-ONE",
+            headers={"X-CSRF-Token": "csrf-test"},
+        )
+        denied = client.post(
+            "/api/onboarding-sources/ONB-OTHER/saved-searches",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"name": "No permitido"},
+        )
+
+        assert created.status_code == 200
+        assert created.json()["saved_search"]["name"] == "Madrid B2B"
+        assert deleted.status_code == 200
+        assert denied.status_code == 404
+        assert ("delete", "SEARCH-ONE", "ONB-CLIENT", "client@example.com") in calls
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_portal_has_selected_account_real_schedule_and_kanban_exports():
     html = Path('app/templates/portal.html').read_text(encoding='utf-8')
     assert 'Tipo de venta' not in html
@@ -678,11 +734,26 @@ def test_improvements_use_focus_loading_screen_and_named_options():
     portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
     css = Path("app/static/app.css").read_text(encoding="utf-8")
     assert 'id="portal-operation-loading"' in portal
-    assert "showOperationLoading('Mejorando tu prospección'" in portal
-    assert "finally{hideOperationLoading();}" in portal
+    assert "showOperationLoading('Creando tus tres propuestas'" in portal
+    assert "await hideOperationLoading();" in portal
     assert 'data-improvement-name="${index}"' in portal
     assert 'data-recommended-choice' in portal
     assert ".portal-operation-loading[hidden]" in css
+
+
+def test_questionnaire_proposals_use_loading_overlay_and_saved_search_registry():
+    portal = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    css = Path("app/static/app.css").read_text(encoding="utf-8")
+
+    assert "showOperationLoading('Preparando tus preguntas'" in portal
+    assert "showOperationLoading('Creando tus tres propuestas'" in portal
+    assert "/saved-searches" in portal
+    assert "Configuración recomendada" in portal
+    assert "data-saved-search-selector" in portal
+    assert "data-delete-saved-search" in portal
+    assert "document.querySelector('#prospecting-questionnaire-dialog')?.close()" in portal
+    assert "Guardado:" in portal
+    assert ".saved-search-dashboard" in css
 
 
 def test_compact_header_and_named_export_controls_are_present():

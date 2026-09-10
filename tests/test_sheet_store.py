@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import re
 
 import pytest
 
@@ -8,6 +9,7 @@ from app.sheet_store import (
     DASHBOARD_HEADERS,
     EXECUTION_HEADERS,
     PROSPECT_HEADERS,
+    SAVED_SEARCH_HEADERS,
     SheetStore,
     TransientSheetWriteError,
 )
@@ -475,6 +477,72 @@ def test_automation_schedule_accepts_one_week_interval():
         created_by_role="Administrador",
     )
     assert result["interval_minutes"] == 10080
+
+
+class SavedSearchStore(SheetStore):
+    def __init__(self, rows=None):
+        super().__init__(Settings(google_sheet_id="sheet", google_service_account_json="{}"))
+        self.rows = rows or []
+        self.appends = []
+        self.updates = []
+
+    def _sheet_properties(self):
+        return [{"sheetId": 14, "title": "Busquedas Guardadas", "gridProperties": {"columnCount": 10}}]
+
+    def _get(self, a1_range):
+        if "A1:J1" in a1_range:
+            return [SAVED_SEARCH_HEADERS]
+        return self.rows if "Busquedas Guardadas" in a1_range else []
+
+    def _append(self, a1_range, values):
+        self.appends.append((a1_range, values))
+        self.rows.extend(values)
+
+    def _update(self, a1_range, values):
+        self.updates.append((a1_range, values))
+        match = re.search(r"(?:[A-Z]+)(\d+)(?::[A-Z]+\d+)?$", a1_range)
+        if not match:
+            return
+        row_index = int(match.group(1)) - 2
+        if row_index < 0 or row_index >= len(self.rows):
+            return
+        if "!E" in a1_range and ":" not in a1_range:
+            self.rows[row_index][4] = values[0][0]
+        else:
+            self.rows[row_index] = values[0]
+
+
+def test_saved_searches_preserve_multiple_named_options_and_one_favorite():
+    store = SavedSearchStore()
+
+    first = store.upsert_saved_search(
+        "ONB-001", "Owner@Example.com", name="Madrid B2B", adjustments={"sectors": ["Tecnología"]},
+        favorite=True, created_by_email="owner@example.com", created_by_role="Cliente",
+    )
+    second = store.upsert_saved_search(
+        "ONB-001", "owner@example.com", name="Portugal B2C", adjustments={"target_countries": ["Portugal"]},
+        favorite=True, created_by_email="owner@example.com", created_by_role="Cliente",
+    )
+
+    saved = store.saved_searches("owner@example.com", "ONB-001")
+    assert {item["name"] for item in saved} == {"Madrid B2B", "Portugal B2C"}
+    assert [item["name"] for item in saved if item["favorite"]] == ["Portugal B2C"]
+    assert first["saved_search_id"] != second["saved_search_id"]
+
+
+def test_saved_search_can_be_deleted_without_touching_other_options():
+    store = SavedSearchStore()
+    first = store.upsert_saved_search(
+        "ONB-001", "owner@example.com", name="Opción uno", adjustments={}, favorite=False,
+        created_by_email="owner@example.com", created_by_role="Cliente",
+    )
+    second = store.upsert_saved_search(
+        "ONB-001", "owner@example.com", name="Opción dos", adjustments={}, favorite=True,
+        created_by_email="owner@example.com", created_by_role="Cliente",
+    )
+
+    assert store.delete_saved_search(first["saved_search_id"], "ONB-001", "owner@example.com") is True
+    assert [item["saved_search_id"] for item in store.saved_searches("owner@example.com", "ONB-001")] == [second["saved_search_id"]]
 
 
 def test_client_execution_history_hides_explicit_admin_runs():

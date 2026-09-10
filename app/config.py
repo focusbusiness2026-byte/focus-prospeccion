@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     google_automation_tab: str = "Automatizaciones"
     google_dashboard_tab: str = "Dashboard Prospeccion"
     google_lead_reviews_tab: str = "Revisiones Leads"
+    google_saved_searches_tab: str = "Busquedas Guardadas"
     google_service_account_json: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-5.5"

@@ -458,6 +458,12 @@ h2 { margin: 0 0 10px; font-size: 26px; }
 .source-select select { background: #0c131d; }
 .prospecting-studio > .source-summary { margin: 0; padding: 11px 26px; border-right: 1px solid #263445; border-left: 1px solid #263445; background: #0d151f; color: var(--lime-soft); }
 .research-workspace { border: 1px solid #263445; border-top: 0; border-radius: 0 0 16px 16px; overflow: hidden; background: #070c13; box-shadow: 0 32px 90px #0007; }
+.saved-search-dashboard { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(240px, .9fr) auto; align-items: end; gap: 14px; padding: 18px 26px; border-bottom: 1px solid #263445; background: linear-gradient(110deg, #101b2a, #0a111b); }
+.saved-search-dashboard h4, .saved-search-dashboard p { margin: 0; }
+.saved-search-dashboard p:not(.eyebrow), .saved-search-dashboard > small { color: #8d9bad; font-size: 11px; }
+.saved-search-dashboard .input { margin: 0; }
+.saved-search-actions { display: flex; align-items: center; gap: 8px; }
+.saved-search-dashboard > small { grid-column: 1 / -1; }
 .research-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-width: 0; }
 .research-builder { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 26px; }
 .research-builder > * { min-width: 0; }
@@ -646,6 +652,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .filter-button { width: 100%; }
   .studio-toolbar { align-items: stretch; flex-direction: column; }
   .studio-toolbar-actions { width: 100%; min-width: 0; }
+  .saved-search-dashboard { grid-template-columns: 1fr 1fr; }
+  .saved-search-dashboard > div:first-child, .saved-search-dashboard > small { grid-column: 1 / -1; }
   .research-layout { grid-template-columns: 1fr; }
   .icp-preview { border-top: 1px solid #273443; border-left: 0; }
   .professional-grid { grid-template-columns: 1fr 1fr; }
@@ -677,6 +685,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .result-score { grid-row: 1; justify-self: end; }
   .angle, .detail-grid .wide { grid-column: 1; }
   .sidebar { padding: 15px; }
+  .saved-search-dashboard { grid-template-columns: 1fr; padding: 18px; }
+  .saved-search-dashboard > div:first-child, .saved-search-dashboard > small { grid-column: 1; }
+  .saved-search-actions { align-items: stretch; flex-direction: column; }
+  .saved-search-actions button { width: 100%; }
   .brand { font-size: 18px; }
   .brand i { width: 45px; height: 45px; }
   .nav-step { min-width: 158px; }

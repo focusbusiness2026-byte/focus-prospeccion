@@ -110,6 +110,10 @@ LEAD_REVIEW_HEADERS = [
     "event_id", "event_type", "onboarding_id", "owner_email", "execution_id", "actor_email",
     "actor_role", "decision", "reason", "created_at", "scope_json", "result_status", "result_ref",
 ]
+SAVED_SEARCH_HEADERS = [
+    "saved_search_id", "onboarding_id", "owner_email", "name", "favorite", "created_at",
+    "updated_at", "adjustments_json", "created_by_email", "created_by_role",
+]
 
 
 @dataclass(frozen=True)
@@ -319,6 +323,106 @@ class SheetStore:
             self._ensure_sheet_capacity(tab, len(LEAD_REVIEW_HEADERS))
             self._ensure_header_row(tab, LEAD_REVIEW_HEADERS)
             _verified_lead_review_schemas.add(key)
+
+    def _saved_search_tab_exists(self) -> bool:
+        return any(
+            item.get("title") == self.settings.google_saved_searches_tab
+            for item in self._sheet_properties()
+        )
+
+    def ensure_saved_search_schema(self) -> None:
+        tab = self.settings.google_saved_searches_tab
+        self._ensure_sheet_capacity(tab, len(SAVED_SEARCH_HEADERS))
+        self._ensure_header_row(tab, SAVED_SEARCH_HEADERS)
+
+    def saved_searches(self, owner_email: str | None = None, onboarding_id: str | None = None) -> list[dict]:
+        if not self._saved_search_tab_exists():
+            return []
+        rows = self._get(f"'{self.settings.google_saved_searches_tab}'!A2:J2000")
+        normalized_email = owner_email.strip().lower() if owner_email else None
+        output: list[dict] = []
+        for index, row in enumerate(rows, start=2):
+            padded = row + [""] * (len(SAVED_SEARCH_HEADERS) - len(row))
+            if not str(padded[0]).strip():
+                continue
+            email = str(padded[2]).strip().lower()
+            source_id = str(padded[1]).strip()
+            if normalized_email and email != normalized_email:
+                continue
+            if onboarding_id and source_id != onboarding_id.strip():
+                continue
+            output.append({
+                "row": index,
+                "saved_search_id": str(padded[0]).strip(),
+                "onboarding_id": source_id,
+                "owner_email": email,
+                "name": str(padded[3]).strip() or "Búsqueda guardada",
+                "favorite": str(padded[4]).strip().lower() in {"true", "1", "si", "sí"},
+                "created_at": str(padded[5]).strip(),
+                "updated_at": str(padded[6]).strip(),
+                "adjustments": self._json_object(padded[7]),
+                "created_by_email": str(padded[8]).strip().lower(),
+                "created_by_role": str(padded[9]).strip(),
+            })
+        return output
+
+    def upsert_saved_search(
+        self,
+        onboarding_id: str,
+        owner_email: str,
+        *,
+        name: str,
+        adjustments: dict,
+        favorite: bool,
+        created_by_email: str,
+        created_by_role: str,
+    ) -> dict:
+        self.ensure_saved_search_schema()
+        normalized_email = owner_email.strip().lower()
+        clean_name = " ".join(name.split())[:80]
+        existing_rows = self.saved_searches(normalized_email, onboarding_id)
+        existing = next((item for item in existing_rows if item["name"].casefold() == clean_name.casefold()), None)
+        now = datetime.now(timezone.utc).isoformat()
+        saved_id = existing["saved_search_id"] if existing else f"SEARCH-{uuid.uuid4().hex[:12].upper()}"
+        created_at = existing["created_at"] if existing else now
+        if favorite:
+            for item in existing_rows:
+                if item["saved_search_id"] != saved_id and item["favorite"]:
+                    self._update(f"'{self.settings.google_saved_searches_tab}'!E{item['row']}", [[False]])
+        values = [[
+            saved_id, onboarding_id, normalized_email, clean_name, favorite, created_at, now,
+            json.dumps(adjustments or {}, ensure_ascii=False),
+            created_by_email.strip().lower(), created_by_role.strip(),
+        ]]
+        if existing:
+            self._update(f"'{self.settings.google_saved_searches_tab}'!A{existing['row']}:J{existing['row']}", values)
+        else:
+            self._append(f"'{self.settings.google_saved_searches_tab}'!A:J", values)
+        return {
+            "saved_search_id": saved_id,
+            "onboarding_id": onboarding_id,
+            "owner_email": normalized_email,
+            "name": clean_name,
+            "favorite": favorite,
+            "created_at": created_at,
+            "updated_at": now,
+            "adjustments": adjustments or {},
+            "created_by_email": created_by_email.strip().lower(),
+            "created_by_role": created_by_role.strip(),
+        }
+
+    def delete_saved_search(self, saved_search_id: str, onboarding_id: str, owner_email: str) -> bool:
+        item = next(
+            (
+                candidate for candidate in self.saved_searches(owner_email, onboarding_id)
+                if candidate["saved_search_id"] == saved_search_id.strip()
+            ),
+            None,
+        )
+        if not item:
+            return False
+        self._update(f"'{self.settings.google_saved_searches_tab}'!A{item['row']}:J{item['row']}", [[""] * len(SAVED_SEARCH_HEADERS)])
+        return True
 
     @staticmethod
     def _review_from_row(row: list) -> dict:

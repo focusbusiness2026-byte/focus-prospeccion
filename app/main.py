@@ -144,6 +144,12 @@ class ProspectingQuestionnaireRequest(BaseModel):
     question_count: int = Field(default=10, ge=5, le=30)
 
 
+class SavedSearchRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    favorite: bool = True
+    adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
+
+
 _RESEARCH_JOBS: dict[str, dict] = {}
 _ACTIVE_RESEARCH_JOBS: dict[tuple[str, str], str] = {}
 _RESEARCH_JOBS_LOCK = Lock()
@@ -866,6 +872,12 @@ def portal_dashboard(
         )
         for source in source_records
     ]
+    saved_search_reader = getattr(store, "saved_searches", None)
+    saved_searches = saved_search_reader(scope_email) if callable(saved_search_reader) else []
+    for source in sources:
+        source["saved_searches"] = [
+            item for item in saved_searches if item.get("onboarding_id") == source["onboarding_id"]
+        ]
     review_events = store.review_events(scope_email)
     prospects = decorate_prospects(
         store.recent_prospects(scope_email),
@@ -1122,6 +1134,59 @@ def save_onboarding_automation(
         created_by_role=access.role,
     )
     return {"ok": True, "automation": schedule}
+
+
+@app.post("/api/onboarding-sources/{record_id}/saved-searches")
+def save_onboarding_search(
+    record_id: str,
+    payload: SavedSearchRequest,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    _require_real_sheets(settings)
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    saved = store.upsert_saved_search(
+        source.record_id,
+        source.email,
+        name=payload.name,
+        adjustments=payload.adjustments.model_dump(),
+        favorite=payload.favorite,
+        created_by_email=identity.email,
+        created_by_role=access.role,
+    )
+    return {"ok": True, "saved_search": saved}
+
+
+@app.delete("/api/onboarding-sources/{record_id}/saved-searches/{saved_search_id}")
+def delete_onboarding_search(
+    record_id: str,
+    saved_search_id: str,
+    request: Request,
+    identity: Identity = Depends(require_identity),
+):
+    validate_csrf(request)
+    settings = get_settings()
+    _require_real_sheets(settings)
+    store = SheetStore(settings)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
+    is_admin = _is_authorized_admin(identity, access, settings)
+    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    if not source:
+        raise HTTPException(status_code=404, detail="No se encontró la productora")
+    if not store.delete_saved_search(saved_search_id, source.record_id, source.email):
+        raise HTTPException(status_code=404, detail="No se encontró la búsqueda guardada")
+    return {"ok": True, "deleted": saved_search_id}
 
 
 def _questionnaire_source_profile(source) -> dict:
