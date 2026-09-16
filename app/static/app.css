@@ -1112,3 +1112,41 @@ tbody tr:last-child td { border-bottom: 0; }
   .review-state-grid { grid-template-columns: 1fr; }
   .decision-actions > *, .summary-request-card > button { width: 100%; }
 }
+
+/* Focus Business palette for the existing production portal. */
+:root {
+  --ink:#06101e;
+  --panel:#0c1727;
+  --panel-2:#0c1727;
+  --line:#d9af432e;
+  --paper:#f7f5f0;
+  --muted:#b3aea2;
+  --gold:#d9af43;
+  --gold-soft:#e8c66d;
+}
+body { background:radial-gradient(circle at 82% 8%,rgba(217,175,67,.09),transparent 25%),linear-gradient(135deg,#06101e,#0c1727); color:var(--paper) }
+.site-header,.portal-boot-screen { background:#06101e; border-color:var(--line) }
+.card,.access-card,.stats article,.crm-column,.crm-board-card,.crm-trello-card,
+.activity-card,.method-card,.search-card,.results-section,.automation-panel,
+.dashboard-automation-quick,.portal-role-banner,.public-work-guide,
+.lead-decision-panel,.summary-request-card,.review-state-grid>div {
+  background:#0c1727;
+  border-color:var(--line);
+  color:var(--paper);
+}
+.portal-role-banner.admin { box-shadow:inset 4px 0 var(--gold),0 14px 34px #0005 }
+.portal-role-banner.admin,.portal-role-banner.client { background:#0c1727; border-color:var(--line) }
+.portal-role-icon,.portal-role-badge { border-color:var(--gold); color:var(--gold); background:#06101e }
+.admin-control-menu>summary,.account-menu>summary,.crm-column-add,.crm-canvas-scroll button {
+  background:#0c1727;
+  border-color:var(--line);
+  color:var(--gold);
+}
+.top-link.current,.top-link:hover,.admin-control-menu>summary:hover {
+  border-color:var(--gold);
+  color:var(--gold);
+}
+.primary,.small-button.primary { background:var(--gold); border-color:var(--gold); color:var(--ink) }
+input,select,textarea { accent-color:var(--gold) }
+input:focus-visible,select:focus-visible,textarea:focus-visible,
+button:focus-visible,a:focus-visible,summary:focus-visible { outline:2px solid var(--gold); outline-offset:2px }
