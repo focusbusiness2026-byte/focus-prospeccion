@@ -1042,16 +1042,15 @@ def start_research_job(
 
 @app.get("/api/research-jobs/{job_id}")
 def research_job_status(job_id: str, identity: Identity = Depends(require_identity)):
-    settings = get_settings()
     with _RESEARCH_JOBS_LOCK:
         job = dict(_RESEARCH_JOBS.get(job_id) or {})
     if not job:
         raise HTTPException(status_code=404, detail="No se encontró la investigación")
-    store = SheetStore(settings)
-    access = store.get_access(identity.email) if settings.google_sheets_enabled else None
-    is_admin = bool(access and _is_authorized_admin(identity, access, settings))
-    if identity.email.strip().lower() != job.get("owner_email") and not is_admin:
-        raise HTTPException(status_code=404, detail="No se encontró la investigación")
+    if identity.email.strip().lower() != job.get("owner_email"):
+        settings = get_settings()
+        access = SheetStore(settings).get_access(identity.email) if settings.google_sheets_enabled else None
+        if not _is_authorized_admin(identity, access, settings):
+            raise HTTPException(status_code=404, detail="No se encontró la investigación")
     return _public_research_job(job)
 
 

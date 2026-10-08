@@ -67,6 +67,134 @@ def test_research_start_rejects_an_exhausted_client_before_scheduling_provider_w
         get_settings.cache_clear()
 
 
+def test_research_status_for_owner_does_not_depend_on_a_sheet_read(monkeypatch):
+    class UnavailableSheetStore:
+        def __init__(self, settings=None):
+            raise AssertionError("Polling the owner's job must not read Google Sheets")
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", UnavailableSheetStore)
+    main_module._RESEARCH_JOBS["JOB-OWNER"] = {
+        "job_id": "JOB-OWNER", "source_id": "ONB-OWNER",
+        "owner_email": "client@example.com", "status": "running",
+        "phase": "searching", "progress": 35, "message": "Buscando",
+        "leads_found": 0, "saved_leads": [],
+    }
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity("client@example.com", "Cliente", "client")
+    try:
+        response = TestClient(main_module.app).get("/api/research-jobs/JOB-OWNER")
+        assert response.status_code == 200
+        assert response.json()["progress"] == 35
+    finally:
+        main_module._RESEARCH_JOBS.pop("JOB-OWNER", None)
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_research_status_still_checks_admin_access_for_other_accounts(monkeypatch):
+    class AccessStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, email):
+            role = "Administrador" if email == "admin@example.com" else "Cliente"
+            return AccessRecord(2, email, role, "Activo", 50, 0)
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", AccessStore)
+    main_module._RESEARCH_JOBS["JOB-OWNER"] = {
+        "job_id": "JOB-OWNER", "source_id": "ONB-OWNER",
+        "owner_email": "owner@example.com", "status": "running",
+        "phase": "searching", "progress": 35,
+    }
+    try:
+        main_module.app.dependency_overrides[require_identity] = lambda: Identity("other@example.com", "Cliente", "other")
+        assert TestClient(main_module.app).get("/api/research-jobs/JOB-OWNER").status_code == 404
+        main_module.app.dependency_overrides[require_identity] = lambda: Identity("admin@example.com", "Administrador", "admin")
+        assert TestClient(main_module.app).get("/api/research-jobs/JOB-OWNER").status_code == 200
+    finally:
+        main_module._RESEARCH_JOBS.pop("JOB-OWNER", None)
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_research_poll_retries_server_error_without_claiming_completion():
+    html = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    schedule = re.search(r"^    function scheduleResearchPoll.*$", html, re.MULTILINE).group(0)
+    poll = re.search(
+        r"^    async function pollResearchJob.*?(?=^    async function startResearchJob)",
+        html,
+        re.MULTILINE | re.DOTALL,
+    ).group(0)
+    script = """
+const assert=require('assert');
+const researchJobStates=new Map([['ONB-1',{job_id:'JOB-1',status:'running',phase:'searching',progress:35,leads_found:1,saved_leads:[{company:'Empresa'}]}]]);
+const researchJobTimers=new Map();
+const researchPollFailures=new Map();
+const dashboardData={user:null};
+const message={textContent:''};
+let calls=0,refreshes=0;const delays=[];
+const clearTimeout=()=>{};
+const setTimeout=(callback,delay)=>{delays.push(delay);return delays.length;};
+const renderResearchProgress=()=>{};
+const renderMetrics=()=>{};
+const loadDashboard=async()=>{refreshes++;};
+const fetch=async()=>{calls++;if(calls===1)return {ok:false,status:500,json:async()=>{throw new Error('A 500 body must not be parsed');}};
+  return {ok:true,status:200,json:async()=>({job_id:'JOB-1',status:'completed',phase:'completed',progress:100,leads_found:1,saved_leads:[{company:'Empresa'}],message:'Guardada'})};};
+""" + schedule + "\n" + poll + """
+(async()=>{
+  await pollResearchJob('ONB-1','JOB-1');
+  const pending=researchJobStates.get('ONB-1');
+  assert.equal(pending.status,'running');
+  assert.equal(pending.progress,35);
+  assert.equal(pending.leads_found,1);
+  assert.equal(researchPollFailures.get('ONB-1'),1);
+  assert.equal(delays[0],2400);
+  assert.ok(!message.textContent.includes('Unexpected token'));
+  await pollResearchJob('ONB-1','JOB-1');
+  assert.equal(researchJobStates.get('ONB-1').status,'completed');
+  assert.equal(researchPollFailures.has('ONB-1'),false);
+  assert.equal(refreshes,1);
+})().catch(error=>{console.error(error);process.exit(1);});
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_research_start_with_ambiguous_server_response_does_not_offer_a_duplicate():
+    html = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    mark = re.search(r"^    function markResearchStartUnconfirmed.*$", html, re.MULTILINE).group(0)
+    start = re.search(
+        r"^    async function startResearchJob.*?(?=^    async function runResearch)",
+        html,
+        re.MULTILINE | re.DOTALL,
+    ).group(0)
+    script = """
+const assert=require('assert');
+const researchJobStates=new Map();
+const message={textContent:''};
+const headers=()=>({});
+let polls=0;
+const scheduleResearchPoll=()=>{polls++;};
+const renderResearchProgress=()=>{};
+const fetch=async()=>({ok:false,status:500,json:async()=>{throw new Error('Unexpected token I');}});
+""" + mark + "\n" + start + """
+(async()=>{
+  const keepBlocked=await startResearchJob('ONB-1',{lead_count:5});
+  assert.equal(keepBlocked,true);
+  assert.equal(researchJobStates.get('ONB-1').status,'unavailable');
+  assert.equal(researchJobStates.get('ONB-1').progress,0);
+  assert.ok(message.textContent.includes('Revisa Ejecuciones'));
+  assert.ok(!message.textContent.includes('Unexpected token'));
+  assert.equal(polls,0);
+})().catch(error=>{console.error(error);process.exit(1);});
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_client_can_save_and_delete_only_its_scoped_search_options(monkeypatch):
     calls = []
 
