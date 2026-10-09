@@ -369,7 +369,7 @@ def test_client_identity_never_receives_admin_presentation_access(monkeypatch):
         def review_events(self, email=None):
             return []
 
-        def recent_prospects(self, email=None):
+        def recent_prospects(self, email=None, limit=50):
             return []
 
         def recent_executions(self, email=None, *, hide_admin=False):
@@ -422,7 +422,7 @@ def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeyp
         def review_events(self, email=None):
             return []
 
-        def recent_prospects(self, email=None):
+        def recent_prospects(self, email=None, limit=50):
             return []
 
         def recent_executions(self, email=None, *, hide_admin=False):
@@ -462,6 +462,57 @@ def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeyp
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
+
+
+def test_dashboard_includes_older_approved_and_discarded_leads(monkeypatch):
+    email = "client@example.com"
+    statuses = ["Aprobado para descarga", "Descartado"] + ["Nuevo"] * 51
+    leads = [
+        {"execution_id": f"lead-{index}", "email": email, "company": f"Lead {index}", "lead_status": status}
+        for index, status in enumerate(statuses)
+    ]
+
+    class DashboardStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, owner_email):
+            return AccessRecord(2, owner_email, "Cliente", "Activo", 50, 0)
+
+        def onboarding_sources(self, owner_email=None):
+            return []
+
+        def review_events(self, owner_email=None):
+            return []
+
+        def recent_prospects(self, owner_email=None, limit=50):
+            assert owner_email == email
+            return list(reversed(leads[-limit:]))
+
+        def recent_executions(self, owner_email=None, *, hide_admin=False):
+            return []
+
+        def prospect_metrics(self, owner_email=None):
+            return {"total": len(leads), "classifications": {}, "statuses": {
+                "Nuevo": 51, "Aprobado para descarga": 1, "Descartado": 1,
+            }}
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", DashboardStore)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity(email, "Cliente", "client")
+    try:
+        response = TestClient(main_module.app).get("/api/portal-dashboard")
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["prospects"]) == body["metrics"]["total"] == 53
+        assert {item["lead_status"] for item in body["prospects"]} == set(statuses)
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+    html = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    assert "m.statuses?.['Aprobado para descarga']" in html
 
 
 def test_kanban_drag_handle_moves_through_the_persisted_status_endpoint():
