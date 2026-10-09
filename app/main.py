@@ -880,7 +880,7 @@ def portal_dashboard(
         ]
     review_events = store.review_events(scope_email)
     prospects = decorate_prospects(
-        store.recent_prospects(scope_email),
+        store.recent_prospects(scope_email, limit=1000),
         review_events,
         require_admin_review=settings.lead_admin_review_required,
     )
