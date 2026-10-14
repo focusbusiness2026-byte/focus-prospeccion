@@ -49,6 +49,8 @@ from app.lead_reviews import (
     CLIENT_DECISIONS,
     decorate_prospects,
     is_admin_role,
+    normalized_company,
+    normalized_domain,
 )
 from app.sheet_store import (
     CONTACTS_PER_PROSPECTION_CYCLE,
@@ -258,6 +260,27 @@ def _admin_available_users(store: SheetStore, sources: list) -> list[dict]:
         user = users.setdefault(email, {"email": email, "role": "Cliente registrado", "onboarding_count": 0})
         user["onboarding_count"] += 1
     return sorted(users.values(), key=lambda item: item["email"])
+
+
+def _logical_onboarding_sources(sources: list) -> list[tuple[object, list[str]]]:
+    """Show one source per account without losing historical Onboarding IDs.
+
+    Sheets returns newest rows first.  The latest row is the visible profile;
+    older IDs stay available to the operational tabs and direct API lookups.
+    Requiring the same owner, company and website prevents merging two clients
+    merely because they share a business name or an administrator email.
+    """
+    groups: dict[tuple[str, str, str], tuple[object, list[str]]] = {}
+    for source in sources:
+        email = source.email.strip().casefold()
+        company = normalized_company(source.company)
+        domain = normalized_domain(source.website)
+        key = (email, company, domain) if email and company else ("", "", source.record_id)
+        if key not in groups:
+            groups[key] = (source, [])
+        if source.record_id not in groups[key][1]:
+            groups[key][1].append(source.record_id)
+    return list(groups.values())
 
 
 def _csv_cell(value) -> str:
@@ -863,20 +886,23 @@ def portal_dashboard(
         if scoped_access:
             scoped_access = visible_access
     source_records = scoped_sources if requested_scope and scoped_sources else store.onboarding_sources(scope_email)
-    sources = [
-        _source_view(
-            source,
-            settings,
-            store.latest_execution_for_onboarding(source.record_id),
-            store.get_automation_config(source.record_id),
+    source_groups = _logical_onboarding_sources(source_records)
+    sources = []
+    for source, aliases in source_groups:
+        latest = max(
+            (item for alias in aliases if (item := store.latest_execution_for_onboarding(alias))),
+            key=lambda item: str(item.get("created_at") or ""),
+            default=None,
         )
-        for source in source_records
-    ]
+        automation = next((item for alias in aliases if (item := store.get_automation_config(alias))), None)
+        view = _source_view(source, settings, latest, automation)
+        view["onboarding_alias_ids"] = aliases
+        sources.append(view)
     saved_search_reader = getattr(store, "saved_searches", None)
     saved_searches = saved_search_reader(scope_email) if callable(saved_search_reader) else []
     for source in sources:
         source["saved_searches"] = [
-            item for item in saved_searches if item.get("onboarding_id") == source["onboarding_id"]
+            item for item in saved_searches if item.get("onboarding_id") in source["onboarding_alias_ids"]
         ]
     review_events = store.review_events(scope_email)
     prospects = decorate_prospects(
@@ -895,7 +921,7 @@ def portal_dashboard(
     summary_events = [event for event in review_events if event.get("event_type") == "summary_request"]
     for source in sources:
         latest_request = max(
-            (event for event in summary_events if event.get("onboarding_id") == source["onboarding_id"]),
+            (event for event in summary_events if event.get("onboarding_id") in source["onboarding_alias_ids"]),
             key=lambda event: str(event.get("created_at") or ""),
             default=None,
         )
@@ -932,7 +958,7 @@ def portal_dashboard(
             "authenticated_email": identity.email,
             "viewing_as": requested_scope,
             "presentation_mode": "client" if client_presentation else "admin",
-            "available_users": _admin_available_users(store, all_sources) if is_admin else [],
+            "available_users": _admin_available_users(store, [group[0] for group in _logical_onboarding_sources(all_sources)]) if is_admin else [],
         },
         "automation_engine_enabled": settings.auto_research_enabled,
         "approval_policy": {"admin_review_required": settings.lead_admin_review_required},
