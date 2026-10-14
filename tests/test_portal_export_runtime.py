@@ -49,6 +49,26 @@ def test_csv_download_waits_for_browser_and_escapes_formula_cells():
     )
 
 
+def test_csv_download_anchor_stays_inside_open_modal_dialog():
+    js = _function("downloadLocalText")
+    _run_js(
+        "const assert=require('node:assert/strict');const vm=require('node:vm');"
+        "const links=[],revoked=[],timers=[];"
+        "const modal={appendChild(link){link.parent=this;links.push(link);}};"
+        "const context={Blob:class{},URL:{createObjectURL(){return 'blob:test';},"
+        "revokeObjectURL(url){revoked.push(url);}},"
+        "document:{body:{appendChild(){throw Error('body is inert while modal is open');}},"
+        "querySelector(selector){return selector==='dialog:modal'?modal:null;},"
+        "createElement(){return {click(){assert.equal(this.parent,modal);},"
+        "remove(){this.parent=null;}};}},setTimeout(callback,delay){assert.equal(delay,30000);timers.push(callback);}};"
+        "vm.createContext(context);vm.runInContext(" + json.dumps(js) + ",context);"
+        "context.downloadLocalText('leads-test.csv','company\\r\\nTest Company','text/csv');"
+        "assert.equal(links.length,1);assert.equal(links[0].download,'leads-test.csv');"
+        "assert.equal(links[0].parent,modal);assert.equal(revoked.length,0);"
+        "timers[0]();assert.equal(links[0].parent,null);assert.deepEqual(revoked,['blob:test']);"
+    )
+
+
 def test_meta_export_requires_eligible_rows_and_one_logical_account():
     js = "\n".join(_function(name) for name in ("exportScope", "downloadAudienceCsv"))
     _run_js(
@@ -71,4 +91,50 @@ def test_meta_export_requires_eligible_rows_and_one_logical_account():
         "assert.equal(context.exportScope('Aprobado para descarga').valid,false);"
         "context.downloadAudienceCsv(form);assert.equal(downloads.length,1);"
         "assert.match(context.message.textContent,/una sola cuenta/);"
+    )
+
+
+@pytest.mark.parametrize("storage_failure", ["corrupt", "denied"])
+def test_real_ghl_rows_export_without_obsolete_favorite_key_even_if_trace_fails(storage_failure):
+    js = "\n".join(_function(name) for name in (
+        "safeCsvCell", "recordExportTrace", "preferredExportAutomation", "ghlContactRows", "downloadGhlContacts", "downloadAudienceCsv"
+    ))
+    _run_js(
+        "const assert=require('node:assert/strict');const vm=require('node:vm');"
+        "const downloads=[],lead={execution_id:'synthetic',onboarding_id:'ONB-SYN',company:'Test Company'};"
+        "const context={localStorage:{getItem(){"
+        + ("throw new Error('storage denied');" if storage_failure == "denied" else "return '{';") + "},"
+        "setItem(){" + ("throw new Error('storage denied');" if storage_failure == "denied" else "") + "}},"
+        "exportScope(){return {valid:true,reason:'',productora:'Test Company',duplicates:[],items:[lead]};},"
+        "readCrmBoard(){return {assignments:{},columns:[]};},"
+        "readPreviewAutomations(){return [{id:'ONB-SYN',name:'Automatización favorita',favorite:true}];},"
+        "copyableLeadFields(){return [];},eligibleAudienceLeads(){return [lead];},"
+        "audienceContactData(){return {email:'test@example.invalid'};},"
+        "safeExportFilename(value){return value;},"
+        "downloadLocalText(...args){downloads.push(args);},message:{textContent:''}};"
+        "vm.createContext(context);vm.runInContext(" + json.dumps(js) + ",context);"
+        "context.downloadGhlContacts([], 'Aprobado para descarga', ['company','search_origin'], 'ghl-test');"
+        "const form={elements:{kanban_status:{value:'Aprobado para descarga'},filename:{value:'meta-test'}},"
+        "querySelectorAll(selector){return selector.includes('lead_ids')?[{value:'synthetic'}]:[{value:'email'}];}};"
+        "context.downloadAudienceCsv(form);"
+        "assert.deepEqual(downloads.map(item=>item[0]),['ghl-test.csv','meta-test.csv']);"
+        "assert.match(downloads[0][1],/Test Company/);assert.match(downloads[1][1],/test@example.invalid/);"
+        "assert.match(downloads[0][1],/\"Automatización favorita\"/);"
+    )
+
+
+def test_meta_export_review_remains_clickable_when_preferences_storage_is_denied():
+    js = _function("updateAudienceReview")
+    _run_js(
+        "const assert=require('node:assert/strict');const vm=require('node:vm');"
+        "const button={disabled:true},form={elements:{kanban_status:{value:'Aprobado para descarga'},"
+        "client:{value:'Test Company'},purpose:{value:'Legal B2B'},filename:{value:'meta-test'}},"
+        "querySelectorAll(selector){return selector.includes('lead_ids')?[{value:'synthetic'}]:[{value:'email'}];}};"
+        "const context={audiencePreferenceKey:'prefs',localStorage:{setItem(){throw Error('storage denied');}},"
+        "exportScope(){return {valid:true,reason:'',duplicates:[]};},esc(value){return value;},setText(){},"
+        "document:{querySelector(selector){return ({'#audience-export-form':form,"
+        "'#audience-legal-confirmation':{checked:true},'#audience-review':{innerHTML:''},"
+        "'#download-audience-csv':button})[selector];}}};"
+        "vm.createContext(context);vm.runInContext(" + json.dumps(js) + ",context);"
+        "context.updateAudienceReview();assert.equal(button.disabled,false);"
     )
