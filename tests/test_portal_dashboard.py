@@ -11,8 +11,9 @@ from app.auth import CSRF_COOKIE, Identity, require_identity
 from app.config import Settings
 from app.config import get_settings
 from app.build_info import portal_build_id
-from app.main import AutomationRequest, ResearchAdjustments, _client_execution_summary, _require_real_sheets
+from app.main import AutomationRequest, ResearchAdjustments, _admin_available_users, _client_execution_summary, _logical_onboarding_sources, _require_real_sheets
 from app.sheet_store import AccessRecord, ScrapeQuotaExceeded
+from app.onboarding import OnboardingSource
 
 
 def test_automation_request_supports_cycle_runs_without_changing_internal_limit():
@@ -402,6 +403,84 @@ def test_client_identity_never_receives_admin_presentation_access(monkeypatch):
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
+
+
+def test_dashboard_shows_one_logical_client_without_losing_alias_leads(monkeypatch):
+    email = "client@example.com"
+
+    def source(record_id):
+        return OnboardingSource.from_sheet_record({
+            "ID registro": record_id,
+            "Empresa": "Secrets Brands",
+            "Web": "https://secrets.example",
+            "Email responsable": email,
+        })
+
+    class DashboardStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, owner_email):
+            return AccessRecord(2, owner_email, "Cliente", "Activo", 50, 0)
+
+        def onboarding_sources(self, owner_email=None):
+            return [source("ONB-NEW"), source("ONB-OLD")] if owner_email == email else []
+
+        def latest_execution_for_onboarding(self, record_id):
+            return {"status": "Completada", "created_at": "2026-10-10T00:00:00Z" if record_id == "ONB-OLD" else "2026-10-09T00:00:00Z"}
+
+        def get_automation_config(self, record_id):
+            return None
+
+        def saved_searches(self, owner_email=None):
+            return []
+
+        def review_events(self, owner_email=None):
+            return []
+
+        def recent_prospects(self, owner_email=None, limit=1000):
+            assert owner_email == email
+            return [{"execution_id": "lead-old", "email": email, "onboarding_id": "ONB-OLD", "company": "Lead Uno", "lead_status": "Nuevo"},
+                    {"execution_id": "lead-new", "email": email, "onboarding_id": "ONB-NEW", "company": "Lead Dos", "lead_status": "Nuevo"}]
+
+        def recent_executions(self, owner_email=None, *, hide_admin=False):
+            return []
+
+        def prospect_metrics(self, owner_email=None):
+            return {"total": 2, "classifications": {}, "statuses": {"Nuevo": 2}}
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", DashboardStore)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity(email, "Cliente", "client")
+    try:
+        response = TestClient(main_module.app).get("/api/portal-dashboard")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source_metrics"]["total"] == 1
+        assert body["sources"][0]["onboarding_id"] == "ONB-NEW"
+        assert body["sources"][0]["onboarding_alias_ids"] == ["ONB-NEW", "ONB-OLD"]
+        assert body["sources"][0]["latest_execution"]["created_at"] == "2026-10-10T00:00:00Z"
+        assert len(body["prospects"]) == body["metrics"]["total"] == 2
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_admin_user_count_uses_logical_accounts_not_onboarding_rows():
+    sources = [OnboardingSource.from_sheet_record({
+        "ID registro": record_id,
+        "Empresa": "Secrets Brands",
+        "Web": "https://secrets.example",
+        "Email responsable": "client@example.com",
+    }) for record_id in ("ONB-THREE", "ONB-TWO", "ONB-ONE")]
+
+    class Store:
+        def access_records(self):
+            return [AccessRecord(2, "client@example.com", "Cliente", "Activo", 50, 0)]
+
+    users = _admin_available_users(Store(), [source for source, _ in _logical_onboarding_sources(sources)])
+    assert users[0]["onboarding_count"] == 1
 
 
 def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeypatch):

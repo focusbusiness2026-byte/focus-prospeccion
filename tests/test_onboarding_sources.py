@@ -1,6 +1,7 @@
 from app.config import Settings
 from app.onboarding import OnboardingSource
 from app.sheet_store import SheetStore
+from app.main import _logical_onboarding_sources
 
 
 HEADERS = [
@@ -120,3 +121,21 @@ def test_sheet_store_scopes_productoras_by_responsible_email():
 
     assert [source.record_id for source in own_sources] == ["ONB-UNO"]
     assert [source.record_id for source in all_sources] == ["ONB-DOS", "ONB-UNO"]
+
+
+def test_logical_account_keeps_historical_ids_and_never_merges_different_owners():
+    store = OnboardingStore()
+    older = onboarding_row("ONB-OLDER", "owner@example.com")
+    newer = onboarding_row("ONB-NEWER", "OWNER@example.com", "https://www.productora.example/new")
+    other_owner = onboarding_row("ONB-OTHER", "other@example.com")
+    other_domain = onboarding_row("ONB-OTHER-DOMAIN", "owner@example.com", "https://different.example")
+    store.rows = [HEADERS, older, newer, other_owner, other_domain]
+
+    groups = _logical_onboarding_sources(store.onboarding_sources())
+
+    assert len(groups) == 3
+    source, aliases = next(group for group in groups if group[0].record_id == "ONB-NEWER")
+    assert source.email == "owner@example.com"
+    assert aliases == ["ONB-NEWER", "ONB-OLDER"]
+    assert store.get_onboarding_source("ONB-OLDER", "owner@example.com") is not None
+    assert store.get_onboarding_source("ONB-OTHER", "owner@example.com") is None
