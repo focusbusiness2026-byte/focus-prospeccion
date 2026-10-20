@@ -28,6 +28,13 @@ def test_automation_request_supports_the_weekly_quick_option():
     assert payload.interval_minutes == 10080
 
 
+def test_automation_request_and_portal_support_five_minute_cycle():
+    payload = AutomationRequest(name="Prueba", interval_minutes=5, runs_per_cycle=1)
+    assert payload.interval_minutes == 5
+    portal = (Path(__file__).parents[1] / "app" / "templates" / "portal.html").read_text(encoding="utf-8")
+    assert "{minutes:5,runs:1,label:'5 minutos'}" in portal
+
+
 def test_real_sheet_source_is_required_when_unavailable():
     with pytest.raises(HTTPException) as exc:
         _require_real_sheets(Settings(google_sheets_enabled=False))

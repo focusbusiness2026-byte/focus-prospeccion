@@ -382,8 +382,9 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
         payload = self.build_payload(company, evidence, prospecting_profile)
         response = self._request(payload)
         queries, openai_sources, calls = self._trace(response)
-        if calls > self.settings.web_search_call_limit:
-            raise RuntimeError("OpenAI superó el límite local de búsquedas web")
+        # The provider enforces max_tool_calls in the request. A returned
+        # response may still contain more web_search_call output items than
+        # processed calls; rejecting valid output here discards completed work.
         try:
             data = json.loads(self._output_text(response) or "{}")
         except json.JSONDecodeError as exc:
@@ -634,8 +635,8 @@ AJUSTES OPCIONALES DEL DASHBOARD:
         payload = self.build_discovery_payload(prospecting_profile, adjustments)
         response = self._request(payload)
         queries, sources, calls = self._trace(response)
-        if calls > self.settings.web_search_call_limit:
-            raise RuntimeError("OpenAI superó el límite local de búsquedas web")
+        # Keep the observed output count for audit, but do not turn a valid
+        # provider response into a failed scrape after the search has run.
         try:
             data = json.loads(self._output_text(response) or "{}")
         except json.JSONDecodeError as exc:

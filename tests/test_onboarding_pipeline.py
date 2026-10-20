@@ -1,5 +1,9 @@
 from app.config import Settings
-from app.main import _process_onboarding_trigger, _run_onboarding_research, _sync_automations_once
+import asyncio
+
+import pytest
+
+from app.main import _automation_loop, _process_onboarding_trigger, _run_onboarding_research, _sync_automations_once
 from app.onboarding import OnboardingSource
 
 
@@ -140,6 +144,29 @@ def test_research_reports_real_phases_and_each_persisted_lead(monkeypatch):
     assert progress[-1]["leads_found"] == 1
 
 
+def test_successful_search_without_leads_is_recorded_as_completed(monkeypatch):
+    class EmptyDiscovery(FixtureDiscovery):
+        def discover(self, profile, adjustments):
+            _, trace = super().discover(profile, adjustments)
+            trace["no_prospect_reason"] = "No se encontraron empresas verificables."
+            return [], trace
+
+    monkeypatch.setattr("app.main.get_settings", lambda: Settings(openai_api_key="fixture-only", google_sheets_enabled=True))
+    monkeypatch.setattr("app.main.OpenAIProspectDiscovery", EmptyDiscovery)
+    store = PipelineStore()
+    progress = []
+
+    result = _run_onboarding_research(source(), store, progress_callback=progress.append)
+
+    assert result["ok"] is True
+    assert result["prospects"] == []
+    assert store.execution["status"] == "Completado sin prospectos"
+    assert store.prospects == []
+    assert store.successful_scrapes == 1
+    assert progress[-1]["phase"] == "completed"
+    assert "sin nuevos leads" in progress[-1]["message"]
+
+
 class PreparationStore:
     def __init__(self):
         self.saved = None
@@ -198,3 +225,23 @@ def test_automation_runs_each_configured_cycle_without_provider_calls(monkeypatc
     _sync_automations_once()
     assert len(calls) == 4
     assert created.marked[-1][1].startswith("Completado ciclo: 4/4")
+    assert "sin nuevos leads" in created.marked[-1][1]
+
+
+def test_scheduler_retries_after_transient_sheets_failure(monkeypatch):
+    calls = []
+
+    def sync():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("Sheets 429")
+
+    async def sleep(_):
+        if len(calls) == 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr("app.main._sync_automations_once", sync)
+    monkeypatch.setattr("app.main.asyncio.sleep", sleep)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(_automation_loop(60))
+    assert len(calls) == 2

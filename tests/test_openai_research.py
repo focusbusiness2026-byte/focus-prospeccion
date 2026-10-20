@@ -66,3 +66,15 @@ def test_discovery_uses_the_five_lead_goal_without_more_search_calls():
 
     assert len(result) == 3
     assert trace["web_search_calls"] == 1
+
+
+def test_discovery_keeps_valid_results_when_provider_returns_extra_tool_items():
+    response = mock_response()
+    response["output"] = [deepcopy(response["output"][0]) for _ in range(6)] + response["output"][1:]
+    researcher = OpenAIProspectDiscovery(Settings(openai_api_key="server-only"), response_provider=lambda _: response)
+
+    prospects, trace = researcher.discover({"targeting": {"sectors": ["Tecnología"]}})
+
+    assert len(prospects) == 1
+    assert trace["web_search_calls"] == 6
+    assert trace["web_search_call_limit"] == 5

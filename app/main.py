@@ -617,7 +617,8 @@ def _sync_automations_once() -> None:
     if not settings.auto_research_enabled or not settings.google_sheets_enabled:
         return
     store = SheetStore(settings)
-    store.ensure_operational_schema()
+    # Schema creation belongs to writes/startup, not the minute-by-minute poll.
+    # Rechecking every sheet on each tick can exhaust the Sheets read quota.
     for config in store.due_automation_configs():
         source = store.get_onboarding_source(config["onboarding_id"], config["email"])
         if not source:
@@ -650,11 +651,22 @@ def _sync_automations_once() -> None:
                 completed.append(result)
             store.mark_automation_run(
                 config,
-                f"Completado ciclo: {len(completed)}/{runs} ejecuciones · {sum(len(item['prospects']) for item in completed)} prospectos",
+                f"Completado ciclo: {len(completed)}/{runs} ejecuciones · {sum(len(item['prospects']) for item in completed)} prospectos"
+                + (" · búsqueda realizada sin nuevos leads verificables" if not any(item["prospects"] for item in completed) else ""),
                 completed[-1]["execution_id"],
             )
         except Exception as exc:
             store.mark_automation_run(config, f"Falló: {str(exc)[:240]}")
+
+
+async def _automation_loop(poll_seconds: int) -> None:
+    while True:
+        try:
+            await asyncio.to_thread(_sync_automations_once)
+        except Exception:
+            # A transient Sheets 429 must not kill all future scheduled cycles.
+            logger.exception("Falló una comprobación de automatizaciones; se reintentará en el próximo ciclo")
+        await asyncio.sleep(max(60, poll_seconds))
 
 
 def _process_onboarding_trigger(record_id: str, store: SheetStore) -> dict:
@@ -695,12 +707,7 @@ async def lifespan(_: FastAPI):
     automation_task = None
     keepalive_task = None
     if settings.google_sheets_enabled and settings.auto_research_enabled:
-        async def automation_loop():
-            while True:
-                await asyncio.to_thread(_sync_automations_once)
-                await asyncio.sleep(max(60, settings.auto_research_poll_seconds))
-
-        automation_task = asyncio.create_task(automation_loop())
+        automation_task = asyncio.create_task(_automation_loop(settings.auto_research_poll_seconds))
     if render_keepalive_ready(settings):
         keepalive_task = asyncio.create_task(render_keepalive_loop(settings))
     try:
