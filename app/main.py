@@ -133,6 +133,7 @@ class AutomationRequest(BaseModel):
     favorite: bool = False
     interval_minutes: int = Field(default=1440, ge=5, le=10080)
     runs_per_cycle: int = Field(default=1, ge=1, le=8)
+    max_total_runs: int | None = Field(default=None, ge=1, le=50)
     adjustments: ResearchAdjustments = Field(default_factory=ResearchAdjustments)
 
 
@@ -620,15 +621,39 @@ def _sync_automations_once() -> None:
     # Schema creation belongs to writes/startup, not the minute-by-minute poll.
     # Rechecking every sheet on each tick can exhaust the Sheets read quota.
     for config in store.due_automation_configs():
-        source = store.get_onboarding_source(config["onboarding_id"], config["email"])
+        bounded = bool(config.get("batch"))
+        if bounded:
+            # Persist the claim before any provider call. A process crash leaves
+            # the row disabled for manual review rather than repeating a scrape.
+            config = store.claim_bounded_automation_run(config)
+            if config is None:
+                continue
+            logger.info("Automation batch claimed batch_id=%s run=%s/%s", config["batch"]["id"],
+                        int(config["batch"]["completed_runs"]) + 1, config["batch"]["max_total_runs"])
+        try:
+            source = store.get_onboarding_source(config["onboarding_id"], config["email"])
+        except Exception as exc:
+            if bounded:
+                store.finish_bounded_automation_run(config, error=f"No se pudo leer Onboarding ({type(exc).__name__})")
+                continue
+            raise
         if not source:
-            store.mark_automation_run(config, "Bloqueada: no se encontró el Onboarding")
+            if bounded:
+                store.finish_bounded_automation_run(config, error="No se encontró el Onboarding")
+            else:
+                store.mark_automation_run(config, "Bloqueada: no se encontró el Onboarding")
             continue
         if not source.ready:
-            store.mark_automation_run(config, f"Bloqueada: {'; '.join(source.blockers)}")
+            if bounded:
+                store.finish_bounded_automation_run(config, error="; ".join(source.blockers))
+            else:
+                store.mark_automation_run(config, f"Bloqueada: {'; '.join(source.blockers)}")
             continue
         if not settings.openai_api_key:
-            store.mark_automation_run(config, "Pendiente: falta configurar el proveedor de investigación")
+            if bounded:
+                store.finish_bounded_automation_run(config, error="Falta configurar el proveedor de investigación")
+            else:
+                store.mark_automation_run(config, "Pendiente: falta configurar el proveedor de investigación")
             continue
         try:
             creator_email = str(config.get("created_by_email") or config.get("email") or "").strip().lower()
@@ -636,7 +661,7 @@ def _sync_automations_once() -> None:
             creator_is_admin = _is_authorized_admin(
                 Identity(creator_email, creator_access.role, "automation"), creator_access, settings,
             ) if creator_access else False
-            runs = max(1, min(8, int((config.get("adjustments") or {}).get("runs_per_cycle", 1))))
+            runs = 1 if bounded else max(1, min(8, int((config.get("adjustments") or {}).get("runs_per_cycle", 1))))
             completed = []
             for _ in range(runs):
                 result = _run_onboarding_research(
@@ -649,14 +674,26 @@ def _sync_automations_once() -> None:
                     bypass_user_limit=creator_is_admin,
                 )
                 completed.append(result)
-            store.mark_automation_run(
-                config,
-                f"Completado ciclo: {len(completed)}/{runs} ejecuciones · {sum(len(item['prospects']) for item in completed)} prospectos"
-                + (" · búsqueda realizada sin nuevos leads verificables" if not any(item["prospects"] for item in completed) else ""),
-                completed[-1]["execution_id"],
-            )
+            if not bounded:
+                store.mark_automation_run(
+                    config,
+                    f"Completado ciclo: {len(completed)}/{runs} ejecuciones · {sum(len(item['prospects']) for item in completed)} prospectos"
+                    + (" · búsqueda realizada sin nuevos leads verificables" if not any(item["prospects"] for item in completed) else ""),
+                    completed[-1]["execution_id"],
+                )
         except Exception as exc:
-            store.mark_automation_run(config, f"Falló: {str(exc)[:240]}")
+            if bounded:
+                store.finish_bounded_automation_run(config, error=str(exc)[:240])
+                logger.warning("Automation batch paused batch_id=%s error_type=%s", config["batch"]["id"], type(exc).__name__)
+            else:
+                store.mark_automation_run(config, f"Falló: {str(exc)[:240]}")
+        else:
+            if bounded:
+                store.finish_bounded_automation_run(config, result=completed[-1])
+                logger.info("Automation batch completed batch_id=%s run=%s/%s execution_id=%s leads=%s",
+                            config["batch"]["id"], int(config["batch"]["completed_runs"]) + 1,
+                            config["batch"]["max_total_runs"], completed[-1]["execution_id"],
+                            len(completed[-1]["prospects"]))
 
 
 async def _automation_loop(poll_seconds: int) -> None:
@@ -1152,13 +1189,23 @@ def save_onboarding_automation(
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     if payload.enabled and not source.ready:
         raise HTTPException(status_code=422, detail="No se puede automatizar: " + "; ".join(source.blockers))
+    if payload.max_total_runs is not None and payload.runs_per_cycle != 1:
+        raise HTTPException(status_code=422, detail="Un lote limitado requiere una ejecución por ciclo")
     store.ensure_operational_schema()
+    current = store.get_automation_config(source.record_id)
+    if current and (current.get("batch") or {}).get("in_flight"):
+        raise HTTPException(status_code=409, detail="Hay un ciclo en curso; espera a que termine antes de cambiar la programación")
+    if current and current.get("batch") and payload.max_total_runs is None:
+        if payload.enabled:
+            raise HTTPException(status_code=409, detail="Este lote limitado no puede convertirse en programación indefinida")
+        return {"ok": True, "automation": store.pause_bounded_automation(current)}
     schedule = store.upsert_automation_config(
         source.record_id,
         source.email,
         enabled=payload.enabled,
         interval_minutes=payload.interval_minutes,
         runs_per_cycle=payload.runs_per_cycle,
+        max_total_runs=payload.max_total_runs,
         adjustments=payload.adjustments.model_dump(),
         name=payload.name,
         favorite=payload.favorite,

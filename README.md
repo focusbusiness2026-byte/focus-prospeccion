@@ -16,6 +16,7 @@ Formulario Onboarding
 - No hay captura manual de correo, productora o web en el dashboard.
 - Sin `OPENAI_API_KEY`, el registro queda visible como `Pendiente de configurar OpenAI` y no se realiza ninguna búsqueda.
 - Cada productora puede activar una automatización propia entre 5 minutos y 3 días. La programación y sus filtros se guardan en `Automatizaciones`; el motor puede desactivarse globalmente con `AUTO_RESEARCH_ENABLED=false`.
+- La API de automatización admite `max_total_runs` opcional con `runs_per_cycle=1` para lotes finitos. Cada ciclo se marca como iniciado en `Automatizaciones` antes de llamar al proveedor; un error o reinicio lo deja pausado para revisión. Una ejecución completada sin prospectos también cuenta como ciclo y consume una unidad de cuota. Después del último ciclo la programación se desactiva automáticamente.
 - Una ejecución de OpenAI Responses API usa `web_search` y `max_tool_calls` limitado localmente a 5.
 - Las ejecuciones manuales del portal se inician como trabajos en segundo plano. La interfaz consulta su estado, muestra fases reales y actualiza Leads y CRM después de cada prospecto persistido; no inventa avances ni resultados durante la llamada al proveedor.
 - Solo se aceptan contactos, redes y señales con URL de evidencia. No se inicia sesión, evade CAPTCHA ni consulta contenido privado.

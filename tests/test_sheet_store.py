@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 
 import pytest
@@ -477,6 +477,85 @@ def test_automation_schedule_accepts_one_week_interval():
         created_by_role="Administrador",
     )
     assert result["interval_minutes"] == 10080
+
+
+class StatefulAutomationStore(AutomationStore):
+    def _append(self, a1_range, values):
+        super()._append(a1_range, values)
+        self.rows.append(list(values[0]))
+
+    def _update(self, a1_range, values):
+        super()._update(a1_range, values)
+        start = a1_range.split("!")[1].split(":")[0][0]
+        offset = ord(start) - ord("A")
+        self.rows[0][offset:offset + len(values[0])] = values[0]
+
+
+def test_bounded_batch_claim_five_successes_and_no_overlap():
+    store = StatefulAutomationStore()
+    saved = store.upsert_automation_config(
+        "ONB-001", "owner@example.com", enabled=True, interval_minutes=5,
+        runs_per_cycle=1, max_total_runs=5,
+    )
+    assert saved["batch"]["completed_runs"] == 0
+    assert store.due_automation_configs() == []
+    for number in range(1, 6):
+        store.rows[0][4] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        due = store.due_automation_configs()[0]
+        claim = store.claim_bounded_automation_run(due)
+        assert claim["batch"]["in_flight"] is True
+        assert store.rows[0][2] is False
+        assert store.rows[0][4] == ""
+        assert store.due_automation_configs() == []
+        assert store.claim_bounded_automation_run(due) is None
+        # A restarted scheduler sees the same paused, in-flight state.
+        restarted = StatefulAutomationStore(store.rows)
+        assert restarted.due_automation_configs() == []
+        store.finish_bounded_automation_run(
+            claim, result={"execution_id": f"run-{number}", "prospects": []},
+        )
+        current = store.get_automation_config("ONB-001")
+        assert current["batch"]["completed_runs"] == number
+        assert current["batch"]["execution_ids"][-1] == f"run-{number}"
+        assert current["enabled"] is (number < 5)
+        assert bool(current["next_run_at"]) is (number < 5)
+    assert store.due_automation_configs() == []
+    assert "5/5" in store.get_automation_config("ONB-001")["last_status"]
+
+
+def test_bounded_batch_failure_stays_paused_and_preserves_progress():
+    store = StatefulAutomationStore()
+    store.upsert_automation_config("ONB-001", "owner@example.com", enabled=True,
+                                   interval_minutes=5, max_total_runs=5)
+    store.rows[0][4] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    claim = store.claim_bounded_automation_run(store.due_automation_configs()[0])
+    store.finish_bounded_automation_run(claim, error="Fallo de prueba")
+    current = store.get_automation_config("ONB-001")
+    assert not current["enabled"]
+    assert current["next_run_at"] == ""
+    assert current["batch"]["completed_runs"] == 0
+    assert current["batch"]["error"] == "Fallo de prueba"
+    assert store.due_automation_configs() == []
+
+
+def test_bounded_batch_manual_pause_preserves_batch_metadata():
+    store = StatefulAutomationStore()
+    store.upsert_automation_config("ONB-001", "owner@example.com", enabled=True,
+                                   interval_minutes=5, max_total_runs=5)
+    before = store.get_automation_config("ONB-001")
+    after = store.pause_bounded_automation(before)
+    assert not after["enabled"]
+    assert after["batch"] == before["batch"]
+    assert store.get_automation_config("ONB-001")["batch"]["id"] == before["batch"]["id"]
+    assert store.due_automation_configs() == []
+
+
+def test_bounded_batch_requires_single_run_per_cycle():
+    store = StatefulAutomationStore()
+    with pytest.raises(ValueError, match="una ejecución por ciclo"):
+        store.upsert_automation_config("ONB-001", "owner@example.com", enabled=True,
+                                       interval_minutes=5, runs_per_cycle=2, max_total_runs=5)
+    assert store.rows == []
 
 
 class SavedSearchStore(SheetStore):

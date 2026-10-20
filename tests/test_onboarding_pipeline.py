@@ -228,6 +228,58 @@ def test_automation_runs_each_configured_cycle_without_provider_calls(monkeypatc
     assert "sin nuevos leads" in created.marked[-1][1]
 
 
+@pytest.mark.parametrize("fails", [False, True])
+def test_bounded_scheduler_claims_before_provider_and_finishes_once(monkeypatch, fails):
+    class Access:
+        email = "owner@example.test"
+        role = "Cliente"
+        state = "Activo"
+
+    class BoundedStore:
+        def __init__(self):
+            self.events = []
+            self.config = {"onboarding_id": "ONB-PIPELINE", "email": "owner@example.test",
+                           "adjustments": {"runs_per_cycle": 1},
+                           "batch": {"id": "batch-1", "max_total_runs": 5, "completed_runs": 0}}
+
+        def due_automation_configs(self):
+            return [self.config]
+
+        def claim_bounded_automation_run(self, config):
+            self.events.append("claim")
+            return config
+
+        def get_onboarding_source(self, *_):
+            return type("Source", (), {"record_id": "ONB-PIPELINE", "email": "owner@example.test",
+                                       "ready": True, "blockers": []})()
+
+        def get_access(self, *_):
+            return Access()
+
+        def finish_bounded_automation_run(self, config, **kwargs):
+            self.events.append(("finish", kwargs))
+
+    store = BoundedStore()
+    settings = Settings(google_sheets_enabled=True, auto_research_enabled=True, openai_api_key="fixture-only")
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.main.SheetStore", lambda *_: store)
+
+    def run(*args, **kwargs):
+        store.events.append("provider")
+        if fails:
+            raise RuntimeError("Fallo de prueba")
+        return {"execution_id": "run-1", "prospects": []}
+
+    monkeypatch.setattr("app.main._run_onboarding_research", run)
+    _sync_automations_once()
+    assert store.events[0:2] == ["claim", "provider"]
+    assert len(store.events) == 3
+    if fails:
+        assert store.events[2][1]["error"] == "Fallo de prueba"
+    else:
+        assert store.events[2][1]["result"]["prospects"] == []
+
+
 def test_scheduler_retries_after_transient_sheets_failure(monkeypatch):
     calls = []
 

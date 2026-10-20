@@ -520,6 +520,9 @@ class SheetStore:
                 adjustments = json.loads(str(padded[9]) or "{}")
             except json.JSONDecodeError:
                 adjustments = {}
+            if not isinstance(adjustments, dict):
+                adjustments = {}
+            batch = adjustments.pop("_batch", None)
             configs.append({
                 "row": index,
                 "onboarding_id": str(padded[0]).strip(),
@@ -531,7 +534,8 @@ class SheetStore:
                 "last_status": str(padded[6]).strip(),
                 "updated_at": str(padded[7]).strip(),
                 "last_execution_id": str(padded[8]).strip(),
-                "adjustments": adjustments if isinstance(adjustments, dict) else {},
+                "adjustments": adjustments,
+                "batch": batch if isinstance(batch, dict) else None,
                 "name": str(padded[10]).strip() or "Automatización de prospección",
                 "favorite": str(padded[11]).strip().lower() in {"true", "1", "si", "sí"},
                 "created_by_email": str(padded[12]).strip().lower(),
@@ -556,6 +560,7 @@ class SheetStore:
         enabled: bool,
         interval_minutes: int,
         runs_per_cycle: int = 1,
+        max_total_runs: int | None = None,
         adjustments: dict | None = None,
         name: str = "Automatización de prospección",
         favorite: bool = False,
@@ -563,9 +568,20 @@ class SheetStore:
         created_by_role: str = "",
     ) -> dict:
         interval = max(5, min(10080, int(interval_minutes)))
+        if max_total_runs is not None and runs_per_cycle != 1:
+            raise ValueError("Un lote limitado requiere una ejecución por ciclo")
         existing = self.get_automation_config(onboarding_id)
+        if existing and (existing.get("batch") or {}).get("in_flight"):
+            raise ValueError("No se puede reconfigurar un ciclo en curso")
         now = datetime.now(timezone.utc).isoformat()
         next_run = self._iso_after(interval) if enabled else ""
+        batch = ({"id": str(uuid.uuid4()), "max_total_runs": int(max_total_runs),
+                  "completed_runs": 0, "in_flight": False, "execution_ids": []}
+                 if max_total_runs is not None else None)
+        saved_adjustments = {**(adjustments or {}), "lead_count": CONTACTS_PER_PROSPECTION_CYCLE,
+                             "runs_per_cycle": max(1, min(8, int(runs_per_cycle)))}
+        if batch:
+            saved_adjustments["_batch"] = batch
         values = [
             onboarding_id,
             email.strip().lower(),
@@ -576,7 +592,7 @@ class SheetStore:
             "Programada" if enabled else "Desactivada",
             now,
             existing["last_execution_id"] if existing else "",
-            json.dumps({**(adjustments or {}), "lead_count": CONTACTS_PER_PROSPECTION_CYCLE, "runs_per_cycle": max(1, min(8, int(runs_per_cycle)))}, ensure_ascii=False),
+            json.dumps(saved_adjustments, ensure_ascii=False),
             name.strip()[:80] or "Automatización de prospección",
             favorite,
             created_by_email.strip().lower(),
@@ -600,7 +616,8 @@ class SheetStore:
             "last_status": "Programada" if enabled else "Desactivada",
             "updated_at": now,
             "last_execution_id": existing["last_execution_id"] if existing else "",
-            "adjustments": {**(adjustments or {}), "lead_count": CONTACTS_PER_PROSPECTION_CYCLE, "runs_per_cycle": max(1, min(8, int(runs_per_cycle)))},
+            "adjustments": {key: value for key, value in saved_adjustments.items() if key != "_batch"},
+            "batch": batch,
             "name": name.strip()[:80] or "Automatización de prospección",
             "favorite": favorite,
             "created_by_email": created_by_email.strip().lower(),
@@ -612,6 +629,9 @@ class SheetStore:
         due: list[dict] = []
         for item in self.automation_configs():
             if not item["enabled"]:
+                continue
+            batch = item.get("batch") or {}
+            if batch and (batch.get("in_flight") or self._int(batch.get("completed_runs")) >= self._int(batch.get("max_total_runs"))):
                 continue
             try:
                 next_run = datetime.fromisoformat(item["next_run_at"].replace("Z", "+00:00"))
@@ -633,6 +653,86 @@ class SheetStore:
             execution_id,
         ]]
         self._update(f"'{self.settings.google_automation_tab}'!E{config['row']}:I{config['row']}", values)
+
+    def claim_bounded_automation_run(self, config: dict) -> dict | None:
+        """Disable a finite batch before invoking the external provider."""
+        current = self.get_automation_config(config["onboarding_id"])
+        if not current or not current["enabled"] or current["email"] != config["email"]:
+            return None
+        batch = current.get("batch") or {}
+        expected = config.get("batch") or {}
+        if not batch or batch.get("id") != expected.get("id") or batch.get("in_flight"):
+            return None
+        completed = self._int(batch.get("completed_runs"))
+        maximum = self._int(batch.get("max_total_runs"))
+        if maximum < 1 or completed >= maximum:
+            return None
+        try:
+            due_at = datetime.fromisoformat(current["next_run_at"].replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        if due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=timezone.utc)
+        if due_at > datetime.now(timezone.utc):
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        claimed_batch = {**batch, "in_flight": True, "started_at": now}
+        adjustments = {**current["adjustments"], "_batch": claimed_batch}
+        values = [[False, current["interval_minutes"], "", current["last_run_at"],
+                   f"En curso {completed + 1}/{maximum}", now, current["last_execution_id"],
+                   json.dumps(adjustments, ensure_ascii=False)]]
+        self._retry_status_write(lambda: self._update(
+            f"'{self.settings.google_automation_tab}'!C{current['row']}:J{current['row']}", values,
+        ))
+        return {**current, "enabled": False, "next_run_at": "", "last_status": values[0][4],
+                "updated_at": now, "batch": claimed_batch}
+
+    def pause_bounded_automation(self, config: dict) -> dict:
+        if (config.get("batch") or {}).get("in_flight"):
+            raise ValueError("No se puede pausar un ciclo en curso")
+        now = datetime.now(timezone.utc).isoformat()
+        self._retry_status_write(lambda: self._update(
+            f"'{self.settings.google_automation_tab}'!C{config['row']}", [[False]],
+        ))
+        self._retry_status_write(lambda: self._update(
+            f"'{self.settings.google_automation_tab}'!E{config['row']}:H{config['row']}",
+            [["", config["last_run_at"], "Pausado manualmente", now]],
+        ))
+        return {**config, "enabled": False, "next_run_at": "", "last_status": "Pausado manualmente",
+                "updated_at": now}
+
+    def finish_bounded_automation_run(self, config: dict, *, result: dict | None = None,
+                                      error: str = "") -> None:
+        """Advance only a claimed batch; failure or fifth success stays paused."""
+        current = self.get_automation_config(config["onboarding_id"])
+        batch = current.get("batch") if current else None
+        if not batch or batch.get("id") != (config.get("batch") or {}).get("id") or not batch.get("in_flight"):
+            raise ValueError("El lote ya no coincide con el ciclo reclamado")
+        completed = self._int(batch.get("completed_runs"))
+        maximum = self._int(batch.get("max_total_runs"))
+        success = result is not None and not error
+        if success:
+            completed += 1
+        now = datetime.now(timezone.utc).isoformat()
+        execution_id = str((result or {}).get("execution_id") or current["last_execution_id"])
+        updated_batch = {**batch, "completed_runs": completed, "in_flight": False,
+                         "finished_at": now}
+        updated_batch.pop("started_at", None)
+        if success:
+            updated_batch["execution_ids"] = [*(batch.get("execution_ids") or []), execution_id]
+        else:
+            updated_batch["error"] = error[:240] or "Ejecución fallida"
+        enabled = success and completed < maximum
+        next_run = self._iso_after(current["interval_minutes"]) if enabled else ""
+        leads = len((result or {}).get("prospects") or [])
+        status = (f"Completado lote {completed}/{maximum}: {leads} prospectos"
+                  if success else f"Pausado lote {completed}/{maximum}: {error[:180]}")
+        adjustments = {**current["adjustments"], "_batch": updated_batch}
+        values = [[enabled, current["interval_minutes"], next_run, now, status[:300], now,
+                   execution_id, json.dumps(adjustments, ensure_ascii=False)]]
+        self._retry_status_write(lambda: self._update(
+            f"'{self.settings.google_automation_tab}'!C{current['row']}:J{current['row']}", values,
+        ))
 
     @staticmethod
     def _int(value, fallback: int = 0) -> int:
