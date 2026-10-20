@@ -60,6 +60,7 @@ from app.sheet_store import (
     is_active_access_state,
     is_transient_sheet_write_error,
 )
+from app.short_profile import prepare_short_profile
 
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,7 @@ class ResearchAdjustments(BaseModel):
 class OnboardingTrigger(BaseModel):
     onboarding_id: str
     prepare_only: bool = True
+    light_profile: bool = False
 
 
 class AutomationRequest(BaseModel):
@@ -706,6 +708,24 @@ async def _automation_loop(poll_seconds: int) -> None:
         await asyncio.sleep(max(60, poll_seconds))
 
 
+def _sync_short_profiles_once() -> None:
+    settings = get_settings()
+    store = SheetStore(settings)
+    for source in store.onboarding_sources(limit=200):
+        if source.raw_form.get("Modalidad alta") == "Breve" and source.raw_form.get("Estado perfil") == "Pendiente":
+            prepare_short_profile(source.record_id, store, settings)
+            break
+
+
+async def _short_profile_loop() -> None:
+    while True:
+        await asyncio.sleep(300)
+        try:
+            await asyncio.to_thread(_sync_short_profiles_once)
+        except Exception:
+            logger.exception("Falló una comprobación de perfiles breves; se reintentará")
+
+
 def _process_onboarding_trigger(record_id: str, store: SheetStore) -> dict:
     """Prepare a connected search draft without running any provider."""
     store.ensure_operational_schema()
@@ -742,15 +762,18 @@ async def lifespan(_: FastAPI):
     if settings.app_env != "production":
         create_schema()
     automation_task = None
+    profile_task = None
     keepalive_task = None
     if settings.google_sheets_enabled and settings.auto_research_enabled:
         automation_task = asyncio.create_task(_automation_loop(settings.auto_research_poll_seconds))
+    if settings.google_sheets_enabled:
+        profile_task = asyncio.create_task(_short_profile_loop())
     if render_keepalive_ready(settings):
         keepalive_task = asyncio.create_task(render_keepalive_loop(settings))
     try:
         yield
     finally:
-        tasks = [task for task in (automation_task, keepalive_task) if task]
+        tasks = [task for task in (automation_task, profile_task, keepalive_task) if task]
         for task in tasks:
             task.cancel()
         if tasks:
@@ -834,7 +857,7 @@ def health():
 
 
 @app.post("/api/internal/onboarding-trigger")
-def onboarding_trigger(payload: OnboardingTrigger, request: Request):
+def onboarding_trigger(payload: OnboardingTrigger, request: Request, background_tasks: BackgroundTasks):
     settings = get_settings()
     supplied = request.headers.get("authorization", "")
     expected = f"Bearer {settings.prospection_trigger_token}" if settings.prospection_trigger_token else ""
@@ -845,7 +868,18 @@ def onboarding_trigger(payload: OnboardingTrigger, request: Request):
     if not settings.google_sheets_enabled:
         raise HTTPException(status_code=503, detail="Google Sheets no está activado")
     try:
-        return _process_onboarding_trigger(payload.onboarding_id.strip(), SheetStore(settings))
+        store = SheetStore(settings)
+        result = _process_onboarding_trigger(payload.onboarding_id.strip(), store)
+        if payload.light_profile:
+            source = store.get_onboarding_source(payload.onboarding_id.strip())
+            if not source or source.raw_form.get("Modalidad alta") != "Breve":
+                raise HTTPException(status_code=422, detail="La ficha no es un alta breve")
+            if source.raw_form.get("Estado perfil") == "Pendiente":
+                background_tasks.add_task(prepare_short_profile, source.record_id, store, settings)
+            result["profile_state"] = source.raw_form.get("Estado perfil")
+        return result
+    except HTTPException:
+        raise
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

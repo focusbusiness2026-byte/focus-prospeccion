@@ -109,7 +109,7 @@ class OnboardingSource:
             blockers.append("Falta el ID del registro")
         if not self.company:
             blockers.append("Falta el nombre de la productora")
-        if not self.website:
+        if not self.website and self.raw_form.get("Modalidad alta") != "Breve":
             blockers.append("Falta una web pública válida")
         if not self.email:
             blockers.append("Falta el correo responsable")

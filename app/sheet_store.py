@@ -80,6 +80,14 @@ def normalized_kanban_status(value: str) -> str:
         return raw
     return "Nuevo"
 
+
+def _column_letter(number: int) -> str:
+    result = ""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
 PROSPECT_HEADERS = [
     "execution_id", "email", "created_at", "company", "website", "title", "description", "sector",
     "business_model", "city", "employees", "score", "classification", "summary", "entry_angle",
@@ -899,6 +907,50 @@ class SheetStore:
             (source for source in self.onboarding_sources(email=email) if source.record_id == normalized_id),
             None,
         )
+
+    def update_short_onboarding_profile(self, record_id: str, profile: dict[str, str]) -> bool:
+        """Update only allowlisted profile cells of a short signup, never an existing full form."""
+        rows = self._get(f"'{self.settings.google_onboarding_tab}'!A1:ZZ1000")
+        if not rows:
+            return False
+        headers = [str(value).strip() for value in rows[0]]
+        index = {header: column for column, header in enumerate(headers)}
+        required = {"ID registro", "Modalidad alta", "Estado perfil"}
+        if not required.issubset(index):
+            raise RuntimeError("Faltan encabezados del alta breve en Onboarding")
+        for row_number, row in enumerate(rows[1:], start=2):
+            value = lambda header: str(row[index[header]] if index[header] < len(row) else "").strip()
+            if value("ID registro") != record_id:
+                continue
+            if value("Modalidad alta") != "Breve":
+                raise PermissionError("La ficha no pertenece al alta breve")
+            if value("Estado perfil") not in {"Pendiente", "Error análisis"}:
+                return False
+            allowed = {
+                "Actividad", "Servicio prioritario", "Servicios", "Sectores", "Público",
+                "Perfil ideal detallado", "Estado perfil", "Origen perfil", "Fecha perfil",
+                "Preparación prospección",
+            }
+            updates = []
+            for header, content in profile.items():
+                if header not in allowed or header not in index:
+                    continue
+                column = _column_letter(index[header] + 1)
+                clean = str(content or "")[:1000]
+                if clean.startswith(("=", "+", "-", "@")):
+                    clean = "'" + clean
+                updates.append({"range": f"'{self.settings.google_onboarding_tab}'!{column}{row_number}", "values": [[clean]]})
+            if not updates:
+                return False
+            session = self._session()
+            response = session.post(
+                f"{self._base}:batchUpdate",
+                json={"valueInputOption": "USER_ENTERED", "data": updates},
+                timeout=30,
+            )
+            response.raise_for_status()
+            return True
+        return False
 
     def check_scrape_limit(self, email: str) -> AccessRecord:
         with _quota_lock:
