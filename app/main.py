@@ -250,18 +250,29 @@ def _is_authorized_admin(identity: Identity, access, settings) -> bool:
     )
 
 
+def _account_scope_email(identity: Identity, access) -> str:
+    """Keep the signed-in actor distinct from the client account they share."""
+    return (getattr(access, "account_email", "") or identity.email).strip().casefold()
+
+
 def _admin_available_users(store: SheetStore, sources: list) -> list[dict]:
     users: dict[str, dict] = {}
+    linked_accounts: dict[str, str] = {}
     for item in store.access_records():
         if not is_active_access_state(item.state) or is_admin_role(item.role):
             continue
         users[item.email] = {"email": item.email, "role": item.role, "onboarding_count": 0}
+        if getattr(item, "account_email", ""):
+            linked_accounts[item.email] = item.account_email
     for source in sources:
         email = source.email.strip().lower()
         if not email:
             continue
         user = users.setdefault(email, {"email": email, "role": "Cliente registrado", "onboarding_count": 0})
         user["onboarding_count"] += 1
+        for alias, owner in linked_accounts.items():
+            if owner == email:
+                users[alias]["onboarding_count"] += 1
     return sorted(users.values(), key=lambda item: item["email"])
 
 
@@ -953,16 +964,18 @@ def portal_dashboard(
         raise HTTPException(status_code=403, detail="Selecciona una cuenta antes de activar la vista de cliente")
     all_sources = store.onboarding_sources(None) if is_admin else []
     scoped_access = store.get_access(requested_scope) if requested_scope else None
-    scoped_sources = [source for source in all_sources if source.email == requested_scope] if requested_scope else []
+    scoped_owner_email = _account_scope_email(identity, scoped_access) if scoped_access else requested_scope
+    scoped_sources = [source for source in all_sources if source.email == scoped_owner_email] if requested_scope else []
     if requested_scope and not scoped_access and not scoped_sources:
         raise HTTPException(status_code=404, detail="El cliente solicitado no está registrado")
-    scope_email = requested_scope or (None if is_admin else identity.email)
-    visible_access = scoped_access or access
+    scope_email = scoped_owner_email if requested_scope else (None if is_admin else _account_scope_email(identity, access))
+    selected_access = scoped_access or access
+    visible_access = store.get_access(scope_email) if scope_email and getattr(selected_access, "account_email", "") else selected_access
+    if not visible_access:
+        raise HTTPException(status_code=403, detail="La cuenta principal ya no tiene acceso")
     reconcile_access = getattr(store, "reconciled_access", None)
     if callable(reconcile_access):
         visible_access = reconcile_access(visible_access)
-        if scoped_access:
-            scoped_access = visible_access
     source_records = scoped_sources if requested_scope and scoped_sources else store.onboarding_sources(scope_email)
     source_groups = _logical_onboarding_sources(source_records)
     sources = []
@@ -1013,12 +1026,12 @@ def portal_dashboard(
     global_metrics = store.global_metrics() if is_admin and not requested_scope else None
     return {
         "user": {
-            "email": requested_scope or visible_access.email,
-            "role": scoped_access.role if scoped_access else ("Cliente registrado" if requested_scope else visible_access.role),
-            "assigned": scoped_access.assigned if scoped_access else (0 if requested_scope else visible_access.assigned),
-            "used": scoped_access.used if scoped_access else (0 if requested_scope else visible_access.used),
-            "available": scoped_access.available if scoped_access else (0 if requested_scope else visible_access.available),
-            "unlimited": scoped_access.unlimited if scoped_access else (False if requested_scope else visible_access.unlimited),
+            "email": requested_scope or identity.email,
+            "role": "Cliente registrado" if requested_scope and not scoped_access else selected_access.role,
+            "assigned": 0 if requested_scope and not scoped_access else visible_access.assigned,
+            "used": 0 if requested_scope and not scoped_access else visible_access.used,
+            "available": 0 if requested_scope and not scoped_access else visible_access.available,
+            "unlimited": False if requested_scope and not scoped_access else visible_access.unlimited,
         },
         "global": global_metrics,
         "metrics": store.prospect_metrics(scope_email),
@@ -1052,7 +1065,7 @@ def onboarding_source(record_id: str, identity: Identity = Depends(require_ident
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     return {
@@ -1087,7 +1100,7 @@ def start_research_job(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     if not source.ready:
@@ -1174,7 +1187,7 @@ def research_onboarding_source(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     try:
@@ -1218,7 +1231,7 @@ def save_onboarding_automation(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     if payload.enabled and not source.ready:
@@ -1264,7 +1277,7 @@ def save_onboarding_search(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     saved = store.upsert_saved_search(
@@ -1294,7 +1307,7 @@ def delete_onboarding_search(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     if not store.delete_saved_search(saved_search_id, source.record_id, source.email):
@@ -1350,7 +1363,7 @@ def create_prospecting_questionnaire(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     if not settings.gemini_api_key.strip():
@@ -1384,7 +1397,7 @@ def suggest_prospecting_improvements(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    source = store.get_onboarding_source(record_id, None if is_admin else identity.email)
+    source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
     if not settings.gemini_api_key.strip():
@@ -1525,11 +1538,13 @@ def update_prospect_status(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
-    current = store.get_prospect(execution_id, None if is_admin else identity.email)
+    current = store.get_prospect(execution_id, None if is_admin else _account_scope_email(identity, access))
     if not current:
         raise HTTPException(status_code=404, detail="No se encontró el lead solicitado")
     try:
-        prospect = store.update_prospect_status(execution_id, identity.email, payload.status, is_admin=is_admin)
+        prospect = store.update_prospect_status(
+            execution_id, _account_scope_email(identity, access), payload.status, is_admin=is_admin
+        )
         store.append_review_event(
             # ``crm_update`` is the established, allow-listed audit event for
             # changes made from the CRM board.  Do not introduce a free-form
@@ -1579,7 +1594,7 @@ def record_prospect_decision(
     allowed = ADMIN_DECISIONS if is_admin else CLIENT_DECISIONS
     if payload.decision not in allowed:
         raise HTTPException(status_code=422, detail="La decisión no corresponde al rol autenticado")
-    prospect = store.get_prospect(execution_id, None if is_admin else identity.email)
+    prospect = store.get_prospect(execution_id, None if is_admin else _account_scope_email(identity, access))
     if not prospect:
         raise HTTPException(status_code=404, detail="No se encontró el lead solicitado")
     event_type = "admin_review" if is_admin else "client_decision"
@@ -1597,7 +1612,7 @@ def record_prospect_decision(
     if not is_admin:
         prospect = store.update_prospect_status(
             execution_id,
-            identity.email,
+            _account_scope_email(identity, access),
             payload.decision,
             is_admin=False,
         )
@@ -1668,7 +1683,9 @@ def export_prospects(
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
-    prospects = store.recent_prospects(None if is_admin_role(access.role) else identity.email, limit=1000)
+    prospects = store.recent_prospects(
+        None if is_admin_role(access.role) else _account_scope_email(identity, access), limit=1000
+    )
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     filters = {

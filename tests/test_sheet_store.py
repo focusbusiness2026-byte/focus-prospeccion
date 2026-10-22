@@ -58,6 +58,37 @@ def test_limit_check_does_not_consume_quota_before_scrape():
     assert store.updates == []
 
 
+def test_linked_client_uses_existing_account_quota_without_a_second_allowance():
+    store = FakeStore()
+    store.rows[0][5] = 0
+    store.rows.append([
+        "teammate@example.com", "Cliente", "Activo", "", 0, 0, "", "", "", "",
+        "Permitido", "Bloqueado", "user@example.com",
+    ])
+
+    teammate = store.get_access("teammate@example.com")
+    assert teammate is not None
+    assert teammate.email == "teammate@example.com"
+    assert teammate.account_email == "user@example.com"
+    assert store.check_scrape_limit(teammate.email).row == 2
+    assert store.consume_successful_scrape(teammate.email).used == 1
+    assert store.updates == [("'Accesos'!F2", [[1]])]
+    assert store.rows[1][5] == 0
+
+
+def test_linked_client_fails_closed_if_owner_is_inactive_or_admin():
+    store = FakeStore()
+    store.rows.append([
+        "teammate@example.com", "Cliente", "Activo", "", 0, 0, "", "", "", "",
+        "Permitido", "Bloqueado", "user@example.com",
+    ])
+    store.rows[0][2] = "Inactivo"
+    assert store.get_access("teammate@example.com") is None
+    store.rows[0][2] = "Activo"
+    store.rows[0][1] = "Administrador"
+    assert store.get_access("teammate@example.com") is None
+
+
 def test_quota_reconciles_successful_executions_from_the_current_renewal_cycle():
     class ReconciledStore(FakeStore):
         def _get(self, a1_range):

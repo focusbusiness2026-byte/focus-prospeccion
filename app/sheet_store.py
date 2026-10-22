@@ -134,6 +134,7 @@ class AccessRecord:
     used: int
     renewed_at: str = ""
     unlimited: bool = False
+    account_email: str = ""
 
     @property
     def available(self) -> int:
@@ -750,10 +751,12 @@ class SheetStore:
             return fallback
 
     def access_records(self) -> list[AccessRecord]:
-        rows = self._get(f"'{self.settings.google_access_tab}'!A2:J200")
+        # M links a second login to an existing client account. It never
+        # carries another scrape allowance; the owner row remains canonical.
+        rows = self._get(f"'{self.settings.google_access_tab}'!A2:M200")
         records: list[AccessRecord] = []
         for index, row in enumerate(rows, start=2):
-            padded = row + [""] * (10 - len(row))
+            padded = row + [""] * (13 - len(row))
             email = str(padded[0]).strip().casefold()
             if not email:
                 continue
@@ -767,6 +770,7 @@ class SheetStore:
                     used=self._int(padded[5], 0),
                     renewed_at=str(padded[9]).strip(),
                     unlimited=_normalized_access_text(padded[4]) == "ilimitado",
+                    account_email=str(padded[12]).strip().casefold(),
                 )
             )
         return records
@@ -819,10 +823,28 @@ class SheetStore:
 
     def get_access(self, email: str) -> AccessRecord | None:
         normalized = email.strip().casefold()
-        return next(
-            (record for record in self.access_records() if record.email == normalized and is_active_access_state(record.state)),
+        records = self.access_records()
+        record = next(
+            (item for item in records if item.email == normalized and is_active_access_state(item.state)),
             None,
         )
+        if not record or not record.account_email:
+            return record
+        owner = next(
+            (item for item in records if item.email == record.account_email and is_active_access_state(item.state)),
+            None,
+        )
+        # An alias must not grant admin access, chain to another alias, or
+        # outlive the original client's authorization.
+        if (
+            not owner
+            or owner.account_email
+            or is_admin_role(owner.role)
+            or is_admin_role(record.role)
+            or owner.email == record.email
+        ):
+            return None
+        return record
 
     def reconciled_access(self, record: AccessRecord) -> AccessRecord:
         """Return the effective quota using successful executions in this renewal cycle.
@@ -955,6 +977,8 @@ class SheetStore:
     def check_scrape_limit(self, email: str) -> AccessRecord:
         with _quota_lock:
             record = self.get_access(email)
+            if record and record.account_email:
+                record = self.get_access(record.account_email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
             record = self.reconciled_access(record)
@@ -965,6 +989,8 @@ class SheetStore:
     def consume_successful_scrape(self, email: str) -> AccessRecord:
         with _quota_lock:
             record = self.get_access(email)
+            if record and record.account_email:
+                record = self.get_access(record.account_email)
             if not record:
                 raise PermissionError("Correo no autorizado o inactivo")
             record = self.reconciled_access(record)

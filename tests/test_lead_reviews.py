@@ -358,6 +358,39 @@ def test_client_cannot_move_another_accounts_kanban_card(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_linked_client_moves_owner_card_but_cannot_cross_to_another_account(monkeypatch):
+    class LinkedApiStore(ApiStore):
+        def get_access(self, email):
+            if email == "teammate@example.com":
+                return AccessRecord(5, email, "Cliente", "Activo", 0, 0,
+                                    account_email="alpha@example.com")
+            return super().get_access(email)
+
+    reset_api_state()
+    client = api_client(monkeypatch, Identity("teammate@example.com", "Cliente", "teammate"), LinkedApiStore)
+    try:
+        own = client.post(
+            "/api/prospects/EXEC-ALPHA/status",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"status": "Aprobado para descarga"},
+        )
+        other = client.post(
+            "/api/prospects/EXEC-BETA/status",
+            headers={"X-CSRF-Token": "csrf-test"},
+            json={"status": "Aprobado para descarga"},
+        )
+        assert own.status_code == 200
+        assert other.status_code == 404
+        assert ApiStore.status_updates == [
+            ("EXEC-ALPHA", "alpha@example.com", "Aprobado para descarga", False)
+        ]
+        assert ApiStore.events[-1]["actor_email"] == "teammate@example.com"
+        assert ApiStore.events[-1]["owner_email"] == "alpha@example.com"
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_dashboard_returns_after_kanban_status_update_without_treating_audit_as_decision(monkeypatch):
     reset_api_state()
     client = api_client(monkeypatch, Identity("admin@example.com", "Administrador", "admin"), DashboardAfterKanbanStore)

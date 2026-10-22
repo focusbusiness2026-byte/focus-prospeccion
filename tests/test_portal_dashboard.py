@@ -474,6 +474,79 @@ def test_dashboard_shows_one_logical_client_without_losing_alias_leads(monkeypat
         get_settings.cache_clear()
 
 
+def test_linked_login_sees_only_the_owner_account_and_shared_quota(monkeypatch):
+    owner = "hugo@rumbofilms.com"
+    teammate = "antonio@rumbofilms.com"
+    source = OnboardingSource.from_sheet_record({
+        "ID registro": "ONB-RUMBO", "Empresa": "Rumbo Films",
+        "Web": "https://www.rumbofilms.com", "Email responsable": owner,
+    })
+
+    class SharedAccountStore:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, email):
+            if email == teammate:
+                return AccessRecord(3, teammate, "Cliente", "Activo", 0, 0, account_email=owner)
+            if email == owner:
+                return AccessRecord(2, owner, "Cliente", "Activo", 50, 3)
+            return None
+
+        def onboarding_sources(self, email=None):
+            assert email == owner
+            return [source]
+
+        def latest_execution_for_onboarding(self, record_id):
+            return None
+
+        def get_automation_config(self, record_id):
+            return None
+
+        def saved_searches(self, email=None):
+            assert email == owner
+            return []
+
+        def review_events(self, email=None):
+            assert email == owner
+            return []
+
+        def recent_prospects(self, email=None, limit=1000):
+            assert email == owner
+            return [{"execution_id": "lead-rumbo", "email": owner,
+                     "onboarding_id": "ONB-RUMBO", "company": "Lead Rumbo", "lead_status": "Nuevo"}]
+
+        def recent_executions(self, email=None, *, hide_admin=False):
+            assert email == owner
+            return []
+
+        def prospect_metrics(self, email=None):
+            assert email == owner
+            return {"total": 1, "classifications": {}, "statuses": {"Nuevo": 1}}
+
+        def get_onboarding_source(self, record_id, email=None):
+            return source if record_id == source.record_id and email == owner else None
+
+    monkeypatch.setenv("GOOGLE_SHEETS_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(main_module, "SheetStore", SharedAccountStore)
+    main_module.app.dependency_overrides[require_identity] = lambda: Identity(teammate, "Cliente", "teammate")
+    try:
+        client = TestClient(main_module.app)
+        dashboard = client.get("/api/portal-dashboard")
+        assert dashboard.status_code == 200
+        body = dashboard.json()
+        assert body["user"]["email"] == teammate
+        assert (body["user"]["assigned"], body["user"]["used"], body["user"]["available"]) == (50, 3, 47)
+        assert [item["onboarding_id"] for item in body["sources"]] == ["ONB-RUMBO"]
+        assert [item["execution_id"] for item in body["prospects"]] == ["lead-rumbo"]
+        assert client.get("/api/onboarding-sources/ONB-RUMBO").status_code == 200
+        assert client.get("/api/onboarding-sources/ONB-OTHER").status_code == 404
+    finally:
+        main_module.app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_admin_user_count_uses_logical_accounts_not_onboarding_rows():
     sources = [OnboardingSource.from_sheet_record({
         "ID registro": record_id,

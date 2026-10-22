@@ -48,6 +48,14 @@ Los filtros cubren productora, país, sector, tipo de cliente, clasificación y 
 
 ## Pestañas y columnas
 
+Para dar acceso a una segunda persona de la misma productora, `Accesos!M`
+(`Correo cuenta principal`) vincula su correo autorizado con el correo de la
+ficha principal. La fila secundaria mantiene su propia identidad y rol
+`Cliente`, pero comparte la ficha, los leads y el saldo de la fila principal;
+no recibe otra cuota. Si la cuenta principal deja de estar activa, el acceso
+secundario se rechaza. No se permiten enlaces a administradores ni cadenas de
+cuentas vinculadas.
+
 `Prospeccion` usa `A:AS`:
 
 ```text
