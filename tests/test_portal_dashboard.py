@@ -171,6 +171,33 @@ const fetch=async()=>{calls++;if(calls===1)return {ok:false,status:500,json:asyn
     assert completed.returncode == 0, completed.stderr
 
 
+def test_editorial_dossier_displays_all_sections_and_escapes_untrusted_content():
+    html = Path("app/templates/portal.html").read_text(encoding="utf-8")
+    renderer = html.split("    const dossierSections = [", 1)[1].split(
+        "    const openLeadWithoutDossier=openLead;", 1
+    )[0]
+    script = """
+const assert=require('assert');
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl=value=>{try{const u=new URL(String(value||''));return ['http:','https:'].includes(u.protocol)?u.href:'';}catch{return '';}};
+const dossierSections = [
+""" + renderer + """
+const lead={company:'<img src=x onerror=alert(1)>',dossier:{identification:[
+  {text:'<script>alert(1)</script>',source_url:'javascript:alert(1)',certainty:'confirmed'},
+  {text:'Sociedad activa',source_url:'https://example.org/registro',certainty:'confirmed'}
+]}};
+const article=renderLeadDossier(lead);
+assert.equal((article.match(/class="dossier-section"/g)||[]).length,7);
+assert.ok(article.includes('No se encontró información pública verificable'));
+assert.ok(article.includes('https://example.org/registro'));
+assert.ok(!article.includes('<script>'));
+assert.ok(!article.includes('href="javascript:'));
+assert.ok(!article.includes('<img'));
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_research_start_with_ambiguous_server_response_does_not_offer_a_duplicate():
     html = Path("app/templates/portal.html").read_text(encoding="utf-8")
     mark = re.search(r"^    function markResearchStartUnconfirmed.*$", html, re.MULTILINE).group(0)

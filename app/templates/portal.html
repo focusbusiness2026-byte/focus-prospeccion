@@ -414,6 +414,40 @@
     openLead=function(id){openLeadWithoutCopyControls(id);const lead=dashboardData.prospects.find(item=>item.execution_id===id),grid=document.querySelector('#dialog-content .detail-grid'),actions=document.querySelector('#dialog-content .dialog-actions'),content=document.querySelector('#dialog-content'),crm=document.querySelector('#dialog-content #crm-form');if(lead&&grid)grid.insertAdjacentHTML('beforeend',copyFieldsPanel(lead));if(lead&&crm)crm.insertAdjacentHTML('beforebegin',decisionReviewPanel(lead));if(lead&&actions){actions.insertAdjacentHTML('afterbegin',`<button type="button" class="secondary" data-briefing-id="${esc(id)}">Generar briefing técnico</button>`);if(isPreviewAdmin())actions.insertAdjacentHTML('beforeend',`<button type="button" class="secondary" data-close-lead="${esc(id)}">Cerrar lead</button><button type="button" class="danger-button" data-delete-lead="${esc(id)}" data-company="${esc(lead.company)}">Eliminar lead</button>`);}if(content)content.insertAdjacentHTML('beforeend','<span class="lead-focus-mark" aria-label="Marca de contexto Focus Business">Focus Business</span>');};
 
     async function recordLeadDecision(id,decision,button){const reason=document.querySelector('#dialog-content [data-decision-reason]')?.value.trim()||'';if(!confirm(`¿Registrar la decisión “${decision}”? Quedará en la trazabilidad de esta cuenta.`))return;button.disabled=true;const r=await fetch(`/api/prospects/${encodeURIComponent(id)}/decision`,{method:'POST',headers:headers(),body:JSON.stringify({decision,reason})}),d=await r.json();button.disabled=false;if(!r.ok){message.textContent=d.detail||'No se pudo registrar la decisión.';return;}dialog.close();message.textContent='Decisión registrada sin iniciar acciones externas.';await loadDashboard();}
+    const dossierSections = [
+      ['identification', 'Identidad y continuidad'],
+      ['activity', 'Actividad y modelo de negocio'],
+      ['size', 'Tamaño y trayectoria'],
+      ['finances', 'Finanzas públicas'],
+      ['buying_signals', 'Señales de oportunidad'],
+      ['decision_makers', 'Decisores y acceso'],
+      ['verdict', 'Veredicto comercial'],
+    ];
+    const dossierCertainty = {
+      confirmed: 'Confirmado', historical: 'Histórico', estimate: 'Estimación',
+      not_available: 'No disponible', recommendation: 'Recomendación',
+    };
+    function renderLeadDossier(lead){
+      const dossier=lead.dossier||{};
+      if(!dossierSections.some(([key])=>Object.hasOwn(dossier,key)))return '';
+      const sections=dossierSections.map(([key,title],index)=>{
+        const facts=Array.isArray(dossier[key])?dossier[key]:[];
+        return `<section class="dossier-section"><div class="dossier-section-heading"><span>${String(index+1).padStart(2,'0')}</span><h3>${esc(title)}</h3></div>${facts.length?facts.map(fact=>{
+          const certainty=dossierCertainty[fact.certainty]||'Por verificar';
+          const url=safeUrl(fact.source_url);
+          return `<div class="dossier-fact"><p>${esc(fact.text||'')}</p><div class="dossier-evidence"><span>${esc(certainty)}</span>${fact.date?`<time>${esc(fact.date)}</time>`:''}${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Consultar fuente ↗</a>`:''}</div></div>`;
+        }).join(''):'<p class="dossier-empty">No se encontró información pública verificable para este apartado.</p>'}</section>`;
+      }).join('');
+      return `<article class="lead-dossier" aria-label="Investigación detallada de ${esc(lead.company)}"><header><p class="eyebrow">INVESTIGACIÓN EMPRESARIAL</p><h2>${esc(lead.company)}</h2><p>Datos públicos investigados para valorar el encaje comercial. Comprueba las fuentes antes de contactar: la presencia de un enlace no certifica por sí sola cada afirmación.</p></header>${sections}</article>`;
+    }
+    const openLeadWithoutDossier=openLead;
+    openLead=function(id){
+      openLeadWithoutDossier(id);
+      const lead=dashboardData.prospects.find(item=>item.execution_id===id);
+      const grid=document.querySelector('#dialog-content .detail-grid');
+      if(lead&&grid){const article=renderLeadDossier(lead);if(article)grid.insertAdjacentHTML('beforebegin',article);}
+    };
+
     let currentSummarySourceId='';
     async function openLeadSummaryRequest(sourceId){const r=await fetch(`/api/onboarding-sources/${encodeURIComponent(sourceId)}/lead-summary-request-preview`,{headers:{Accept:'application/json'}}),d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo preparar la vista previa.';return;}currentSummarySourceId=sourceId;const p=d.preview||{},counts=Object.entries(p.decision_counts||{}).map(([state,count])=>`${esc(state)}: ${esc(count)}`).join(' · ')||'Sin decisiones';document.querySelector('#lead-summary-request-preview').innerHTML=`<div class="review-state-grid"><div><span>Leads incluidos</span><b>${esc(p.lead_count||0)}</b></div><div><span>Decisiones</span><b>${counts}</b></div><div><span>Estado actual</span><b>${esc(d.current_request?.decision||'No solicitada')}</b></div><div><span>Generación externa</span><b>No iniciada</b></div></div><p><strong>Incluye:</strong> ${esc((p.included_fields||[]).join(', '))}.</p><p class="summary-request-safety">Solo se incluirán datos y decisiones de esta cuenta. Esta confirmación registra la solicitud; no llama IA ni servicios externos.</p>`;const form=document.querySelector('#lead-summary-request-form');form.reset();document.querySelector('#confirm-lead-summary-request').disabled=true;document.querySelector('#lead-summary-request-dialog').showModal();}
     async function submitLeadSummaryRequest(form){if(!currentSummarySourceId||!form.reportValidity())return;const button=document.querySelector('#confirm-lead-summary-request');button.disabled=true;const note=new FormData(form).get('note')||'',r=await fetch(`/api/onboarding-sources/${encodeURIComponent(currentSummarySourceId)}/lead-summary-requests`,{method:'POST',headers:headers(),body:JSON.stringify({confirmed:true,note})}),d=await r.json();if(!r.ok){button.disabled=false;message.textContent=d.detail||'No se pudo registrar la solicitud.';return;}document.querySelector('#lead-summary-request-dialog').close();message.textContent='Solicitud registrada. No se generó contenido ni se hicieron llamadas externas.';await loadDashboard();}

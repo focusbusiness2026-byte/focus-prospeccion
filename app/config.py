@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.5"
     openai_request_budget: int = 500
     openai_web_search_max_calls: int = 5
+    # A bounded company investigation follows each discovered lead. The caller
+    # has authorized the additional AI calls; no deployment is implied here.
+    openai_deep_research_enabled: bool = True
+    openai_company_research_max_calls: int = 3
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash"
     gemini_fallback_model: str = "gemini-3.5-flash-lite"
@@ -61,6 +65,10 @@ class Settings(BaseSettings):
     @property
     def web_search_call_limit(self) -> int:
         return min(5, max(1, self.openai_web_search_max_calls))
+
+    @property
+    def company_research_call_limit(self) -> int:
+        return min(3, max(1, self.openai_company_research_max_calls))
 
 
 @lru_cache

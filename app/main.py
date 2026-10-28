@@ -36,7 +36,7 @@ from app.auth import (
 from app.config import get_settings
 from app.db import create_schema
 from app.dedupe import company_dedupe_key
-from app.enrichment import OpenAIProspectDiscovery
+from app.enrichment import OpenAIProspectDiscovery, enrich_discovered_prospects
 from app.gemini_suggestions import (
     GeminiCriteriaSuggestions,
     GeminiSuggestionsError,
@@ -443,22 +443,33 @@ def _run_onboarding_research(
             message="Buscando empresas reales en fuentes públicas verificables…",
         )
         cycle_adjustments = {**(adjustments or {}), "lead_count": CONTACTS_PER_PROSPECTION_CYCLE}
-        prospects, trace = OpenAIProspectDiscovery(settings).discover(source.prospecting_profile(), cycle_adjustments)
-        report(
-            phase="validating",
-            progress=65,
-            message="Validando evidencia pública y descartando resultados duplicados…",
-        )
-        existing_keys = store.existing_prospect_keys(source.record_id)
+        profile = source.prospecting_profile()
+        prospects, trace = OpenAIProspectDiscovery(settings).discover(profile, cycle_adjustments)
         discovered_count = len(prospects)
+        existing_keys = store.existing_prospect_keys(source.record_id)
         prospects = [
             prospect for prospect in prospects
             if company_dedupe_key({"commercial_name": prospect.get("company", ""), "website": prospect.get("website", ""), "city": prospect.get("city", "")}) not in existing_keys
         ]
+        existing_duplicates = discovered_count - len(prospects)
+        if settings.openai_deep_research_enabled and prospects:
+            report(
+                phase="validating",
+                progress=45,
+                message="Verificando cada empresa, decisores y señales en fuentes públicas…",
+            )
+            prospects, trace = enrich_discovered_prospects(
+                prospects, trace, profile, cycle_adjustments, settings=settings
+            )
+        report(
+            phase="validating",
+            progress=65,
+            message="Validando la evidencia pública de cada empresa investigada…",
+        )
         duplicates_discarded = discovered_count - len(prospects)
         target_leads = 5
         missing_leads = max(0, target_leads - len(prospects))
-        if not prospects and duplicates_discarded:
+        if not prospects and existing_duplicates == discovered_count and discovered_count:
             trace["no_prospect_reason"] = "Los resultados encontrados ya existían para esta productora y se descartaron como duplicados."
         if missing_leads:
             deficit_reason = str(trace.get("no_prospect_reason") or "No hubo más empresas que cumplieran todos los criterios con evidencia suficiente.")

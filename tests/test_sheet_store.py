@@ -342,6 +342,7 @@ def test_results_keep_the_onboarding_productora_link():
             "website": "https://prospecto.example",
             "onboarding_id": "ONB-UNO",
             "productora": "Productora Norte",
+            "dossier": {"identification": [{"text": "Empresa activa", "date": "2026-10-28", "source_url": "https://prospecto.example", "certainty": "confirmed"}]},
         }
     )
     store.append_execution(
@@ -358,8 +359,9 @@ def test_results_keep_the_onboarding_productora_link():
         productora="Productora Norte",
     )
 
-    assert store.appends[0][0] == "'Prospeccion'!A:AS"
+    assert store.appends[0][0] == "'Prospeccion'!A:AT"
     assert store.appends[0][1][0][24:26] == ["ONB-UNO", "Productora Norte"]
+    assert SheetStore._prospect_from_row(store.appends[0][1][0])["dossier"]["identification"][0]["text"] == "Empresa activa"
     assert store.appends[1][0] == "'Ejecuciones'!A:AA"
     assert store.appends[1][1][0][11:13] == ["ONB-UNO", "Productora Norte"]
     assert store.appends[1][1][0][21] == "OpenAI Responses API + web_search"
@@ -448,7 +450,7 @@ def test_sheet_capacity_expands_existing_tabs_without_recreating_them():
     store._ensure_sheet_capacity("Ejecuciones", len(EXECUTION_HEADERS))
 
     assert store.requests == [
-        {"appendDimension": {"sheetId": 10, "dimension": "COLUMNS", "length": 21}},
+        {"appendDimension": {"sheetId": 10, "dimension": "COLUMNS", "length": 22}},
         {"appendDimension": {"sheetId": 11, "dimension": "COLUMNS", "length": 16}},
     ]
 

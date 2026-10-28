@@ -96,7 +96,7 @@ PROSPECT_HEADERS = [
     "public_contacts_json", "research_sources_json", "no_contacts_reason", "prospect_found",
     "no_prospect_reason", "crm_owner", "crm_notes", "crm_next_action", "crm_follow_up_date",
     "public_signals_json", "public_signals_status", "country", "client_type", "decision_makers_json",
-    "warmup_preparation", "warmup_approval",
+    "warmup_preparation", "warmup_approval", "research_dossier_json",
 ]
 EXECUTION_HEADERS = [
     "execution_id", "created_at", "email", "company", "website", "status", "model", "prompt_tokens",
@@ -1057,7 +1057,7 @@ class SheetStore:
         evidence = values.get("evidence") or []
         social = values.get("social_links") or {}
         self._append(
-            f"'{self.settings.google_sheet_tab}'!A:AS",
+            f"'{self.settings.google_sheet_tab}'!A:AT",
             [[
                 values.get("execution_id", ""),
                 values.get("email", ""),
@@ -1104,6 +1104,7 @@ class SheetStore:
                 json.dumps(values.get("decision_makers") or [], ensure_ascii=False),
                 values.get("warmup_preparation", "No iniciada"),
                 values.get("warmup_approval", "Pendiente"),
+                json.dumps(values.get("dossier") or {}, ensure_ascii=False),
             ]],
         )
 
@@ -1129,7 +1130,7 @@ class SheetStore:
 
     @staticmethod
     def _prospect_from_row(row: list) -> dict:
-        padded = row + [""] * (45 - len(row))
+        padded = row + [""] * (len(PROSPECT_HEADERS) - len(row))
         return {
             "execution_id": padded[0],
             "email": padded[1],
@@ -1178,10 +1179,11 @@ class SheetStore:
             "decision_makers": SheetStore._json_list(padded[42]),
             "warmup_preparation": padded[43] or "No iniciada",
             "warmup_approval": padded[44] or "Pendiente",
+            "dossier": SheetStore._json_object(padded[45]),
         }
 
     def recent_prospects(self, email: str | None, limit: int = 50) -> list[dict]:
-        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AT1000")
         if email:
             normalized = email.strip().lower()
             rows = [row for row in rows if len(row) > 1 and str(row[1]).strip().lower() == normalized]
@@ -1196,7 +1198,7 @@ class SheetStore:
 
     def delete_prospect(self, execution_id: str) -> dict:
         """Delete one exact prospect row. Callers must enforce administrator authorization."""
-        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AT1000")
         matches = [
             (row_number, row)
             for row_number, row in enumerate(rows, start=2)
@@ -1294,10 +1296,10 @@ class SheetStore:
         if not raw_status or len(raw_status) > 40 or any(character in raw_status for character in "<>\r\n\t"):
             raise ValueError("Estado Kanban no válido")
         status = normalized_kanban_status(raw_status)
-        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AT1000")
         normalized_email = email.strip().lower()
         for row_number, row in enumerate(rows, start=2):
-            padded = row + [""] * (45 - len(row))
+            padded = row + [""] * (len(PROSPECT_HEADERS) - len(row))
             if str(padded[0]).strip() != execution_id.strip():
                 continue
             if not is_admin and str(padded[1]).strip().lower() != normalized_email:
@@ -1325,10 +1327,10 @@ class SheetStore:
         warmup_approval: str,
         is_admin: bool = False,
     ) -> dict:
-        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AS1000")
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AT1000")
         normalized_email = email.strip().lower()
         for row_number, row in enumerate(rows, start=2):
-            padded = row + [""] * (45 - len(row))
+            padded = row + [""] * (len(PROSPECT_HEADERS) - len(row))
             if str(padded[0]).strip() != execution_id.strip():
                 continue
             if not is_admin and str(padded[1]).strip().lower() != normalized_email:

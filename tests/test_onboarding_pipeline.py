@@ -72,7 +72,7 @@ def source():
 
 
 def test_onboarding_pipeline_uses_profile_deduplicates_and_persists_trace(monkeypatch):
-    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True)
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True, openai_deep_research_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
     store = PipelineStore()
@@ -91,8 +91,34 @@ def test_onboarding_pipeline_uses_profile_deduplicates_and_persists_trace(monkey
     assert store.dashboard_refreshed is True
 
 
+def test_pipeline_investigates_every_discovered_company_before_saving(monkeypatch):
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True,
+                        openai_deep_research_enabled=True)
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
+    investigated = []
+
+    def detailed(leads, trace, profile, adjustments, *, settings):
+        assert len(leads) == 1
+        assert profile["onboarding_id"] == "ONB-PIPELINE"
+        investigated.extend(lead["company"] for lead in leads)
+        return [{**lead, "dossier": {"identification": [{
+            "text": "Entidad activa según registro público", "date": "2026-10-28",
+            "source_url": "https://registro.example/empresa", "certainty": "confirmed",
+        }]}} for lead in leads], trace
+
+    monkeypatch.setattr("app.main.enrich_discovered_prospects", detailed)
+    store = PipelineStore()
+
+    _run_onboarding_research(source(), store)
+
+    assert investigated == ["Prospecto Nuevo"]
+    assert len(store.prospects) == 1
+    assert store.prospects[0]["dossier"]["identification"][0]["certainty"] == "confirmed"
+
+
 def test_administrator_execution_charges_the_source_account_and_records_actor(monkeypatch):
-    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True)
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True, openai_deep_research_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
     store = PipelineStore()
@@ -114,7 +140,7 @@ def test_administrator_execution_charges_the_source_account_and_records_actor(mo
 
 
 def test_research_reports_real_phases_and_each_persisted_lead(monkeypatch):
-    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True)
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True, openai_deep_research_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
     store = PipelineStore()

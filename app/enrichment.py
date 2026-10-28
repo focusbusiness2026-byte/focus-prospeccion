@@ -6,7 +6,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -24,6 +24,10 @@ SOCIAL_HOSTS = {
     "youtube": ("youtube.com", "youtu.be"),
     "tiktok": ("tiktok.com",),
 }
+
+DOSSIER_SECTIONS = (
+    "identification", "activity", "size", "finances", "buying_signals", "decision_makers", "verdict"
+)
 
 
 def _public_signal_schema() -> dict:
@@ -203,13 +207,26 @@ class PublicWebScraper:
 class OpenAIWebResearcher:
     endpoint = "https://api.openai.com/v1/responses"
 
-    def __init__(self, settings: Settings | None = None, response_provider=None):
+    def __init__(self, settings: Settings | None = None, response_provider=None, max_search_calls: int | None = None):
         self.settings = settings or get_settings()
         self.response_provider = response_provider
+        self.max_search_calls = max_search_calls or self.settings.web_search_call_limit
 
     @staticmethod
     def _schema() -> dict:
         nullable_string = {"type": ["string", "null"]}
+        dossier_fact = {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "text": {"type": "string"},
+                "date": nullable_string,
+                "source_url": nullable_string,
+                "certainty": {"type": "string", "enum": [
+                    "confirmed", "historical", "estimate", "not_available", "recommendation"
+                ]},
+            },
+            "required": ["text", "date", "source_url", "certainty"],
+        }
         return {
             "type": "object",
             "additionalProperties": False,
@@ -223,6 +240,8 @@ class OpenAIWebResearcher:
                 "revenue_trend": {"type": ["string", "null"], "enum": ["growing", "stable", "shrinking", None]},
                 "capital_event": {"type": "boolean"},
                 "financial_alert": {"type": "boolean"},
+                "legal_status": {"type": "string", "enum": ["active", "inactive", "absorbed", "extinct", "unknown"]},
+                "legal_status_source_url": nullable_string,
                 "buying_signals": {"type": "array", "items": {"type": "string"}},
                 "decision_access": {"type": ["string", "null"], "enum": ["active", "passive", "registry_only", None]},
                 "decision_recent": {"type": "boolean"},
@@ -250,8 +269,8 @@ class OpenAIWebResearcher:
                     "type": "array",
                     "items": {
                         "type": "object", "additionalProperties": False,
-                        "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "public_contact": nullable_string, "source_url": {"type": "string"}},
-                        "required": ["name", "role", "public_contact", "source_url"],
+                        "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "role_status": {"type": "string", "enum": ["current", "historical", "unverified"]}, "public_contact": nullable_string, "source_url": {"type": "string"}},
+                        "required": ["name", "role", "role_status", "public_contact", "source_url"],
                     },
                 },
                 "social_links": {
@@ -260,12 +279,17 @@ class OpenAIWebResearcher:
                     "properties": {key: nullable_string for key in SOCIAL_HOSTS},
                     "required": list(SOCIAL_HOSTS),
                 },
+                "dossier": {
+                    "type": "object", "additionalProperties": False,
+                    "properties": {section: {"type": "array", "items": dossier_fact} for section in DOSSIER_SECTIONS},
+                    "required": list(DOSSIER_SECTIONS),
+                },
             },
             "required": [
                 "sector", "business_model", "city", "employees", "employee_trend", "revenue_eur",
-                "revenue_trend", "capital_event", "financial_alert", "buying_signals", "decision_access",
+                "revenue_trend", "capital_event", "financial_alert", "legal_status", "legal_status_source_url", "buying_signals", "decision_access",
                 "decision_recent", "disqualifiers", "summary", "entry_angle", "prospect_found",
-                "no_prospect_reason", "no_contacts_reason", "public_contacts", "public_signals", "decision_makers", "social_links",
+                "no_prospect_reason", "no_contacts_reason", "public_contacts", "public_signals", "decision_makers", "social_links", "dossier",
             ],
         }
 
@@ -273,11 +297,24 @@ class OpenAIWebResearcher:
         profile = prospecting_profile or {}
         prompt = f"""
 Investiga la empresa indicada para Focus Business usando solo información empresarial pública y verificable.
-Puedes realizar como máximo {self.settings.web_search_call_limit} acciones de búsqueda web. No intentes iniciar sesión,
+Puedes realizar como máximo {self.max_search_calls} acciones de búsqueda web. No intentes iniciar sesión,
 evadir CAPTCHA, consultar áreas privadas ni afirmar cobertura absoluta. Prioriza la web corporativa y fuentes primarias.
 No inventes empleados, facturación, contactos, decisores, redes, señales ni prospectos. Usa null o listas vacías cuando
 no haya evidencia. Cada contacto público debe incluir la URL exacta donde fue publicado. Indica de forma explícita si
 se encontró un prospecto/resultado y el motivo cuando no se encuentre. La salida debe cumplir el esquema JSON.
+Comprueba primero si la sociedad sigue operativa. Si fue absorbida, extinguida o está inactiva, marca
+prospect_found=false, añade el descalificador y explica qué empresa continúa la actividad, con fuente y fecha.
+No presentes a un presidente o directivo histórico como decisor actual. Marca role_status=current solo si una
+fuente específica respalda el cargo actual; usa historical/unverified en caso contrario. Indica la URL exacta
+del estado registral en legal_status_source_url. Una web genérica no acredita el cargo de una persona.
+Para una productora, busca señales concretas de necesidad audiovisual (campañas, lanzamientos, ferias,
+rebranding o producción de contenido), con fecha y fuente; distingue señal observada de recomendación comercial.
+Redacta dossier como siete apartados de una ficha editorial extensa y legible: identidad y continuidad legal,
+actividad/modelo, tamaño, finanzas, señales de compra, personas decisoras y veredicto comercial. En cada apartado
+aporta datos concretos y contexto suficiente para una lectura semejante a un artículo; cada afirmación factual
+debe citar su página exacta y fecha si está disponible. Separa lo confirmado, histórico, estimado y no disponible.
+No rellenes apartados con texto genérico ni inventes datos para alcanzar una longitud. Las recomendaciones de
+entrada comercial llevan certainty=recommendation y no se presentan como hechos observados.
 Para ingresos, valoración/financiación, publicidad, contratación pública u otras señales, registra cada dato como
 public_signals con fecha si existe, URL, clase de evidencia y confianza. Diferencia lo declarado por la empresa, una
 fuente pública secundaria y una estimación/no verificada. No accedas ni infieras información privada o sensible.
@@ -299,7 +336,7 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
             "reasoning": {"effort": "low"},
             "tools": [{"type": "web_search"}],
             "tool_choice": "required",
-            "max_tool_calls": self.settings.web_search_call_limit,
+            "max_tool_calls": self.max_search_calls,
             "include": ["web_search_call.action.sources"],
             "text": {
                 "format": {
@@ -373,6 +410,23 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
             return ""
         return parsed.geturl() if parsed.scheme in {"http", "https"} and parsed.hostname else ""
 
+    @staticmethod
+    def _source_match_key(url: str) -> tuple[str, str, str, str, str, str]:
+        """Match harmless URL spelling differences without merging distinct pages."""
+        parsed = urlparse(url)
+        query = urlencode(sorted(
+            (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_") and key.lower() not in {"fbclid", "gclid"}
+        ))
+        return (
+            parsed.scheme.lower(),
+            parsed.netloc.lower(),
+            parsed.path.rstrip("/") or "/",
+            parsed.params,
+            query,
+            "",  # A fragment points into the same cited document.
+        )
+
     def analyze(
         self,
         company: str,
@@ -395,12 +449,17 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
         research_sources: list[dict[str, str]] = [
             {"url": url, "title": "Web corporativa", "type": "company_website"} for url in evidence.pages
         ]
-        known_urls = {item["url"] for item in research_sources}
+        known_urls = {self._source_match_key(item["url"]): item["url"] for item in research_sources}
         for source in openai_sources:
             url = self._valid_url(source.get("url"))
-            if url and url not in known_urls:
-                known_urls.add(url)
+            key = self._source_match_key(url) if url else None
+            if key and key not in known_urls:
+                known_urls[key] = url
                 research_sources.append({**source, "url": url})
+
+        def cited_source(value: object) -> str:
+            url = self._valid_url(value)
+            return known_urls.get(self._source_match_key(url), "") if url else ""
 
         contacts: list[dict[str, str]] = list(evidence.public_contacts)
         seen_contacts = {(item["type"], item["value"].lower()) for item in contacts}
@@ -409,8 +468,8 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
                 continue
             kind = str(item.get("type") or "").strip()
             value = str(item.get("value") or "").strip()
-            source_url = self._valid_url(item.get("source_url"))
-            if kind not in {"email", "phone", "contact_page", "person"} or not value or source_url not in known_urls:
+            source_url = cited_source(item.get("source_url"))
+            if kind not in {"email", "phone", "contact_page", "person"} or not value or not source_url:
                 continue
             key = (kind, value.lower())
             if key not in seen_contacts:
@@ -421,8 +480,8 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
         for item in data.get("public_signals") or []:
             if not isinstance(item, dict):
                 continue
-            source_url = self._valid_url(item.get("source_url"))
-            if source_url not in known_urls:
+            source_url = cited_source(item.get("source_url"))
+            if not source_url:
                 continue
             public_signals.append(
                 {
@@ -439,11 +498,11 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
         for item in data.get("decision_makers") or []:
             if not isinstance(item, dict):
                 continue
-            source_url = self._valid_url(item.get("source_url"))
+            source_url = cited_source(item.get("source_url"))
             name = str(item.get("name") or "").strip()
             role = str(item.get("role") or "").strip()
-            if source_url in known_urls and name and role:
-                decision_makers.append({"name": name, "role": role, "public_contact": str(item.get("public_contact") or "").strip(), "source_url": source_url})
+            if source_url and name and role and item.get("role_status") == "current":
+                decision_makers.append({"name": name, "role": role, "role_status": "current", "public_contact": str(item.get("public_contact") or "").strip(), "source_url": source_url})
 
         social_links = dict(evidence.social_links)
         for network, value in (data.get("social_links") or {}).items():
@@ -457,6 +516,15 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
                 data[key] = []
         for key in ("capital_event", "financial_alert", "decision_recent", "prospect_found"):
             data[key] = data.get(key) is True
+        data["buying_signals"] = [
+            signal["value"] for signal in public_signals
+            if signal["type"] in {"funding", "advertising", "public_procurement", "other"}
+            and signal["confidence"] in {"high", "medium"}
+            and signal["evidence_class"] != "estimate_unverified"
+        ]
+        if not decision_makers:
+            data["decision_access"] = None
+            data["decision_recent"] = False
         employees = data.get("employees")
         if employees is not None and not isinstance(employees, int):
             try:
@@ -468,10 +536,42 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
         data["decision_makers"] = decision_makers
         data["public_signals_status"] = "Encontradas" if public_signals else "No encontrado públicamente"
         data["social_links"] = social_links
+        data["legal_status_source_url"] = cited_source(data.get("legal_status_source_url"))
+        if data.get("legal_status") in {"inactive", "absorbed", "extinct"}:
+            data["prospect_found"] = False
+            data["disqualifiers"].append(f"Sociedad {data['legal_status']}")
+        raw_dossier = data.get("dossier")
+        raw_dossier = raw_dossier if isinstance(raw_dossier, dict) else {}
+        dossier = {}
+        for section in DOSSIER_SECTIONS:
+            facts = []
+            section_items = raw_dossier.get(section)
+            for item in section_items if isinstance(section_items, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                statement = str(item.get("text") or "").strip()[:700]
+                certainty = str(item.get("certainty") or "")
+                source_url = cited_source(item.get("source_url"))[:500]
+                if not statement or certainty not in {
+                    "confirmed", "historical", "estimate", "not_available", "recommendation"
+                }:
+                    continue
+                if certainty in {"confirmed", "historical", "estimate"} and not source_url:
+                    continue
+                facts.append({
+                    "text": statement,
+                    "date": str(item.get("date") or "").strip()[:60],
+                    "source_url": source_url,
+                    "certainty": certainty,
+                })
+                if len(facts) == 5:
+                    break
+            dossier[section] = facts
+        data["dossier"] = dossier
         data["research_sources"] = research_sources
-        data["search_queries"] = queries[: self.settings.web_search_call_limit]
+        data["search_queries"] = queries[: self.max_search_calls]
         data["web_search_calls"] = calls
-        data["web_search_call_limit"] = self.settings.web_search_call_limit
+        data["web_search_call_limit"] = self.max_search_calls
         if not contacts:
             data["no_contacts_reason"] = str(data.get("no_contacts_reason") or "No se encontraron contactos públicos verificables.")
         else:
@@ -486,7 +586,7 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
             "output_tokens": int(usage.get("output_tokens") or 0),
             "total_tokens": int(usage.get("total_tokens") or 0),
             "web_search_calls": calls,
-            "web_search_call_limit": self.settings.web_search_call_limit,
+            "web_search_call_limit": self.max_search_calls,
             "search_queries": data["search_queries"],
             "research_sources": research_sources,
         }
@@ -527,6 +627,8 @@ class OpenAIProspectDiscovery(OpenAIWebResearcher):
                 "revenue_trend": {"type": ["string", "null"], "enum": ["growing", "stable", "shrinking", None]},
                 "capital_event": {"type": "boolean"},
                 "financial_alert": {"type": "boolean"},
+                "legal_status": {"type": "string", "enum": ["active", "inactive", "absorbed", "extinct", "unknown"]},
+                "legal_status_source_url": nullable_string,
                 "buying_signals": {"type": "array", "items": {"type": "string"}},
                 "decision_access": {"type": ["string", "null"], "enum": ["active", "passive", "registry_only", None]},
                 "decision_recent": {"type": "boolean"},
@@ -551,8 +653,8 @@ class OpenAIProspectDiscovery(OpenAIWebResearcher):
                     "type": "array",
                     "items": {
                         "type": "object", "additionalProperties": False,
-                        "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "public_contact": nullable_string, "source_url": {"type": "string"}},
-                        "required": ["name", "role", "public_contact", "source_url"],
+                        "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "role_status": {"type": "string", "enum": ["current", "historical", "unverified"]}, "public_contact": nullable_string, "source_url": {"type": "string"}},
+                        "required": ["name", "role", "role_status", "public_contact", "source_url"],
                     },
                 },
                 "social_links": {
@@ -567,7 +669,7 @@ class OpenAIProspectDiscovery(OpenAIWebResearcher):
             "required": [
                 "company", "website", "title", "description", "sector", "business_model", "city", "country",
                 "client_type", "employees", "employee_trend", "revenue_eur", "revenue_trend", "capital_event",
-                "financial_alert", "buying_signals", "decision_access", "decision_recent", "disqualifiers",
+                "financial_alert", "legal_status", "legal_status_source_url", "buying_signals", "decision_access", "decision_recent", "disqualifiers",
                 "summary", "entry_angle", "public_contacts", "public_signals", "decision_makers", "social_links", "evidence_urls", "no_contacts_reason",
             ],
         }
@@ -596,6 +698,16 @@ contratación recurrente. La recurrencia no se presume: debe justificarse con se
 necesidad continua de contenido, campañas frecuentes, lanzamientos, eventos o comunicación audiovisual sostenida.
 Si no existe evidencia pública suficiente, indícalo como dato no disponible y no inventes esa señal.
 Aplica todos los filtros, señales, decisores y exclusiones indicados en AJUSTES OPCIONALES, sin relajar criterios para completar la cantidad.
+Si se indican decision_roles, busca primero personas con esos cargos y cita la página pública exacta que confirma
+su nombre y función. La web corporativa general o el LinkedIn de la empresa no sustituyen a un decisor identificado.
+Si require_identifiable_decision_maker es true, no incluyas empresas sin al menos una persona identificada con
+nombre, cargo y fuente pública verificable. Para cada empresa busca también señales de compra concretas con su
+fecha y fuente; si no existen, deja public_signals vacío en vez de inferirlas de una descripción genérica.
+Comprueba la identidad de la entidad y la vigencia de los cargos: un nombramiento histórico no demuestra que
+esa persona siga siendo decisora. Si una sociedad se extinguió o fue absorbida, no la presentes como cliente
+potencial activo; distingue la marca comercial de la sociedad operadora actual y documenta la fuente en
+legal_status_source_url. Para cada persona marca role_status=current solo con evidencia de cargo vigente;
+historical y unverified no son decisores actuales.
 Realiza como máximo {self.settings.web_search_call_limit} acciones de búsqueda web pública en total. Respeta robots,
 términos y límites técnicos. No inicies sesión, no evadas CAPTCHA, no accedas a información privada y no afirmes
 cobertura absoluta. Prioriza webs corporativas y fuentes primarias. No inventes empresas, webs, contactos, personas,
@@ -645,15 +757,22 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             raise ValueError("OpenAI no devolvió una lista de prospectos válida")
 
         valid_sources = []
-        known_urls: set[str] = set()
+        known_sources: dict[tuple[str, str, str, str, str, str], str] = {}
         for source in sources:
             url = self._valid_url(source.get("url"))
-            if url and url not in known_urls:
-                known_urls.add(url)
+            key = self._source_match_key(url) if url else None
+            if key and key not in known_sources:
+                known_sources[key] = url
                 valid_sources.append({**source, "url": url})
+
+        def cited_source(value: object) -> str:
+            url = self._valid_url(value)
+            return known_sources.get(self._source_match_key(url), "") if url else ""
 
         prospects: list[dict] = []
         seen_prospects: set[tuple[str, str]] = set()
+        require_identifiable_decision_maker = bool((adjustments or {}).get("require_identifiable_decision_maker"))
+        rejected_without_decision_maker = 0
         for raw in data["prospects"]:
             if not isinstance(raw, dict):
                 continue
@@ -664,28 +783,27 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             prospect_key = (company.casefold(), (urlparse(website).hostname or "").lower().removeprefix("www."))
             if prospect_key in seen_prospects:
                 continue
-            evidence_urls = [
-                url for url in (self._valid_url(value) for value in raw.get("evidence_urls") or []) if url in known_urls
-            ]
+            evidence_urls = list(dict.fromkeys(
+                url for url in (cited_source(value) for value in raw.get("evidence_urls") or []) if url
+            ))
             if not evidence_urls:
                 continue
-            seen_prospects.add(prospect_key)
             contacts = []
             for contact in raw.get("public_contacts") or []:
                 if not isinstance(contact, dict):
                     continue
-                source_url = self._valid_url(contact.get("source_url"))
+                source_url = cited_source(contact.get("source_url"))
                 value = str(contact.get("value") or "").strip()
                 kind = str(contact.get("type") or "").strip()
-                if source_url in known_urls and value and kind in {"email", "phone", "contact_page", "person"}:
+                if source_url and value and kind in {"email", "phone", "contact_page", "person"}:
                     contacts.append({"type": kind, "value": value, "source_url": source_url})
             public_signals = []
             for signal in raw.get("public_signals") or []:
                 if not isinstance(signal, dict):
                     continue
-                source_url = self._valid_url(signal.get("source_url"))
+                source_url = cited_source(signal.get("source_url"))
                 value = str(signal.get("value") or "").strip()
-                if source_url in known_urls and value:
+                if source_url and value:
                     public_signals.append(
                         {
                             "type": str(signal.get("type") or "other"),
@@ -700,11 +818,14 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             for person in raw.get("decision_makers") or []:
                 if not isinstance(person, dict):
                     continue
-                source_url = self._valid_url(person.get("source_url"))
+                source_url = cited_source(person.get("source_url"))
                 name = str(person.get("name") or "").strip()
                 role = str(person.get("role") or "").strip()
-                if source_url in known_urls and name and role:
-                    decision_makers.append({"name": name, "role": role, "public_contact": str(person.get("public_contact") or "").strip(), "source_url": source_url})
+                if source_url and name and role and person.get("role_status") == "current":
+                    decision_makers.append({"name": name, "role": role, "role_status": "current", "public_contact": str(person.get("public_contact") or "").strip(), "source_url": source_url})
+            if require_identifiable_decision_maker and not decision_makers:
+                rejected_without_decision_maker += 1
+                continue
             social_links: dict[str, str] = {}
             for network, value in (raw.get("social_links") or {}).items():
                 url = self._valid_url(value)
@@ -714,8 +835,23 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             for key in ("buying_signals", "disqualifiers"):
                 if not isinstance(raw.get(key), list):
                     raw[key] = []
+            if raw["disqualifiers"]:
+                continue
+            raw["legal_status_source_url"] = cited_source(raw.get("legal_status_source_url"))
+            if raw.get("legal_status") in {"inactive", "absorbed", "extinct"}:
+                continue
             for key in ("capital_event", "financial_alert", "decision_recent"):
                 raw[key] = raw.get(key) is True
+            # Only source-backed opportunities may increase the buying score.
+            raw["buying_signals"] = [
+                signal["value"] for signal in public_signals
+                if signal["type"] in {"funding", "advertising", "public_procurement"}
+                and signal["confidence"] in {"high", "medium"}
+                and signal["evidence_class"] != "estimate_unverified"
+            ]
+            if not decision_makers:
+                raw["decision_access"] = None
+                raw["decision_recent"] = False
             raw["website"] = website
             raw["public_contacts"] = contacts
             raw["public_signals"] = public_signals
@@ -736,10 +872,16 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             raw["score"] = score.total
             raw["classification"] = score.classification
             raw["score_detail"] = score.as_dict()
+            seen_prospects.add(prospect_key)
             prospects.append(raw)
 
         requested_leads = 5
         prospects = prospects[:requested_leads]
+        if not prospects and rejected_without_decision_maker:
+            data["no_prospect_reason"] = (
+                "No se encontraron empresas con un decisor identificable y una fuente pública verificable "
+                f"({rejected_without_decision_maker} resultado(s) descartado(s))."
+            )
         usage = response.get("usage") or {}
         trace_queries = queries[: self.settings.web_search_call_limit]
         while len(trace_queries) < calls:
@@ -774,3 +916,103 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             "adjustments": adjustments or {},
         }
         return prospects, trace
+
+
+def enrich_discovered_prospects(
+    prospects: list[dict],
+    trace: dict,
+    prospecting_profile: dict,
+    adjustments: dict | None = None,
+    *,
+    settings: Settings | None = None,
+    researcher: OpenAIWebResearcher | None = None,
+    scraper: PublicWebScraper | None = None,
+) -> tuple[list[dict], dict]:
+    """Verify each candidate as an operating company before it enters the CRM.
+
+    This optional, bounded second pass is deliberately separate from discovery:
+    a broad search cannot establish current directors, corporate continuity and
+    dated buying signals for five companies with the same depth as one dossier.
+    """
+    config = settings or get_settings()
+    detailed = researcher or OpenAIWebResearcher(
+        config, max_search_calls=config.company_research_call_limit
+    )
+    public_scraper = scraper or PublicWebScraper(config)
+    enriched: list[dict] = []
+    discarded = 0
+    for lead in prospects[:5]:
+        website = str(lead.get("website") or "").strip()
+        try:
+            evidence = public_scraper.scrape(website)
+        except (ValueError, PermissionError, httpx.HTTPError):
+            # Search can still investigate a public company if its site blocks
+            # scraping, but do not send a private/reserved URL to the provider.
+            try:
+                _public_url(website)
+            except ValueError:
+                discarded += 1
+                continue
+            evidence = WebEvidence("", "", "", [], {}, [])
+
+        analysis, usage = detailed.analyze(
+            str(lead.get("company") or ""),
+            evidence,
+            {"producer_profile": prospecting_profile, "targeting_adjustments": adjustments or {},
+             "discovery_candidate": {"company": lead.get("company"), "website": website,
+                                     "summary": lead.get("summary"), "evidence": lead.get("evidence")}},
+        )
+        trace["prompt_tokens"] += usage["prompt_tokens"]
+        trace["output_tokens"] += usage["output_tokens"]
+        trace["total_tokens"] += usage["total_tokens"]
+        trace["web_search_calls"] += usage["web_search_calls"]
+        trace["web_search_call_limit"] += usage["web_search_call_limit"]
+        trace["search_queries"].extend(usage["search_queries"])
+        trace["research_sources"].extend(
+            source for source in usage["research_sources"]
+            if source["url"] not in {item["url"] for item in trace["research_sources"]}
+        )
+        trace["search_trace"].append({
+            "query": f"Verificación detallada: {lead['company']}",
+            "searched_at": datetime.now(timezone.utc).isoformat(),
+            "status": "Completada",
+            "provider": "OpenAI Responses API + web_search",
+            "result": "Empresa verificada" if analysis["prospect_found"] and not analysis["disqualifiers"] else "Descartada",
+            "source_urls": [source["url"] for source in usage["research_sources"]],
+        })
+        if not analysis["prospect_found"] or analysis["disqualifiers"]:
+            discarded += 1
+            continue
+        if (adjustments or {}).get("require_identifiable_decision_maker") and not analysis["decision_makers"]:
+            discarded += 1
+            continue
+        merged = {**lead}
+        for field in (
+            "sector", "business_model", "city", "employees", "employee_trend", "revenue_eur",
+            "revenue_trend", "capital_event", "financial_alert", "buying_signals", "decision_access",
+            "decision_recent", "summary", "entry_angle", "public_contacts", "public_signals",
+            "public_signals_status", "decision_makers", "social_links", "no_contacts_reason",
+            "prospect_found", "no_prospect_reason", "legal_status", "legal_status_source_url",
+            "dossier", "score", "classification", "score_detail",
+        ):
+            merged[field] = analysis.get(field)
+        merged["evidence"] = list(dict.fromkeys(
+            [*lead.get("evidence", []), *(source["url"] for source in analysis["research_sources"])]
+        ))
+        merged["research_sources"] = list({
+            source["url"]: source for source in [*lead.get("research_sources", []), *analysis["research_sources"]]
+        }.values())
+        merged["search_queries"] = [*lead.get("search_queries", []), *analysis["search_queries"]]
+        merged["web_search_calls"] = lead.get("web_search_calls", 0) + analysis["web_search_calls"]
+        merged["web_search_call_limit"] = lead.get("web_search_call_limit", 0) + analysis["web_search_call_limit"]
+        enriched.append(merged)
+
+    trace["research_summary"] = (
+        f"{trace.get('research_summary', '').strip()} Verificación individual: "
+        f"{len(enriched)} empresas aptas, {discarded} descartadas."
+    ).strip()
+    if not enriched and prospects:
+        trace["no_prospect_reason"] = (
+            "La verificación individual no confirmó empresas operativas con los criterios y fuentes requeridos."
+        )
+    return enriched, trace

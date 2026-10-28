@@ -8,7 +8,8 @@ Portal privado para convertir cada registro de Onboarding de una productora audi
 Formulario Onboarding
   -> Google Sheets / Onboarding
   -> configuración normalizada por productora
-  -> ejecución automática (máximo 5 búsquedas web)
+  -> descubrimiento (máximo 5 búsquedas web)
+  -> investigación individual de cada candidata (máximo 3 búsquedas adicionales por empresa)
   -> Google Sheets / Prospeccion + Ejecuciones
   -> dashboard, filtros, detalle, CRM y CSV
 ```
@@ -17,7 +18,7 @@ Formulario Onboarding
 - Sin `OPENAI_API_KEY`, el registro queda visible como `Pendiente de configurar OpenAI` y no se realiza ninguna búsqueda.
 - Cada productora puede activar una automatización propia entre 5 minutos y 3 días. La programación y sus filtros se guardan en `Automatizaciones`; el motor puede desactivarse globalmente con `AUTO_RESEARCH_ENABLED=false`.
 - La API de automatización admite `max_total_runs` opcional con `runs_per_cycle=1` para lotes finitos. Cada ciclo se marca como iniciado en `Automatizaciones` antes de llamar al proveedor; un error o reinicio lo deja pausado para revisión. Una ejecución completada sin prospectos también cuenta como ciclo y consume una unidad de cuota. Después del último ciclo la programación se desactiva automáticamente.
-- Una ejecución de OpenAI Responses API usa `web_search` y `max_tool_calls` limitado localmente a 5.
+- El descubrimiento usa `web_search` con `max_tool_calls` limitado a 5. Cada empresa candidata recibe además una investigación individual limitada a 3 búsquedas cuando `OPENAI_DEEP_RESEARCH_ENABLED=true`.
 - Las ejecuciones manuales del portal se inician como trabajos en segundo plano. La interfaz consulta su estado, muestra fases reales y actualiza Leads y CRM después de cada prospecto persistido; no inventa avances ni resultados durante la llamada al proveedor.
 - Solo se aceptan contactos, redes y señales con URL de evidencia. No se inicia sesión, evade CAPTCHA ni consulta contenido privado.
 - Lo que no tiene evidencia se muestra como `No encontrado públicamente`, no como cero.
@@ -43,6 +44,7 @@ Los ajustes se guardan como trazabilidad de la ejecución, pero no sobrescriben 
 - fuentes y evidencia;
 - señales de ingresos, valoración/financiación, publicidad, contratación pública u otras, con fecha, fuente, clase y confianza;
 - CRM editable: estado, propietario, notas, próxima acción y fecha de seguimiento.
+- un artículo de investigación con siete apartados, grados de certeza y fuentes por afirmación, cuando la investigación individual esté disponible.
 
 Los filtros cubren productora, país, sector, tipo de cliente, clasificación y estado. La descarga CSV aplica los filtros y contiene el detalle público y CRM disponible.
 
@@ -56,7 +58,7 @@ no recibe otra cuota. Si la cuenta principal deja de estar activa, el acceso
 secundario se rechaza. No se permiten enlaces a administradores ni cadenas de
 cuentas vinculadas.
 
-`Prospeccion` usa `A:AS`:
+`Prospeccion` usa `A:AT`:
 
 ```text
 execution_id, email, created_at, company, website, title, description, sector,
@@ -66,7 +68,7 @@ onboarding_id, productora, search_queries, web_search_calls, web_search_call_lim
 public_contacts_json, research_sources_json, no_contacts_reason, prospect_found,
 no_prospect_reason, crm_owner, crm_notes, crm_next_action, crm_follow_up_date,
 public_signals_json, public_signals_status, country, client_type, decision_makers_json,
-warmup_preparation, warmup_approval
+warmup_preparation, warmup_approval, research_dossier_json
 ```
 
 `Ejecuciones` usa `A:AA`:
@@ -121,6 +123,8 @@ El botón de investigación utiliza `POST /api/onboarding-sources/{record_id}/re
 | `OPENAI_MODEL` | Modelo de Responses API; valor de ejemplo `gpt-5.5`. |
 | `OPENAI_REQUEST_BUDGET` | Contador interno visible para administración. |
 | `OPENAI_WEB_SEARCH_MAX_CALLS` | Se fuerza al intervalo 1–5. |
+| `OPENAI_DEEP_RESEARCH_ENABLED` | Investiga cada empresa por separado antes de guardar leads. Activada por defecto; añade hasta cinco solicitudes a OpenAI por ejecución. Puede desactivarse para diagnóstico. |
+| `OPENAI_COMPANY_RESEARCH_MAX_CALLS` | Máximo 1–3 búsquedas web por empresa en esa segunda fase; hasta 15 búsquedas adicionales si se investigan cinco candidatas. |
 | `GOOGLE_AUTOMATION_TAB` | Pestaña de programaciones; valor recomendado `Automatizaciones`. |
 | `AUTO_RESEARCH_ENABLED` | Activa el motor de programaciones. Ninguna productora se ejecuta hasta habilitar su programación. |
 | `AUTO_RESEARCH_POLL_SECONDS` | Frecuencia interna con la que el servidor revisa programaciones vencidas; mínimo efectivo 60 s. |
