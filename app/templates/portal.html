@@ -440,12 +440,20 @@
       }).join('');
       return `<article class="lead-dossier" aria-label="Investigación detallada de ${esc(lead.company)}"><header><p class="eyebrow">INVESTIGACIÓN EMPRESARIAL</p><h2>${esc(lead.company)}</h2><p>Datos públicos investigados para valorar el encaje comercial. Comprueba las fuentes antes de contactar: la presencia de un enlace no certifica por sí sola cada afirmación.</p></header>${sections}</article>`;
     }
+    function dossierPlainText(lead){
+      const dossier=lead.dossier||{};
+      if(!dossierSections.some(([key])=>Object.hasOwn(dossier,key)))return '';
+      return dossierSections.map(([key,title])=>{
+        const facts=Array.isArray(dossier[key])?dossier[key]:[];
+        return [title.toUpperCase(),...(facts.length?facts.map(fact=>`• ${fact.text||''} [${dossierCertainty[fact.certainty]||'Por verificar'}]${fact.date?` Fecha: ${fact.date}`:''}${safeUrl(fact.source_url)?` Fuente: ${safeUrl(fact.source_url)}`:''}`):['No se encontró información pública verificable.'])].join('\n');
+      }).join('\n\n');
+    }
     const openLeadWithoutDossier=openLead;
     openLead=function(id){
       openLeadWithoutDossier(id);
       const lead=dashboardData.prospects.find(item=>item.execution_id===id);
       const grid=document.querySelector('#dialog-content .detail-grid');
-      if(lead&&grid){const article=renderLeadDossier(lead);if(article)grid.insertAdjacentHTML('beforebegin',article);}
+      if(lead&&grid){const article=renderLeadDossier(lead);if(article){grid.insertAdjacentHTML('beforebegin',article);document.querySelector('#dialog-content .dialog-actions')?.insertAdjacentHTML('beforeend',`<button type="button" class="secondary" data-download-dossier="${esc(id)}">Descargar investigación completa</button>`);}}
     };
 
     let currentSummarySourceId='';
@@ -574,7 +582,8 @@
     async function setQuickAutomationState(enabled){const id=document.querySelector('#favorite-automation-select').value,item=readPreviewAutomations().find(candidate=>candidate.id===id);if(!item?.source)return;const choice=scheduleChoice(quickScheduleMinutes||item.interval_minutes),source=item.source,previous=structuredClone(source.automation||{}),adjustments={...recommendedConfig(source),...(item.adjustments||{}),runs_per_cycle:choice.runs};automationUpdatesInFlight.add(id);applyAutomationOptimisticState(source,{name:item.name,enabled,favorite:true,interval_minutes:choice.minutes,runs_per_cycle:choice.runs,adjustments});message.textContent=enabled?'Automatización iniciada. Confirmando en Google Sheets…':'Automatización detenida. Confirmando en Google Sheets…';const result=await persistAutomation(item,{enabled,favorite:true,interval_minutes:choice.minutes,runs_per_cycle:choice.runs,adjustments});automationUpdatesInFlight.delete(id);if(!result.ok){source.automation=previous;renderDashboardAutomationQuick();renderSources();message.textContent=`No se pudo ${enabled?'iniciar':'detener'}: ${result.detail}`;return;}message.textContent=result.detail;await loadDashboard();}
     async function runSavedAutomation(item){if(!item)return;const confirmed=window.confirm(`Se ejecutará “${item.name}” ahora y se consumirán recursos reales para buscar hasta ${item.lead_count||5} resultados. ¿Continuar?`);if(!confirmed)return;selectedSourceId=item.id;showView('sources',true);renderSources();await startResearchJob(item.id,item.adjustments||{});}
     async function saveCRM(form){const body=Object.fromEntries(new FormData(form).entries()),r=await fetch(`/api/prospects/${encodeURIComponent(form.dataset.id)}/crm`,{method:'POST',headers:headers(),body:JSON.stringify(body)}),d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo guardar el CRM.';return;}dialog.close();message.textContent='Seguimiento CRM guardado en Google Sheets.';await loadDashboard();}
-    function leadFullText(x){return [`Empresa: ${x.company}`,`Web: ${x.website||'No disponible'}`,`Productora: ${x.productora||'Sin vincular'}`,`Sector: ${x.sector||'Pendiente'}`,`Ubicación: ${[x.city,x.country].filter(Boolean).join(', ')||'Pendiente'}`,`Resumen: ${x.summary||x.description||'Sin resumen'}`,`Contactos: ${(x.public_contacts||[]).map(c=>`${c.type}: ${c.value}`).join(', ')||'No disponibles'}`,`Notas: ${x.crm_notes||'Sin notas'}`,`Fuentes: ${(x.research_sources||[]).map(s=>s.url).join(', ')||'Sin fuentes'}`].join('\n');}
+    function leadFullText(x){return [`Empresa: ${x.company}`,`Web: ${x.website||'No disponible'}`,`Productora: ${x.productora||'Sin vincular'}`,`Sector: ${x.sector||'Pendiente'}`,`Ubicación: ${[x.city,x.country].filter(Boolean).join(', ')||'Pendiente'}`,`Resumen: ${x.summary||x.description||'Sin resumen'}`,`Contactos: ${(x.public_contacts||[]).map(c=>`${c.type}: ${c.value}`).join(', ')||'No disponibles'}`,`Notas: ${x.crm_notes||'Sin notas'}`,`Fuentes: ${(x.research_sources||[]).map(s=>s.url).join(', ')||'Sin fuentes'}`,dossierPlainText(x)].filter(Boolean).join('\n\n');}
+    document.addEventListener('click',e=>{const button=e.target.closest('[data-download-dossier]');if(!button)return;const lead=dashboardData.prospects.find(item=>item.execution_id===button.dataset.downloadDossier);if(!lead||!dossierPlainText(lead))return;downloadLocalText(`${safeExportFilename(lead.company,'investigacion')}-${safeExportFilename(lead.execution_id,'lead')}.txt`,leadFullText(lead));});
     async function copyLeadText(id,kind,button){const x=dashboardData.prospects.find(p=>p.execution_id===id);if(!x)return;await navigator.clipboard.writeText(kind==='notes'?(x.crm_notes||'Sin notas registradas.'):leadFullText(x));const previous=button.textContent;button.textContent='Copiado';setTimeout(()=>button.textContent=previous,1200);}
     const dashboardRetryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     function dashboardEndpoint(){const params=new URLSearchParams();if(adminViewAs)params.set('view_as',adminViewAs);if(adminViewAs&&adminPresentation==='client')params.set('presentation','client');return `/api/portal-dashboard${params.size?`?${params}`:''}`;}

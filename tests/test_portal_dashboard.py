@@ -193,6 +193,12 @@ assert.ok(article.includes('https://example.org/registro'));
 assert.ok(!article.includes('<script>'));
 assert.ok(!article.includes('href="javascript:'));
 assert.ok(!article.includes('<img'));
+const report=dossierPlainText(lead);
+assert.ok(report.includes('IDENTIDAD Y CONTINUIDAD'));
+assert.ok(report.includes('VEREDICTO COMERCIAL'));
+assert.ok(report.includes('Sociedad activa'));
+assert.ok(report.includes('https://example.org/registro'));
+assert.ok(!report.includes('javascript:alert'));
 """
     completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
     assert completed.returncode == 0, completed.stderr
