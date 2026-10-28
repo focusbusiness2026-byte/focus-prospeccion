@@ -35,6 +35,37 @@ class FakeStore(SheetStore):
             self.rows[0][5] = values[0][0]
 
 
+def test_dashboard_read_cache_retries_quota_response_and_reuses_same_range(monkeypatch):
+    store = SheetStore(Settings(google_sheet_id="sheet", google_service_account_json="{}"))
+    statuses = iter([429, 200])
+    calls = []
+    delays = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            if self.status_code != 200:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+        def json(self):
+            return {"values": [["lead-1"]]}
+
+    class Session:
+        def get(self, url, timeout):
+            calls.append(url)
+            return Response(next(statuses))
+
+    monkeypatch.setattr(store, "_session", lambda: Session())
+    monkeypatch.setattr("app.sheet_store.time.sleep", delays.append)
+    store.enable_read_cache()
+    assert store._get("'Prospeccion'!A2:AT1000") == [["lead-1"]]
+    assert store._get("'Prospeccion'!A2:AT1000") == [["lead-1"]]
+    assert len(calls) == 2
+    assert delays == [1.5]
+
+
 def test_access_is_normalized_and_quota_is_consumed_after_one_successful_scrape():
     store = FakeStore()
     store.rows[0][5] = 0

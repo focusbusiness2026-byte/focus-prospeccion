@@ -252,7 +252,7 @@ def _is_authorized_admin(identity: Identity, access, settings) -> bool:
 
 def _account_scope_email(identity: Identity, access) -> str:
     """Keep the signed-in actor distinct from the client account they share."""
-    return (getattr(access, "account_email", "") or identity.email).strip().casefold()
+    return (getattr(access, "account_email", "") or getattr(access, "email", "") or identity.email).strip().casefold()
 
 
 def _admin_available_users(store: SheetStore, sources: list) -> list[dict]:
@@ -957,6 +957,9 @@ def portal_dashboard(
     settings = get_settings()
     _require_real_sheets(settings)
     store = SheetStore()
+    enable_read_cache = getattr(store, "enable_read_cache", None)
+    if callable(enable_read_cache):
+        enable_read_cache()
     access = store.get_access(identity.email)
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")

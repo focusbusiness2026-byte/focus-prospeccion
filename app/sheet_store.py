@@ -154,6 +154,11 @@ class ScrapeQuotaExceeded(PermissionError):
 class SheetStore:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
+        self._read_cache: dict[str, list[list]] | None = None
+
+    def enable_read_cache(self) -> None:
+        """Reuse identical Sheets reads within one read-only dashboard request."""
+        self._read_cache = {}
 
     def _session(self) -> AuthorizedSession:
         if not self.settings.google_sheet_id:
@@ -176,10 +181,20 @@ class SheetStore:
         return f"https://sheets.googleapis.com/v4/spreadsheets/{self.settings.google_sheet_id}"
 
     def _get(self, a1_range: str) -> list[list]:
+        if self._read_cache is not None and a1_range in self._read_cache:
+            return self._read_cache[a1_range]
         session = self._session()
-        response = session.get(f"{self._base}/{quote(a1_range, safe='')}", timeout=30)
-        response.raise_for_status()
-        return response.json().get("values") or []
+        for attempt in range(3):
+            response = session.get(f"{self._base}/{quote(a1_range, safe='')}", timeout=30)
+            if response.status_code == 429 and attempt < 2:
+                time.sleep(1.5 * (2 ** attempt))
+                continue
+            response.raise_for_status()
+            rows = response.json().get("values") or []
+            if self._read_cache is not None:
+                self._read_cache[a1_range] = rows
+            return rows
+        raise RuntimeError("No se pudo leer Google Sheets")
 
     def _update(self, a1_range: str, values: list[list]) -> None:
         session = self._session()

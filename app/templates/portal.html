@@ -527,7 +527,6 @@
     function scheduleResearchPoll(sourceId,jobId,delay=1200){clearTimeout(researchJobTimers.get(sourceId));researchJobTimers.set(sourceId,setTimeout(()=>pollResearchJob(sourceId,jobId),delay));}
     async function pollResearchJob(sourceId,jobId){
       try{
-        const previous=researchJobStates.get(sourceId)||{};
         const r=await fetch(`/api/research-jobs/${encodeURIComponent(jobId)}`,{headers:{Accept:'application/json'}});
         if(!r.ok){const error=new Error('No se pudo consultar el progreso.');error.status=r.status;throw error;}
         const d=await r.json();
@@ -536,8 +535,7 @@
         researchPollFailures.delete(sourceId);
         researchJobStates.set(sourceId,d);
         if(d.quota&&dashboardData.user){dashboardData={...dashboardData,user:{...dashboardData.user,...d.quota}};renderMetrics(dashboardData);}
-        const savedMore=Number(d.leads_found||0)>Number(previous.leads_found||0);
-        if(savedMore)await loadDashboard();else renderResearchProgress(sourceId);
+        renderResearchProgress(sourceId);
         if(['completed','failed'].includes(d.status)){researchJobTimers.delete(sourceId);message.textContent=d.message||'Investigación finalizada.';await loadDashboard();return;}
         if(hadConnectionError)message.textContent='Conexión restablecida. La investigación sigue en curso.';
         scheduleResearchPoll(sourceId,jobId);
@@ -605,7 +603,7 @@
     document.querySelector('#lead-summary-request-form').addEventListener('submit',e=>{e.preventDefault();submitLeadSummaryRequest(e.currentTarget);});
     document.querySelector('#source-selector').addEventListener('change',e=>{selectedSourceId=e.target.value;if(!selectedSourceId){document.querySelector('#source-list').innerHTML='<div class="source-selection-empty"><strong>Selecciona un cliente</strong><p>Debes seleccionar un cliente para cargar su configuración de prospección.</p></div>';return;}renderSources();});
     async function switchAdminPresentation(mode,minimumMs=350){const loading=document.querySelector('#client-selection-loading'),adminButton=document.querySelector('#view-as-admin'),clientButton=document.querySelector('#view-as-client');adminPresentation=mode;loading.hidden=false;adminButton.disabled=true;clientButton.disabled=true;try{await Promise.all([loadDashboard(),clientSelectionDelay(minimumMs)]);}finally{loading.hidden=true;adminButton.disabled=adminPresentation==='admin';clientButton.disabled=adminPresentation==='client'||!adminViewAs;}}
-    document.querySelector('#admin-view-as').addEventListener('change',async e=>{adminViewAs=e.target.value.trim().toLowerCase();adminPresentation='admin';selectedSourceId='';if(!adminViewAs){await loadDashboard();return;}await switchAdminPresentation('admin',4000);});
+    document.querySelector('#admin-view-as').addEventListener('change',async e=>{adminViewAs=e.target.value.trim().toLowerCase();adminPresentation='admin';selectedSourceId='';document.querySelector('#result-search').value='';if(!adminViewAs){await loadDashboard();return;}await switchAdminPresentation('admin',4000);});
     document.querySelector('#view-as-admin').addEventListener('click',()=>switchAdminPresentation('admin'));
     document.querySelector('#view-as-client').addEventListener('click',()=>{if(!adminViewAs){message.textContent='Selecciona primero una cuenta de cliente.';return;}switchAdminPresentation('client');});
     document.querySelector('#favorite-automation-select').addEventListener('change',e=>{const item=readPreviewAutomations().find(candidate=>candidate.id===e.target.value);quickScheduleMinutes=item?.interval_minutes||null;updateDashboardCountdown();});

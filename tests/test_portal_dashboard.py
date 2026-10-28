@@ -382,6 +382,7 @@ def test_admin_can_switch_to_an_isolated_client_presentation():
     assert "switchAdminPresentation('admin')" in html
     assert "switchAdminPresentation('client')" in html
     assert "clientSelectionDelay(minimumMs)" in html
+    assert "selectedSourceId='';document.querySelector('#result-search').value=''" in html
     assert "document.querySelector('#global-card').hidden=!isAdmin" in html
     assert "document.querySelector('#ai-search-card').hidden=!isAdmin" in html
 
@@ -591,6 +592,8 @@ def test_admin_user_count_uses_logical_accounts_not_onboarding_rows():
 
 
 def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeypatch):
+    lead = {"execution_id": "lead-client-1", "email": "client@example.com", "company": "Cliente existente", "lead_status": "Nuevo"}
+
     class DashboardStore:
         def __init__(self, settings=None):
             pass
@@ -609,13 +612,13 @@ def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeyp
             return []
 
         def recent_prospects(self, email=None, limit=50):
-            return []
+            return [lead] if email == "client@example.com" else []
 
         def recent_executions(self, email=None, *, hide_admin=False):
             return []
 
         def prospect_metrics(self, email=None):
-            return {"total": 0, "classifications": {}, "statuses": {}}
+            return {"total": 1 if email == "client@example.com" else 0, "classifications": {}, "statuses": {}}
 
         def global_metrics(self):
             return {"remaining": 0, "used": 0, "assigned": 0}
@@ -645,6 +648,8 @@ def test_admin_identity_keeps_switch_controls_while_presenting_as_client(monkeyp
             "available": 50,
             "unlimited": False,
         }
+        assert [item["execution_id"] for item in response.json()["prospects"]] == ["lead-client-1"]
+        assert response.json()["metrics"]["total"] == 1
     finally:
         main_module.app.dependency_overrides.clear()
         get_settings.cache_clear()
