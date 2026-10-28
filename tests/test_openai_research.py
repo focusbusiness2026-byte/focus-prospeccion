@@ -2,7 +2,7 @@ import json
 from copy import deepcopy
 
 from app.config import Settings
-from app.enrichment import OpenAIProspectDiscovery, OpenAIWebResearcher, WebEvidence, enrich_discovered_prospects
+from app.enrichment import DOSSIER_SECTIONS, OpenAIProspectDiscovery, OpenAIWebResearcher, WebEvidence, enrich_discovered_prospects
 
 
 def mock_response():
@@ -239,9 +239,9 @@ def test_detailed_research_discards_extinct_company_and_keeps_current_cited_deci
             "buying_signals": ["Afirmación sin fuente"],
             "dossier": {
                 "identification": [
-                    {"text": "Sociedad operativa", "date": "2026-10-28", "source_url": "https://empresa.example/contacto", "certainty": "confirmed"},
-                    {"text": "Afirmación no citada", "date": None, "source_url": "https://otra.example/", "certainty": "confirmed"},
-                ],
+                    {"text": f"Hecho verificable {index}", "date": "2026-10-28", "source_url": "https://empresa.example/contacto", "certainty": "confirmed"}
+                    for index in range(8)
+                ] + [{"text": "Afirmación no citada", "date": None, "source_url": "https://otra.example/", "certainty": "confirmed"}],
                 "verdict": [{"text": "Proponer una reunión comercial", "date": None, "source_url": None, "certainty": "recommendation"}],
             },
         })
@@ -271,8 +271,9 @@ def test_detailed_research_discards_extinct_company_and_keeps_current_cited_deci
 
     assert [lead["company"] for lead in verified] == ["Empresa Vigente"]
     assert verified[0]["decision_makers"][0]["source_url"] == "https://empresa.example/contacto/"
-    assert [fact["text"] for fact in verified[0]["dossier"]["identification"]] == ["Sociedad operativa"]
+    assert [fact["text"] for fact in verified[0]["dossier"]["identification"]] == [f"Hecho verificable {index}" for index in range(7)]
     assert verified[0]["dossier"]["verdict"][0]["certainty"] == "recommendation"
+    assert f'Total {verified[0]["score"]}/10' in verified[0]["dossier"]["verdict"][-1]["text"]
     assert verified[0]["buying_signals"] == ["Busca agencia audiovisual"]
     assert verified[0]["web_search_calls"] == 2
     assert result_trace["web_search_calls"] == 3
@@ -284,5 +285,28 @@ def test_company_research_search_limit_is_bounded_independently():
     settings = Settings(openai_company_research_max_calls=99)
     researcher = OpenAIWebResearcher(settings, max_search_calls=settings.company_research_call_limit)
     payload = researcher.build_payload("Empresa", WebEvidence("", "", "", [], {}, []))
-    assert payload["max_tool_calls"] == 3
+    assert payload["max_tool_calls"] == 5
     assert "sociedad sigue operativa" in payload["input"]
+    assert "último ejercicio financiero publicado" in payload["input"]
+    assert "responsable operativo" in payload["input"]
+    assert "fecha de publicación" in payload["input"]
+
+
+def test_detailed_dossier_stays_within_google_sheets_cell_limit():
+    source = "https://empresa.example/" + "a" * 450
+    fact = {"text": "Dato público. " * 60, "date": "2026-10-28", "source_url": source, "certainty": "confirmed"}
+    response = {
+        "output": [
+            {"type": "web_search_call", "action": {"query": "empresa", "sources": [{"url": source}]}},
+            {"type": "message", "content": [{"type": "output_text", "text": json.dumps({
+                "prospect_found": True,
+                "dossier": {section: [fact.copy() for _ in range(7)] for section in DOSSIER_SECTIONS},
+            })}]},
+        ],
+    }
+    researcher = OpenAIWebResearcher(Settings(openai_api_key="test"), response_provider=lambda _: response)
+
+    result, _ = researcher.analyze("Empresa", WebEvidence("", "", "", [], {}, []))
+
+    assert len(json.dumps(result["dossier"], ensure_ascii=False)) < 43_000
+    assert all(result["dossier"][section] for section in DOSSIER_SECTIONS)

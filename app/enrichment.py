@@ -299,6 +299,17 @@ class OpenAIWebResearcher:
 Investiga la empresa indicada para Focus Business usando solo información empresarial pública y verificable.
 Puedes realizar como máximo {self.max_search_calls} acciones de búsqueda web. No intentes iniciar sesión,
 evadir CAPTCHA, consultar áreas privadas ni afirmar cobertura absoluta. Prioriza la web corporativa y fuentes primarias.
+Distribuye la investigación entre identidad/continuidad legal, último ejercicio financiero publicado,
+señales de los últimos 12-18 meses y personas con cargo comercial o funcional relevante para la productora.
+Busca también en fuentes públicas externas a la web inicial: sala de prensa, perfiles profesionales públicos,
+registro mercantil y prensa empresarial. Un administrador registral no sustituye al responsable operativo.
+Antes de cerrar finanzas, busca expresamente si se publicaron resultados posteriores a la noticia más antigua
+encontrada: distingue ejercicio fiscal de fecha de publicación, compara magnitudes equivalentes y explica
+cualquier contradicción entre fuentes. No conviertas una pérdida histórica en alerta financiera actual si una
+publicación posterior del mismo ejercicio la corrige o aporta un resultado más reciente.
+En señales de compra, incluye lanzamientos, ferias, contrataciones, expansión y cambios directivos con fecha
+y fuente; descarta del scoring los eventos sin fecha fiable o fuera de la ventana. Identifica el mejor punto de
+entrada para el perfil concreto de la productora, no para vender los servicios generales de Focus Business.
 No inventes empleados, facturación, contactos, decisores, redes, señales ni prospectos. Usa null o listas vacías cuando
 no haya evidencia. Cada contacto público debe incluir la URL exacta donde fue publicado. Indica de forma explícita si
 se encontró un prospecto/resultado y el motivo cuando no se encuentre. La salida debe cumplir el esquema JSON.
@@ -564,9 +575,17 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
                     "source_url": source_url,
                     "certainty": certainty,
                 })
-                if len(facts) == 5:
+                if len(facts) == 7:
                     break
             dossier[section] = facts
+        # Google Sheets rejects cells above 50,000 characters. Keep room for
+        # the calculated verdict and JSON escaping when a response is verbose.
+        while len(json.dumps(dossier, ensure_ascii=False)) > 42_000:
+            candidates = [section for section in DOSSIER_SECTIONS if len(dossier[section]) > 1]
+            if not candidates:
+                break
+            largest = max(candidates, key=lambda section: len(json.dumps(dossier[section], ensure_ascii=False)))
+            dossier[largest].pop()
         data["dossier"] = dossier
         data["research_sources"] = research_sources
         data["search_queries"] = queries[: self.max_search_calls]
@@ -594,6 +613,17 @@ CONTENIDO PÚBLICO DE LA WEB CORPORATIVA:
         data["score"] = score.total
         data["classification"] = score.classification
         data["score_detail"] = score.as_dict()
+        data["dossier"]["verdict"].append({
+            "text": (
+                f"Puntuación Focus Business: tamaño {score.size}/2,5; salud financiera "
+                f"{score.financial_health}/2,5; momento de compra {score.buying_moment}/2,5; "
+                f"accesibilidad {score.decision_access}/2,5. Total {score.total}/10 "
+                f"({score.classification})."
+            ),
+            "date": "",
+            "source_url": "",
+            "certainty": "recommendation",
+        })
         return data, usage_data
 
 
