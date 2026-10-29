@@ -91,6 +91,24 @@ def test_onboarding_pipeline_uses_profile_deduplicates_and_persists_trace(monkey
     assert store.dashboard_refreshed is True
 
 
+def test_pipeline_accepts_a_legacy_form_with_website_typo_and_qualification_criteria(monkeypatch):
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True, openai_deep_research_enabled=False)
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
+    record = dict(source().raw_form)
+    record["Web"] = "https:productora.example"
+    record["Tamaño empresa ideal"] = ""
+    record["Criterio de cualificación"] = "Empresas con proyectos audiovisuales y presupuesto aprobado"
+    client = OnboardingSource.from_sheet_record(record)
+    store = PipelineStore()
+
+    result = _run_onboarding_research(client, store)
+
+    assert result["ok"] is True
+    assert store.execution["search_configuration"]["productora"]["website"] == "https://productora.example"
+    assert store.execution["search_configuration"]["targeting"]["ideal_profile_detail"] == record["Criterio de cualificación"]
+
+
 def test_pipeline_investigates_every_discovered_company_before_saving(monkeypatch):
     settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True,
                         openai_deep_research_enabled=True)

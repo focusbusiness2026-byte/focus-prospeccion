@@ -19,6 +19,9 @@ def _accepted(value: object) -> bool:
 
 def _public_website(value: object) -> str:
     website = _text(value)
+    # Onboarding can contain an otherwise valid domain with one or both
+    # slashes omitted after http(s): (for example, https:www.example.com).
+    website = re.sub(r"^(https?):/{0,1}(?=[^/])", r"\1://", website, count=1, flags=re.IGNORECASE)
     try:
         parsed = urlparse(website)
     except ValueError:
@@ -89,7 +92,12 @@ class OnboardingSource:
             target_countries=tuple(_items(record.get("Países objetivo"))),
             target_client_types=tuple(_items(record.get("Tipos de cliente objetivo"))),
             ideal_company_size=_text(record.get("Tamaño empresa ideal")),
-            ideal_profile_detail=_text(record.get("Perfil ideal detallado")),
+            # A full onboarding may define its ICP in the qualification
+            # criteria instead of the optional dedicated profile field.
+            ideal_profile_detail=(
+                _text(record.get("Perfil ideal detallado"))
+                or _text(record.get("Criterio de cualificación"))
+            ),
             decision_maker=_text(record.get("Decisor habitual")),
             minimum_budget=_text(record.get("Presupuesto mínimo")),
             monthly_capacity=_text(record.get("Capacidad mensual")),

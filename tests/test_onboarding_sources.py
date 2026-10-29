@@ -113,6 +113,43 @@ def test_missing_website_blocks_work_without_inventing_a_fallback():
     assert source.prospecting_profile()["productora"]["website"] == ""
 
 
+def test_rumbo_style_onboarding_uses_existing_website_and_qualification_criteria():
+    record = dict(zip(HEADERS, onboarding_row("ONB-RUMBO", "owner@example.com"), strict=False))
+    record["Web"] = "https:www.rumbofilms.com"
+    record["Tamaño empresa ideal"] = ""
+    record["Perfil ideal detallado"] = ""
+    record["Criterio de cualificación"] = (
+        "Empresas con proyectos audiovisuales previstos, capacidad de decisión "
+        "y presupuesto para contratar una productora profesional."
+    )
+
+    source = OnboardingSource.from_sheet_record(record)
+
+    assert source.ready
+    assert source.website == "https://www.rumbofilms.com"
+    assert source.ideal_profile_detail == record["Criterio de cualificación"]
+    assert source.prospecting_profile()["targeting"]["ideal_profile_detail"] == record["Criterio de cualificación"]
+
+
+def test_only_obvious_http_slash_typos_are_normalized():
+    record = dict(zip(HEADERS, onboarding_row("ONB-UNO", "owner@example.com"), strict=False))
+    record["Web"] = "https:/productora.example"
+    assert OnboardingSource.from_sheet_record(record).website == "https://productora.example"
+
+    record["Web"] = "productora.example"
+    assert "Falta una web pública válida" in OnboardingSource.from_sheet_record(record).blockers
+
+
+def test_missing_profile_and_qualification_still_blocks_full_onboarding():
+    record = dict(zip(HEADERS, onboarding_row("ONB-UNO", "owner@example.com"), strict=False))
+    record["Tamaño empresa ideal"] = ""
+    record["Perfil ideal detallado"] = ""
+
+    source = OnboardingSource.from_sheet_record(record)
+
+    assert "Falta definir el perfil o tamaño de empresa ideal" in source.blockers
+
+
 def test_sheet_store_scopes_productoras_by_responsible_email():
     store = OnboardingStore()
 
