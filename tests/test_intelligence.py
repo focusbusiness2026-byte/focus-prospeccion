@@ -249,6 +249,9 @@ with TestClient(app) as c:
     assert c.get('/campaigns').status_code==200
     assert c.post('/api/onboarding-sources/OTHER/research-jobs',json={},headers=csrf).status_code==404
     store=real.main.SheetStore()
+    store._update("'Accesos'!F3",[[3]])
+    assert store._load()['Accesos'][2][6]==47
+    assert store._load()['Accesos'][2][7]==0.94
     source=store.get_onboarding_source(real.SOURCE_ID)
     real.main._run_onboarding_research(source,store,adjustments={'exclusions':'Conservar exclusión del cliente'})
     assert captured[0]['already_in_crm']==[{'company':'Empresa real de prueba','website':''}]

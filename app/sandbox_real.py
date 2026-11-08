@@ -91,6 +91,15 @@ def configure(app):
         def __init__(self,settings=None):
             SheetStore.__init__(self,sb.SETTINGS);self.path=path
         def _save(self,data):
+            # Sheets calculates these columns with formulas. The isolated cell
+            # store must derive them explicitly instead of retaining old values.
+            for row in data.get("Accesos",[])[1:]:
+                if len(row)<6 or str(row[4]).strip().casefold()=="ilimitado":continue
+                try:assigned=int(float(row[4]));used=int(float(row[5]))
+                except (TypeError,ValueError):continue
+                row.extend([""]*max(0,9-len(row)))
+                available=max(0,assigned-used);ratio=available/assigned if assigned>0 else 0
+                row[6]=available;row[7]=ratio;row[8]="Agotado" if available==0 else "Atención" if ratio<=0.4 else "Disponible"
             with sb.LOCK,sqlite3.connect(path) as db:
                 db.execute("BEGIN IMMEDIATE")
                 db.execute("UPDATE sandbox SET payload=? WHERE id=1",(json.dumps(data),))
@@ -104,6 +113,7 @@ def configure(app):
                 db.execute("INSERT INTO research_claims VALUES(?,?,?) ON CONFLICT(account) DO UPDATE SET state=excluded.state,payload=excluded.payload",(SOURCE_ID,state,json.dumps(payload or {})))
                 cells_remote.save("\n".join(db.iterdump()))
 
+    if RealStore()._load():RealStore()._save(RealStore()._load())
     main.SheetStore=RealStore
     async def identity(token,settings=None):
         result=verify_session(token,sb.SETTINGS)
