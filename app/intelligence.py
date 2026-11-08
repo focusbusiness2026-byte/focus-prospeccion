@@ -6,6 +6,7 @@ import sqlite3
 import time
 import uuid
 import threading
+import hashlib
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -232,7 +233,7 @@ class CampaignEngine:
             p=json.loads(db.execute("SELECT payload FROM contacts WHERE tenant=? AND id=?",(tenant,pid)).fetchone()[0])
             m=self._draft(db,tenant,c,p)
             if payload is not None:
-                m["history"].append({"version":m["version"],"first":m["first"],"email":m["email"],"at":self.now(db)})
+                m["history"].append({**{k:m.get(k) for k in ("version","invitation","first","followup","email","rationale","context","usage","approved","provider_response_id")},"at":self.now(db)})
                 for key in ("invitation","first","followup","email"):
                     if key in payload:m[key]=str(payload[key])[:3000]
                 m["version"]+=1;m["approved"]=payload.get("approved") is True
@@ -268,6 +269,9 @@ class CampaignEngine:
             raise CampaignError("No se pudo confirmar la generación. Campaña pausada; revisa el consumo antes de repetir") from None
         history=[] if not old_message else [*old_message.get("history",[]),{k:old_message.get(k) for k in ("version","invitation","first","followup","email","rationale","context","usage","provider_response_id")}]
         message.update(version=1 if not old_message else old_message["version"]+1,approved=False,history=history,provider="openai",request_id=request_id,context={"client":profile["name"],"objective":c["objective"],"offer":c["offer"],"campaign_version":c["version"]})
+        message["context"]["recipient"]={k:p.get(k,"") for k in ("id","company","website","sector","city","source")}
+        message["context"]["facts_summary"]=str(p.get("summary") or "")[:4000]
+        message["context"]["research_sha256"]=hashlib.sha256(str(p.get("research_dossier_json") or "").encode()).hexdigest()
         with self.db() as db:
             message["generated_at"]=self.now(db)
             latest=self._campaign(db,t,cid)

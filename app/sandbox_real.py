@@ -118,6 +118,20 @@ def configure(app):
     original=main._run_onboarding_research
     def isolated_research(source,store,*args,**kwargs):
         if source.record_id!=SOURCE_ID:raise RuntimeError("Solo se permite la cuenta autorizada de esta copia")
+        rows=store._load().get("Prospeccion",[])
+        existing=[];seen=set()
+        for row in rows[1:]:
+            p=dict(zip(rows[0],row))
+            if p.get("onboarding_id")!=SOURCE_ID:continue
+            company=str(p.get("company") or "").strip()[:200];website=str(p.get("website") or "").strip()[:300]
+            key=(company.casefold(),website.casefold())
+            if not company or key in seen:continue
+            seen.add(key);existing.append({"company":company,"website":website})
+        controls=dict((args[0] if args else kwargs.get("adjustments")) or {})
+        controls["already_in_crm"]=existing[:500]
+        controls["exclusions"]=(str(controls.get("exclusions") or "")+"\nNo devolver las empresas de already_in_crm ni sus variantes de marca o dominio: ya existen en el CRM de esta cuenta. Busca candidatas nuevas sin relajar los demás criterios.").strip()
+        if args:args=(controls,*args[1:])
+        else:kwargs["adjustments"]=controls
         store.claim("started",{"at":datetime.now(timezone.utc).isoformat()})
         try:
             result=original(source,store,*args,**kwargs)

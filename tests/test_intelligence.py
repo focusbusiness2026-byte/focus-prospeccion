@@ -206,6 +206,11 @@ class Reader:
     def _session(self):return self
     def get(self,url,params,**kw):return Result({'valueRanges':[{'values':[tables[r.split('!')[0].strip("'")][1]]} for r in params['ranges']]})
 real.ReadOnlySource=Reader
+captured=[]
+def fake_research(source,store,*args,**kwargs):
+    captured.append(args[0] if args else kwargs['adjustments'])
+    return {'execution_id':'controlled-test','prospects':[],'trace':{}}
+real.main._run_onboarding_research=fake_research
 from app.sandbox import app
 with TestClient(app) as c:
     assert c.get('/api/portal-dashboard').status_code==401
@@ -232,6 +237,12 @@ with TestClient(app) as c:
     assert all('MUST_NOT_COPY' not in value for value in snapshots.values())
     assert c.get('/campaigns').status_code==200
     assert c.post('/api/onboarding-sources/OTHER/research-jobs',json={},headers=csrf).status_code==404
+    store=real.main.SheetStore()
+    source=store.get_onboarding_source(real.SOURCE_ID)
+    real.main._run_onboarding_research(source,store,adjustments={'exclusions':'Conservar exclusión del cliente'})
+    assert captured[0]['already_in_crm']==[{'company':'Empresa real de prueba','website':''}]
+    assert captured[0]['exclusions'].startswith('Conservar exclusión del cliente')
+    assert c.post('/api/intelligence/three-dots/sync-approved',headers=csrf).status_code==200
 '''
     env={k:v for k,v in os.environ.items() if k not in {'GOOGLE_SERVICE_ACCOUNT_JSON','GOOGLE_SHEET_ID','OPENAI_API_KEY','GEMINI_API_KEY'}}
     env.update(FOCUS_SANDBOX='1',SANDBOX_REAL_MODE='1',SANDBOX_STORAGE_SHEET_ID='isolated-test-only',SANDBOX_GOOGLE_SERVICE_ACCOUNT_JSON='{}',SANDBOX_OPENAI_API_KEY='test-only',SANDBOX_AUTH_SECRET='test-secret-value-of-32-characters',RENDER_EXTERNAL_URL='http://testserver',SANDBOX_DATA_DIR=str(tmp_path))
