@@ -128,6 +128,32 @@ def configure(app):
             raise
     main._run_onboarding_research=isolated_research
 
+    @app.post("/api/intelligence/three-dots/sync-approved")
+    def sync_approved(request:Request,identity=Depends(required)):
+        validate_csrf(request)
+        rows=RealStore()._load().get("Prospeccion",[])
+        if not rows:raise HTTPException(409,"La cuenta todavía no está importada")
+        with engine.db() as db:
+            updated=0
+            for row in rows[1:]:
+                p=dict(zip(rows[0],row));pid=str(p.get("execution_id") or "")
+                if p.get("onboarding_id")!=SOURCE_ID or not pid:continue
+                old=db.execute("SELECT payload FROM contacts WHERE tenant='three-dots' AND id=?",(pid,)).fetchone()
+                approved=p.get("lead_status")=="Aprobado para descarga"
+                if not approved and not old:continue
+                try:people=json.loads(p.get("public_contacts_json") or "[]")
+                except (ValueError,TypeError):people=[]
+                person=next((x for x in people if isinstance(x,dict)),{}) if isinstance(people,list) else {}
+                contact={"id":pid,"company":p.get("company",""),"website":p.get("website",""),"name":person.get("name",""),"email":person.get("email",""),"linkedin":p.get("linkedin",""),"sector":p.get("sector",""),"city":p.get("city",""),"summary":p.get("summary",""),"research_dossier_json":p.get("research_dossier_json",""),"approved":approved,"source":"Copia privada de prospecto aprobado de Three Dots Studio"}
+                value=json.dumps(contact)
+                result=db.execute("INSERT INTO contacts(tenant,id,payload) VALUES('three-dots',?,?) ON CONFLICT(tenant,id) DO UPDATE SET payload=excluded.payload WHERE contacts.payload<>excluded.payload",(pid,value))
+                updated+=result.rowcount
+                if not approved:
+                    db.execute("UPDATE jobs SET status='cancelled' WHERE tenant='three-dots' AND contact=? AND status IN ('pending','retry','awaiting_generation')",(pid,))
+                    db.execute("UPDATE tasks SET state='cancelled' WHERE tenant='three-dots' AND contact=? AND state='pending'",(pid,))
+                    db.execute("UPDATE members SET state='stopped' WHERE tenant='three-dots' AND contact=?",(pid,))
+        return {"ok":True,"updated":updated,"production_written":False}
+
     @app.post("/sandbox/session")
     async def handoff(request:Request):
         if request.headers.get("origin")!=PORTAL:raise HTTPException(403,"Origen de sesión no autorizado")

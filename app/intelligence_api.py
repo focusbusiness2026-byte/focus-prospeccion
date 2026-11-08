@@ -23,6 +23,7 @@ def campaign_router(engine,identity_dependency,template):
     def run(fn,*args):
         try:return fn(*args)
         except CampaignError as exc:raise HTTPException(422,str(exc)) from None
+        except RuntimeError:raise HTTPException(503,"No se pudo confirmar la operación. Comprueba el estado guardado antes de repetir") from None
 
     @router.get("/campaigns")
     def page(request:Request,identity=Depends(identity_dependency)):
