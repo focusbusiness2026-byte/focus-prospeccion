@@ -7,6 +7,7 @@ import re
 import secrets
 import sqlite3
 import threading
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import main, auth
 
 ROOT = Path(os.environ.get("SANDBOX_DATA_DIR", "/tmp/focus-prospeccion-sandbox"))
+REAL_MODE = os.environ.get("SANDBOX_REAL_MODE") == "1"
 LOCK = threading.RLock()
 SETTINGS = Settings(_env_file=None, app_env="sandbox", google_sheets_enabled=True,
     auto_research_enabled=False, central_auth_enabled=False, allow_external_sources=False,
@@ -155,13 +157,25 @@ main.app.dependency_overrides[auth.require_identity] = lambda: IDENTITY
 
 @asynccontextmanager
 async def no_workers(_):
-    yield
+    async def run_campaigns():
+        while True:
+            await asyncio.sleep(15)
+            try:await asyncio.to_thread(campaign_engine.tick)
+            except Exception:
+                # Durable errors stop the loop rather than replaying side effects.
+                break
+    task=asyncio.create_task(run_campaigns())
+    try:yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task,return_exceptions=True)
 
 app = main.app
 app.router.lifespan_context = no_workers
 
 @app.post("/sandbox/onboarding")
 def sandbox_onboarding(payload: dict):
+    if REAL_MODE:return JSONResponse({"detail":"Usa la importación privada de la cuenta autorizada"},status_code=403)
     email = str(payload.get("contactEmail") or payload.get("email") or "").lower().strip()
     if not email.endswith(".test") or len(email)>200 or not payload.get("companyName"):
         return JSONResponse({"detail":"Utiliza una empresa ficticia y correo terminado en .test"},status_code=422)
@@ -183,19 +197,40 @@ def sandbox_onboarding(payload: dict):
 @app.middleware("http")
 async def sandbox_boundary(request, call_next):
     path = request.url.path
+    if REAL_MODE and path not in {"/health","/sandbox/session"} and not path.startswith("/static/"):
+        identity=await auth.verify_central_session(request.cookies.get(auth.SESSION_COOKIE))
+        if not identity:
+            if "text/html" in request.headers.get("accept",""):
+                return RedirectResponse(SETTINGS.central_auth_url+"/sandbox-access",status_code=303)
+            return JSONResponse({"detail":"Inicia sesión en el portal privado de pruebas"},status_code=401,headers={"Cache-Control":"no-store"})
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
-        if any(part in path for part in ("/research", "/automation", "/prospecting-improvement", "/prospecting-questionnaire", "/internal/", "/auth/google")):
+        blocked=("/automation", "/prospecting-improvement", "/prospecting-questionnaire", "/internal/", "/auth/google")
+        if not REAL_MODE:blocked+=("/research",)
+        if any(part in path for part in blocked):
             return JSONResponse({"detail":"Entorno de pruebas: búsquedas, IA y automatizaciones reales desactivadas."}, status_code=403)
-        if request.headers.get("origin") and request.headers["origin"] != str(request.base_url).rstrip("/"):
+        allowed_origin=SETTINGS.central_auth_url if REAL_MODE and path=="/sandbox/session" else str(request.base_url).rstrip("/")
+        if request.headers.get("origin") and request.headers["origin"] != allowed_origin:
             return JSONResponse({"detail":"Origen no autorizado"}, status_code=403)
     response = await call_next(request)
     response.headers["X-Focus-Environment"] = "sandbox"
+    if REAL_MODE:response.headers["Cache-Control"]="no-store"
     if path == "/health":
-        return JSONResponse({"status":"ok", "environment":"sandbox", "storage":"isolated-sqlite", "external_services":False, "schedulers":False})
+        return JSONResponse({"status":"ok", "environment":"sandbox", "storage":"isolated-durable-private-portal" if REAL_MODE else "isolated-sqlite", "external_services":REAL_MODE, "schedulers":False})
     if "text/html" in response.headers.get("content-type", ""):
         body = b"".join([chunk async for chunk in response.body_iterator]).decode()
-        banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">COPIA DE PRUEBAS · Datos ficticios · Sin raspados ni envíos reales · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a></div>'
-        response = HTMLResponse(body.replace('<body', '<body', 1).replace('>', '>', 1).replace('<div class="portal-app">', banner+'<div class="portal-app">', 1), headers={"X-Focus-Environment":"sandbox"})
+        label="COPIA PRIVADA · Datos y OpenAI reales · Producción separada · Sin envíos" if REAL_MODE else "COPIA DE PRUEBAS · Datos ficticios · Sin raspados ni envíos reales"
+        banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
+        response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
     if not request.cookies.get(auth.CSRF_COOKIE):
         response.set_cookie(auth.CSRF_COOKIE, secrets.token_urlsafe(24), samesite="lax", secure=request.url.scheme=="https")
     return response
+
+
+if REAL_MODE:
+    from app.sandbox_real import configure
+    campaign_engine=configure(app)
+else:
+    from app.intelligence import CampaignEngine
+    from app.intelligence_api import campaign_router
+    campaign_engine=CampaignEngine(ROOT/"campaigns.sqlite3",Path(__file__).with_name("intelligence_seed.json"))
+    app.include_router(campaign_router(campaign_engine,auth.require_identity,main._template))

@@ -1,0 +1,263 @@
+{
+  "profile": {
+    "id": "three-dots",
+    "name": "Three Dots Studio",
+    "website": "https://threedots.studio/",
+    "offer": "Podcast y contenido para redes",
+    "audience": "B2B",
+    "market": "España",
+    "plan": "starter"
+  },
+  "provenance": {
+    "record_id": "ONB-A23D5DB5",
+    "source_sheet": "Onboarding",
+    "source_row": 2,
+    "prospects_sheet": "Prospeccion",
+    "source_rows": [
+      114,
+      115,
+      121,
+      123,
+      124,
+      127,
+      129,
+      138,
+      142,
+      144,
+      236,
+      237,
+      238,
+      274,
+      275,
+      276,
+      277,
+      278,
+      320,
+      321
+    ],
+    "read_at": "2026-11-08",
+    "policy": "No personal contact data copied; recipients and target company identities anonymized"
+  },
+  "contacts": [
+    {
+      "id": "td-01",
+      "company": "Empresa 1 · Salud (anonimizada)",
+      "name": "Contacto anonimizado 1",
+      "email": "contacto1@example.test",
+      "sector": "Salud / Healthtech / Software SaaS",
+      "city": "Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-02",
+      "company": "Empresa 2 · Tecnología (anonimizada)",
+      "name": "Contacto anonimizado 2",
+      "email": "contacto2@example.test",
+      "sector": "Tecnología / Software / IA / SaaS",
+      "city": "Valencia",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-03",
+      "company": "Empresa 3 · Salud (anonimizada)",
+      "name": "Contacto anonimizado 3",
+      "email": "contacto3@example.test",
+      "sector": "Salud",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-04",
+      "company": "Empresa 4 · Tecnología (anonimizada)",
+      "name": "Contacto anonimizado 4",
+      "email": "contacto4@example.test",
+      "sector": "Tecnología / Software / SaaS; Finanzas / Consultoría; Agencia MarTech",
+      "city": "Alcoy / Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-05",
+      "company": "Empresa 5 · Educación (anonimizada)",
+      "name": "Contacto anonimizado 5",
+      "email": "contacto5@example.test",
+      "sector": "Educación / Salud-estética",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-06",
+      "company": "Empresa 6 · Recursos humanos (anonimizada)",
+      "name": "Contacto anonimizado 6",
+      "email": "contacto6@example.test",
+      "sector": "Recursos humanos / laboral / formación empresarial",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-07",
+      "company": "Empresa 7 · Salud (anonimizada)",
+      "name": "Contacto anonimizado 7",
+      "email": "contacto7@example.test",
+      "sector": "Salud / healthtech",
+      "city": "Alicante / Elche, Comunidad Valenciana",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-08",
+      "company": "Empresa 8 · Tecnología (anonimizada)",
+      "name": "Contacto anonimizado 8",
+      "email": "contacto8@example.test",
+      "sector": "Tecnología / Software / SaaS",
+      "city": "Alicante / Mutxamel",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-09",
+      "company": "Empresa 9 · Inmobiliario (anonimizada)",
+      "name": "Contacto anonimizado 9",
+      "email": "contacto9@example.test",
+      "sector": "Inmobiliario",
+      "city": "Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-10",
+      "company": "Empresa 10 · Inmobiliario (anonimizada)",
+      "name": "Contacto anonimizado 10",
+      "email": "contacto10@example.test",
+      "sector": "Inmobiliario",
+      "city": "Elche, Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-11",
+      "company": "Empresa 11 · Finanzas (anonimizada)",
+      "name": "Contacto anonimizado 11",
+      "email": "contacto11@example.test",
+      "sector": "Finanzas / Consultoría",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-12",
+      "company": "Empresa 12 · Finanzas (anonimizada)",
+      "name": "Contacto anonimizado 12",
+      "email": "contacto12@example.test",
+      "sector": "Finanzas / Consultoría",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-13",
+      "company": "Empresa 13 · Finanzas (anonimizada)",
+      "name": "Contacto anonimizado 13",
+      "email": "contacto13@example.test",
+      "sector": "Finanzas / Consultoría",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-14",
+      "company": "Empresa 14 · Salud (anonimizada)",
+      "name": "Contacto anonimizado 14",
+      "email": "contacto14@example.test",
+      "sector": "Salud",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-15",
+      "company": "Empresa 15 · Tecnología (anonimizada)",
+      "name": "Contacto anonimizado 15",
+      "email": "contacto15@example.test",
+      "sector": "Tecnología / Software / SaaS",
+      "city": "Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-16",
+      "company": "Empresa 16 · Educación (anonimizada)",
+      "name": "Contacto anonimizado 16",
+      "email": "contacto16@example.test",
+      "sector": "Educación",
+      "city": "Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-17",
+      "company": "Empresa 17 · Educación (anonimizada)",
+      "name": "Contacto anonimizado 17",
+      "email": "contacto17@example.test",
+      "sector": "Educación / Salud",
+      "city": "Elche",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-18",
+      "company": "Empresa 18 · Tecnología (anonimizada)",
+      "name": "Contacto anonimizado 18",
+      "email": "contacto18@example.test",
+      "sector": "Tecnología / Software / SaaS",
+      "city": "Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-19",
+      "company": "Empresa 19 · Abogado (anonimizada)",
+      "name": "Contacto anonimizado 19",
+      "email": "contacto19@example.test",
+      "sector": "Abogado",
+      "city": "Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    },
+    {
+      "id": "td-20",
+      "company": "Empresa 20 · Abogado (anonimizada)",
+      "name": "Contacto anonimizado 20",
+      "email": "contacto20@example.test",
+      "sector": "Abogado",
+      "city": "Alicante",
+      "approved": true,
+      "linkedin": "",
+      "source": "Copia anonimizada de prospecto aprobado; no se copió su identidad ni su web"
+    }
+  ]
+}
