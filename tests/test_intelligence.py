@@ -217,7 +217,8 @@ with TestClient(app) as c:
     token=raw+'.'+signature
     origin={'Origin':real.PORTAL}
     assert c.post('/sandbox/session',data={'token':token},headers={'Origin':'https://evil.example'},follow_redirects=False).status_code==403
-    r=c.post('/sandbox/session',data={'token':token},headers=origin,follow_redirects=False)
+    assert c.post('/sandbox/session',data={'token':'forged'},headers={'Origin':'null'},follow_redirects=False).status_code==401
+    r=c.post('/sandbox/session',data={'token':token},headers={'Origin':'null'},follow_redirects=False)
     assert r.status_code==303
     assert 'HttpOnly' in r.headers['set-cookie']
     assert c.post('/sandbox/session',data={'token':token},headers=origin,follow_redirects=False).status_code==401

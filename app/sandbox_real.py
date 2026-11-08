@@ -156,7 +156,10 @@ def configure(app):
 
     @app.post("/sandbox/session")
     async def handoff(request:Request):
-        if request.headers.get("origin")!=PORTAL:raise HTTPException(403,"Origen de sesión no autorizado")
+        # The private portal's protected cross-site POST arrives with an opaque
+        # Origin in the Codex browser. Trust still comes exclusively from the
+        # expiring HMAC-signed, audience-bound, single-use handoff below.
+        if request.headers.get("origin") not in {PORTAL,"null"}:raise HTTPException(403,"Origen de sesión no autorizado")
         if int(request.headers.get("content-length","0"))>4096:raise HTTPException(413,"Solicitud demasiado grande")
         from urllib.parse import parse_qs
         body=await request.body()

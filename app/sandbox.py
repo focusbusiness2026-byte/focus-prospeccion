@@ -209,7 +209,8 @@ async def sandbox_boundary(request, call_next):
         if any(part in path for part in blocked):
             return JSONResponse({"detail":"Entorno de pruebas: búsquedas, IA y automatizaciones reales desactivadas."}, status_code=403)
         allowed_origin=SETTINGS.central_auth_url if REAL_MODE and path=="/sandbox/session" else str(request.base_url).rstrip("/")
-        if request.headers.get("origin") and request.headers["origin"] != allowed_origin:
+        signed_handoff=REAL_MODE and path=="/sandbox/session" and request.headers.get("origin")=="null"
+        if request.headers.get("origin") and request.headers["origin"] != allowed_origin and not signed_handoff:
             return JSONResponse({"detail":"Origen no autorizado"}, status_code=403)
     response = await call_next(request)
     response.headers["X-Focus-Environment"] = "sandbox"
