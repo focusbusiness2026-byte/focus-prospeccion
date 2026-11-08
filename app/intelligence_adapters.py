@@ -85,7 +85,7 @@ class OpenAIMessageGenerator:
         # tools, sending or remote CRM actions are exposed to this model call.
         context={"sender":{"company":profile["name"],"offer":campaign["offer"]},
             "preferences":{k:campaign[k] for k in ("objective","language","tone","length")},
-            "recipient":{k:contact.get(k,"") for k in ("company","name","sector","city","summary","research_dossier_json","source","website")}}
+            "recipient":{k:contact.get(k,"") for k in ("company","name","role","name_status","person_source_url","sector","city","summary","research_dossier_json","source","website")}}
         keys=["invitation","first","followup","email","rationale"]
         schema={"type":"object","properties":{k:{"type":"string"} for k in keys},"required":keys,"additionalProperties":False}
         body={"model":self.settings.openai_model,"store":False,"max_output_tokens":6000,"reasoning":{"effort":"low"},

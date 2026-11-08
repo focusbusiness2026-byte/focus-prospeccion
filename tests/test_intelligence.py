@@ -12,8 +12,19 @@ from app.intelligence_api import campaign_router
 from app.intelligence_adapters import OpenAIMessageGenerator,SheetsSnapshot,PrivatePortalSnapshot,PRODUCTION_BOOK
 from app.config import Settings
 from app.sandbox_security import verify_handoff
+from app.intelligence_contacts import prospect_contact
 
 SEED=Path(__file__).parents[1]/'app/intelligence_seed.json'
+
+def test_real_research_contact_schema_and_historical_roles():
+    p={'execution_id':'lead-1','company':'Empresa','lead_status':'Aprobado para descarga',
+       'public_contacts_json':json.dumps([{'type':'email','value':'office@example.test','source_url':'https://example.test/contact'},{'type':'phone','value':'+34000000000','source_url':'https://example.test/contact'}]),
+       'decision_makers_json':json.dumps([{'name':'Historical','role_status':'historical','source_url':'https://example.test/old'},{'name':'Actual','role':'CEO','role_status':'current','source_url':'https://example.test/team'}])}
+    c=prospect_contact(p)
+    assert c['email']=='office@example.test' and c['phone']=='+34000000000'
+    assert c['name']=='Actual' and c['role']=='CEO'
+    p['decision_makers_json']=json.dumps([{'name':'Historical','role_status':'historical','source_url':'https://example.test/old'}])
+    assert prospect_contact(p)['name']==''
 
 def engine(tmp_path,**kw):return CampaignEngine(tmp_path/'campaigns.db',SEED,clock=lambda:1000,**kw)
 def create(e,**kw):return e.create('three-dots',{'name':'Prueba','objective':'Reunión comercial','contact_ids':[f'td-{n:02}' for n in range(1,21)],**kw})

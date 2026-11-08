@@ -22,6 +22,7 @@ from app.intelligence import CampaignEngine
 from app.intelligence_api import campaign_router
 from app.intelligence_adapters import SheetsSnapshot,PrivatePortalSnapshot,OpenAIMessageGenerator,PRODUCTION_BOOK
 from app.sandbox_security import verify_handoff
+from app.intelligence_contacts import prospect_contact
 
 SOURCE_ID="ONB-A23D5DB5"
 OWNER="sandbox-owner@example.test"
@@ -155,10 +156,7 @@ def configure(app):
                 old=db.execute("SELECT payload FROM contacts WHERE tenant='three-dots' AND id=?",(pid,)).fetchone()
                 approved=p.get("lead_status")=="Aprobado para descarga"
                 if not approved and not old:continue
-                try:people=json.loads(p.get("public_contacts_json") or "[]")
-                except (ValueError,TypeError):people=[]
-                person=next((x for x in people if isinstance(x,dict)),{}) if isinstance(people,list) else {}
-                contact={"id":pid,"company":p.get("company",""),"website":p.get("website",""),"name":person.get("name",""),"email":person.get("email",""),"linkedin":p.get("linkedin",""),"sector":p.get("sector",""),"city":p.get("city",""),"summary":p.get("summary",""),"research_dossier_json":p.get("research_dossier_json",""),"approved":approved,"source":"Copia privada de prospecto aprobado de Three Dots Studio"}
+                contact=prospect_contact(p)
                 value=json.dumps(contact)
                 result=db.execute("INSERT INTO contacts(tenant,id,payload) VALUES('three-dots',?,?) ON CONFLICT(tenant,id) DO UPDATE SET payload=excluded.payload WHERE contacts.payload<>excluded.payload",(pid,value))
                 updated+=result.rowcount
@@ -246,11 +244,7 @@ def configure(app):
         for row in prospects[1:]:
             p=dict(zip(prospects[0],row))
             if p.get("lead_status")!="Aprobado para descarga":continue
-            try:public=json.loads(p.get("public_contacts_json") or "[]")
-            except (ValueError,TypeError):public=[]
-            if not isinstance(public,list):public=[]
-            person=next((v for v in public if isinstance(v,dict)),{})
-            contacts.append({"id":str(p["execution_id"]),"company":p.get("company",""),"website":p.get("website",""),"name":person.get("name",""),"email":person.get("email",""),"linkedin":p.get("linkedin",""),"sector":p.get("sector",""),"city":p.get("city",""),"summary":p.get("summary",""),"research_dossier_json":p.get("research_dossier_json",""),"approved":True,"source":"Copia privada de prospecto aprobado de Three Dots Studio"})
+            contacts.append(prospect_contact(p))
         profile={"id":"three-dots","name":source.company,"website":source.website,"offer":source.main_service,"audience":', '.join(source.audience),"market":', '.join(source.markets),"plan":"starter","access_emails":[OWNER],"source_id":SOURCE_ID}
         with engine.db() as db:
             db.execute("INSERT OR IGNORE INTO tenants VALUES (?,?)",("three-dots",json.dumps(profile)))
