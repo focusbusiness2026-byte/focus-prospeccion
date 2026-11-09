@@ -16,6 +16,7 @@ def prospect_contact(p):
     return {"id":str(p["execution_id"]),"company":p.get("company",""),"website":p.get("website",""),
         "name":current.get("name",""),"role":current.get("role",""),"person_source_url":current.get("source_url",""),
         "name_status":"current_with_source" if current else "not_publicly_verified","email":email,"phone":phone,
+        "email_options":[{"email":str(x.get("email") or x.get("value")),"source_url":str(x.get("source_url") or "")} for x in people if (x.get("type")=="email" or x.get("email")) and "@" in str(x.get("email") or x.get("value") or "")],
         "linkedin":linkedin,"sector":p.get("sector",""),"city":p.get("city",""),"summary":p.get("summary",""),
         "research_dossier_json":p.get("research_dossier_json",""),"approved":p.get("lead_status")=="Aprobado para descarga",
         "source":"Copia privada de investigación aprobada de Three Dots Studio; cargos actuales solo con fuente"}

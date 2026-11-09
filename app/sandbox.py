@@ -197,7 +197,7 @@ def sandbox_onboarding(payload: dict):
 @app.middleware("http")
 async def sandbox_boundary(request, call_next):
     path = request.url.path
-    if REAL_MODE and path not in {"/health","/sandbox/session"} and not path.startswith("/static/"):
+    if REAL_MODE and path not in {"/health","/sandbox/session","/webhooks/ghl"} and not path.startswith("/static/"):
         identity=await auth.verify_central_session(request.cookies.get(auth.SESSION_COOKIE))
         if not identity:
             if "text/html" in request.headers.get("accept",""):
@@ -222,6 +222,8 @@ async def sandbox_boundary(request, call_next):
         label="COPIA PRIVADA · Datos y OpenAI reales · Producción separada · Sin envíos" if REAL_MODE else "COPIA DE PRUEBAS · Datos ficticios · Sin raspados ni envíos reales"
         banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
         response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
+        if path == "/portal":
+            response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1).replace('</body>', '<script src="/static/outreach-board.js" defer></script></body>'), headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
     if not request.cookies.get(auth.CSRF_COOKIE):
         response.set_cookie(auth.CSRF_COOKIE, secrets.token_urlsafe(24), samesite="lax", secure=request.url.scheme=="https")
     return response
@@ -235,3 +237,6 @@ else:
     from app.intelligence_api import campaign_router
     campaign_engine=CampaignEngine(ROOT/"campaigns.sqlite3",Path(__file__).with_name("intelligence_seed.json"))
     app.include_router(campaign_router(campaign_engine,auth.require_identity,main._template))
+
+from app.outreach_setup import mount_outreach
+outreach_service = mount_outreach(app, campaign_engine, auth.require_identity, main._template, getattr(campaign_engine, "outreach_settings", SETTINGS))

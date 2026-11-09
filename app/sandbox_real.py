@@ -125,6 +125,7 @@ def configure(app):
     auth.verify_central_session=identity
     app.dependency_overrides[auth.require_identity]=required
     engine=CampaignEngine(sb.ROOT/"real-campaigns.sqlite3",persistence=fi_remote,generator=OpenAIMessageGenerator(settings),real=True)
+    engine.outreach_settings=settings
     app.include_router(campaign_router(engine,required,main._template))
     original=main._run_onboarding_research
     def isolated_research(source,store,*args,**kwargs):
@@ -255,7 +256,7 @@ def configure(app):
             p=dict(zip(prospects[0],row))
             if p.get("lead_status")!="Aprobado para descarga":continue
             contacts.append(prospect_contact(p))
-        profile={"id":"three-dots","name":source.company,"website":source.website,"offer":source.main_service,"audience":', '.join(source.audience),"market":', '.join(source.markets),"plan":"starter","access_emails":[OWNER],"source_id":SOURCE_ID}
+        profile={"id":"three-dots","name":source.company,"website":source.website,"offer":source.main_service,"services":list(source.services),"description":source.description,"audience":', '.join(source.audience),"market":', '.join(source.markets),"plan":"starter","access_emails":[OWNER],"source_id":SOURCE_ID}
         with engine.db() as db:
             db.execute("INSERT OR IGNORE INTO tenants VALUES (?,?)",("three-dots",json.dumps(profile)))
             db.executemany("INSERT OR IGNORE INTO contacts(tenant,id,payload) VALUES(?,?,?)",[("three-dots",c["id"],json.dumps(c)) for c in contacts])
