@@ -87,13 +87,14 @@ class OAuthVault:
 
 
 class GHLOAuth:
-    def __init__(self, vault, client_id, client_secret, redirect_uri, *, transport=None):
+    def __init__(self, vault, client_id, client_secret, redirect_uri, *, transport=None, scopes=None):
         self.vault, self.client_id, self.client_secret, self.redirect_uri, self.transport = vault, client_id, client_secret, redirect_uri, transport
         self.lock = threading.RLock()
+        self.scopes = scopes or "contacts.readonly contacts.write workflows.readonly workflows.write emails/templates.readonly emails/templates.write conversations/message.readonly"
 
     def authorize_url(self, tenant, actor):
         return "https://marketplace.gohighlevel.com/oauth/chooselocation?" + urlencode({"response_type": "code", "client_id": self.client_id, "redirect_uri": self.redirect_uri,
-            "scope": "contacts.readonly contacts.write workflows.readonly workflows.write emails/templates.readonly emails/templates.write conversations/message.readonly", "state": self.vault.begin(tenant, actor)})
+            "scope": self.scopes, "state": self.vault.begin(tenant, actor)})
 
     def callback(self, state, code, actor, expected_location):
         tenant = self.vault.consume(state, actor)

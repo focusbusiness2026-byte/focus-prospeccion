@@ -26,6 +26,41 @@ Formulario Onboarding
 
 ## Portal, dashboard y CRM
 
+### Prospección guiada (implementación exclusiva de la copia privada)
+
+`app.sandbox:app` incorpora `/prospecting-guide`, con una pregunta abierta de IA
+por turno y revisión explícita antes de guardar una búsqueda nueva. Utiliza el
+perfil empresarial normalizado del onboarding y, en el primer turno, hasta dos
+consultas de la web oficial mediante Responses `web_search`. No utiliza preguntas
+precargadas ni solicita claves al cliente. Mantiene el modelo y la clave ya
+configurados en servidor, bajo la autorización explícita de IA de la copia.
+
+Las conversaciones se conservan en tablas aditivas `targeting_sessions` y
+`targeting_requests` del almacenamiento de campañas aislado. Tienen control de
+cuenta/actor/versión, solicitudes idempotentes y un máximo de seis respuestas por
+conversación y tres conversaciones nuevas por hora y usuario. Una llamada o
+escritura incierta queda para revisión, sin reintento automático; un reinicio
+con una operación pendiente también exige revisión. La conversación no descuenta
+raspados. El cliente confirma criterios y supuestos antes de guardar una búsqueda
+con nombre propio; no se modifican el onboarding ni las búsquedas anteriores.
+El raspado requiere después una acción manual separada y conserva sus validaciones
+y su cuota actuales. En el portal, los controles previos siguen disponibles en
+«Ajustes avanzados y configuración anterior».
+
+`/integrations/ghl` muestra autorización, subcuenta y comprobaciones de envío por
+empresa. `GHL_OAUTH_ENABLED=1` permite preparar OAuth sin activar email; requiere
+`GHL_CLIENT_ID`, `GHL_CLIENT_SECRET` y `OUTREACH_ENCRYPTION_KEY` (32 bytes en base64),
+configurados solo en hosting. La URL de retorno es
+`PUBLIC_BASE_URL/integrations/ghl/callback`. La subcuenta esperada se vincula en la
+configuración administrativa de marca. La autorización se cifra y se verifica
+contra esa subcuenta; cuando email está apagado se solicitan solo scopes de contactos.
+Los clientes no reciben claves ni tokens. Abrir la pantalla o conectar OAuth no
+importa contactos ni inicia campañas. El envío sigue dependiendo, por separado,
+de `OUTREACH_LIVE_EMAIL_ENABLED` y de las verificaciones existentes del workflow,
+las 15 plantillas, remitente, agenda y baja. No se habilitan estas variables por
+instalar el código. No hay migración de Apps Script, de encabezados ni cambio del
+almacenamiento operativo de producción.
+
 El portal usa una navegación superior, sin barra lateral permanente, y presenta cada módulo como una pantalla independiente: Inicio, Prospección, Leads y CRM, Ejecuciones, Metodología y Calentamiento. En móviles el menú se contrae en un botón.
 
 Cada productora recibe automáticamente una configuración recomendada construida con sus respuestas de Onboarding; el botón `Configuración recomendada` restaura esa base sin modificar las respuestas originales. Los filtros avanzados se organizan por pasos para mantener una vista sencilla. La configuración puede guardarse con un nombre, marcarse como favorita y reutilizarse desde Inicio o Automatizaciones. Para una ejecución concreta se puede ajustar:

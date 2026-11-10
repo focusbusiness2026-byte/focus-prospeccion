@@ -91,6 +91,35 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, webho
     def page(request: Request, identity=Depends(identity_dependency)):
         return template(request, "outreach.html", identity=identity)
 
+    @router.get("/integrations/ghl")
+    def integration_page(request: Request, identity=Depends(identity_dependency)):
+        return template(request, "ghl-connection.html", identity=identity)
+
+    @router.get("/api/intelligence/{tenant}/outreach/ghl/status")
+    def connection_status(tenant: str, identity=Depends(identity_dependency)):
+        scope(tenant, identity)
+        brand = service.brand(tenant)
+        state = 'setup_pending' if oauth is None else 'not_connected'
+        linked = False
+        if oauth is not None:
+            try:
+                token = oauth.vault.get(tenant)
+                linked = bool(brand.get('location_id') and token.get('locationId') == brand['location_id'])
+                state = 'connected' if linked else 'wrong_location'
+                if linked and token.get('refresh_pending'):
+                    state, linked = 'reconnect_required', False
+                import time
+                if linked and token.get('expires_at', 0) < time.time() and not token.get('refresh_token'):
+                    state, linked = 'reconnect_required', False
+            except CampaignError:
+                pass
+        return {'company': brand.get('company', ''), 'state': state, 'connected': linked,
+            'oauth_ready': oauth is not None, 'location_configured': bool(brand.get('location_id')),
+            'can_connect': oauth is not None and bool(brand.get('location_id')) and 'admin' in identity.role.lower(),
+            'admin': 'admin' in identity.role.lower(), 'sending_enabled': live_enabled,
+            'workflow_verified': bool(brand.get('workflow_verified')), 'unsubscribe_verified': bool(brand.get('unsubscribe_verified')),
+            'domain_verified': bool(brand.get('domain_verified')), 'automatic_import': False}
+
     @router.get("/api/intelligence/accounts")
     def accounts(identity=Depends(identity_dependency)):
         with engine.db() as db:
@@ -179,6 +208,8 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, webho
         scope(tenant, identity)
         if oauth is None:
             raise HTTPException(409, "Conexión OAuth pendiente de configuración administrativa")
+        if not service.brand(tenant).get('location_id'):
+            raise HTTPException(409, "Falta vincular la subcuenta propia de esta empresa")
         return RedirectResponse(run(oauth.authorize_url, tenant, identity.email), status_code=303)
 
     @router.post("/api/intelligence/{tenant}/outreach/ghl/templates/{version}")

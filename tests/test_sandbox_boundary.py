@@ -21,6 +21,11 @@ with TestClient(app) as c:
     assert c.post('/api/onboarding-sources/SANDBOX-1/automation',json={}).status_code==403
     assert c.post('/sandbox/onboarding',json={'companyName':'Unsafe','email':'real@example.com'}).status_code==422
     assert c.get('/health').json()['external_services'] is False
+    assert c.get('/api/intelligence/three-dots/guide').json()['profile']['onboarding_id']=='SANDBOX-1'
+    assert c.get('/api/intelligence/control/guide').json()['profile']['onboarding_id']=='SANDBOX-2'
+    assert c.get('/api/intelligence/three-dots/guide').json()['ai_ready'] is False
+    portal=c.get('/portal').text
+    assert 'href="/prospecting-guide"' in portal and 'href="/integrations/ghl"' in portal
     try: SandboxStore()._session()
     except RuntimeError: pass
     else: raise AssertionError('Sheets transport must be unavailable')

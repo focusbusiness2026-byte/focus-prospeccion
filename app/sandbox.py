@@ -21,6 +21,7 @@ from app.config import Settings
 from app.sheet_store import (SheetStore as OriginalStore, PROSPECT_HEADERS, EXECUTION_HEADERS,
                              AUTOMATION_HEADERS, LEAD_REVIEW_HEADERS, SAVED_SEARCH_HEADERS)
 from app.auth import Identity
+from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import main, auth
 
@@ -223,7 +224,9 @@ async def sandbox_boundary(request, call_next):
         banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
         response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
         if path == "/portal":
-            response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1).replace('</body>', '<script src="/static/outreach-board.js" defer></script></body>'), headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
+            body = body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1)
+            body = body.replace('</nav>', '<a href="/prospecting-guide">Prospección guiada</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav>', 1)
+            response = HTMLResponse(body.replace('</body>', '<script src="/static/outreach-board.js" defer></script><script src="/static/guide-portal-entry.js" defer></script></body>'), headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
     if not request.cookies.get(auth.CSRF_COOKIE):
         response.set_cookie(auth.CSRF_COOKIE, secrets.token_urlsafe(24), samesite="lax", secure=request.url.scheme=="https")
     return response
@@ -240,3 +243,39 @@ else:
 
 from app.outreach_setup import mount_outreach
 outreach_service = mount_outreach(app, campaign_engine, auth.require_identity, main._template, getattr(campaign_engine, "outreach_settings", SETTINGS))
+
+# New guided flow is mounted only in this isolated entry point.
+from app.prospecting_guide import TargetingGuide, OpenAITargetingGuide
+from app.prospecting_guide_api import guide_router
+from app.outreach_setup import outreach_ai_authorized
+from app.outreach_api import authorize
+
+def guide_source(tenant, identity):
+    authorize(campaign_engine, tenant, identity)
+    with campaign_engine.db() as db:
+        profile = campaign_engine._profile(db, tenant)
+    source_id = profile.get('source_id') or (None if REAL_MODE else {'three-dots':'SANDBOX-1','control':'SANDBOX-2'}.get(tenant))
+    if not source_id:
+        raise HTTPException(409, 'Falta vincular el onboarding propio de esta empresa')
+    store = main.SheetStore(SETTINGS)
+    access = store.get_access(identity.email)
+    if not access:
+        raise HTTPException(403, 'Acceso retirado para esta cuenta')
+    admin = main._is_authorized_admin(identity, access, SETTINGS)
+    source = store.get_onboarding_source(source_id, None if admin else main._account_scope_email(identity, access))
+    if not source:
+        raise HTTPException(403, 'No se encontró el onboarding de esta cuenta')
+    return source
+
+def guide_profile(tenant, identity):
+    return main._questionnaire_source_profile(guide_source(tenant, identity))
+
+def guide_save(tenant, identity, name, criteria):
+    source = guide_source(tenant, identity)
+    adjustments = main.ResearchAdjustments.model_validate(criteria).model_dump()
+    return main.SheetStore(SETTINGS).upsert_saved_search(source.record_id, source.email, name=name,
+        adjustments=adjustments, favorite=False, created_by_email=identity.email, created_by_role=identity.role)
+
+guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campaign_engine) and SETTINGS.openai_api_key else None
+targeting_guide = TargetingGuide(campaign_engine, guide_generator)
+app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile, guide_save))
