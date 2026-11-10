@@ -1,1 +1,29 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GoHighLevel · Focus Business</title><link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css"></head><body><header><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a><nav><a href="/prospecting-guide">Prospección guiada</a><a href="/portal#results">Leads y CRM</a><a href="/campaigns/outreach">Campañas</a><a class="active" href="/integrations/ghl">GoHighLevel</a></nav></header><main class="guide-main"><p class="eyebrow">TU CUENTA, TU CONEXIÓN</p><h1>GoHighLevel</h1><p class="muted">La administración prepara la conexión una vez. Después gestionas los contactos aprobados y las campañas desde Prospección.</p><label id="ghl-account-label" hidden>Empresa<select id="ghl-account"></select></label><p id="ghl-error" role="alert" hidden></p><section class="panel"><h2 id="ghl-company">Comprobando tu cuenta…</h2><p id="ghl-status" role="status"></p><dl id="ghl-checks"></dl><a class="button primary" id="ghl-connect-action" hidden>Conectar GoHighLevel</a><p id="ghl-admin-help" class="muted"></p><p>Conectar no inicia una importación ni una campaña. Un raspado guarda sus resultados en Leads y CRM. Para preparar correos, selecciona los contactos aprobados y revisa el lote; la sincronización y activación real requieren una conexión y comprobaciones completas.</p><div class="actions"><a class="button" href="/portal#results">Ver mis leads</a><a class="button" href="/campaigns/outreach">Revisar campañas</a></div></section></main><script src="/static/ghl-connection.js" defer></script></body></html>
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conectar GoHighLevel · Focus Business</title><link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css"></head>
+<body><header><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
+<nav><a href="/prospecting-guide">Prospección guiada</a><a href="/portal#results">Leads y CRM</a><a href="/campaigns/outreach">Campañas</a><a class="active" href="/integrations/ghl">GoHighLevel</a></nav></header>
+<main class="guide-main ghl-guide">
+  <p class="eyebrow">CONEXIÓN GUIADA</p><h1>Configura GoHighLevel</h1>
+  <p id="ghl-company"></p>
+  <label id="ghl-account-label" hidden>Empresa<select id="ghl-account"></select></label>
+  <p id="ghl-error" role="alert" hidden></p>
+  <p id="ghl-status" role="status" aria-live="polite">Comprobando la conexión…</p>
+  <ol id="ghl-steps" hidden>
+    <li id="ghl-login"><div><h2>Abre GoHighLevel</h2><p>Inicia sesión con tu usuario y selecciona la subcuenta de <strong id="ghl-location-name">tu empresa</strong>. Déjala abierta en otra pestaña mientras sigues estos pasos.</p>
+    <a class="button" href="https://app.gohighlevel.com/" target="_blank" rel="noopener noreferrer">Abrir GoHighLevel ↗</a>
+    <button id="ghl-next-step" type="button">Ya tengo mi subcuenta abierta</button></div></li>
+    <li id="ghl-authorize"><div><h2>Vincula la subcuenta</h2><p id="ghl-auth-help"></p>
+    <a class="button" id="ghl-admin-link" hidden>Ir a configuración de la subcuenta →</a>
+    <a class="button" id="ghl-connect-action" hidden>Autorizar GoHighLevel →</a></div></li>
+    <li id="ghl-verify"><div><h2>Revisa el dominio y la secuencia</h2><p>En GoHighLevel, abre <b>Settings → Email Services</b> para verificar el dominio. Luego revisa el flujo en <b>Automation → Workflows</b>. La administración confirma también la opción de baja y las reglas de parada.</p>
+    <p id="ghl-verify-status" class="muted"></p>
+    <div class="actions"><a href="https://help.gohighlevel.com/support/solutions/articles/48001226115" target="_blank" rel="noopener noreferrer">Ver guía del dominio ↗</a>
+    <a href="https://help.gohighlevel.com/support/solutions/articles/48001239875" target="_blank" rel="noopener noreferrer">Ver ajustes del workflow ↗</a></div></div></li>
+    <li id="ghl-send"><div><h2>Comprueba si se pueden enviar campañas</h2><p id="ghl-send-help"></p></div></li>
+  </ol>
+  <div class="actions"><button id="ghl-recheck" type="button" hidden>Volver a comprobar</button><a href="/portal#sources">Volver a Prospección</a></div>
+  <p class="muted small">Prospección funciona sin conectar GoHighLevel. Autorizar una subcuenta no inicia envíos.</p>
+</main><script src="/static/ghl-connection.js" defer></script></body></html>

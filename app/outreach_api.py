@@ -128,7 +128,7 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, webho
         for p in rows:
             try:
                 authorize(engine, p["id"], identity)
-                allowed.append({"id": p["id"], "name": p["name"]})
+                allowed.append({"id": p["id"], "name": p["name"], "source_id": p.get("source_id")})
             except HTTPException:
                 pass
         return {"accounts": allowed, "admin": "admin" in identity.role.lower()}

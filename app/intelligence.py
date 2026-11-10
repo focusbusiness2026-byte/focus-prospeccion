@@ -92,7 +92,7 @@ class CampaignEngine:
                 db.execute("INSERT OR IGNORE INTO tenants VALUES (?,?)",(profile["id"],json.dumps(profile)))
                 for contact in data["contacts"]:
                     db.execute("INSERT OR IGNORE INTO contacts(tenant,id,payload) VALUES (?,?,?)",(profile["id"],contact["id"],json.dumps(contact)))
-                other={"id":"control","name":"Estudio de control ficticio","offer":"Vídeo corporativo","website":"https://control.example.test","market":"España","plan":"starter"}
+                other={"id":"control","source_id":"SANDBOX-2","name":"Estudio de control ficticio","offer":"Vídeo corporativo","website":"https://control.example.test","market":"España","plan":"starter"}
                 db.execute("INSERT OR IGNORE INTO tenants VALUES (?,?)",("control",json.dumps(other)))
                 db.execute("INSERT OR IGNORE INTO contacts(tenant,id,payload) VALUES (?,?,?)",("control","control-1",json.dumps({"id":"control-1","company":"Empresa ficticia de control","name":"Contacto ficticio","email":"control@example.test","sector":"Tecnología","city":"Madrid","approved":True,"linkedin":""})))
 

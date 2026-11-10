@@ -35,7 +35,7 @@ class Apply(BaseModel):
     confirmed: bool
 
 
-def guide_router(service, identity_dependency, template, source_for, save_for, feedback_for=None):
+def guide_router(service, identity_dependency, template, source_for, save_for, feedback_for=None, intake_for=None):
     router = APIRouter()
 
     def scope(tenant, identity):
@@ -56,8 +56,12 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
 
     @router.get('/api/intelligence/{tenant}/guide')
     def state(tenant: str, identity=Depends(identity_dependency)):
-        profile = scope(tenant, identity)
-        return {'profile': profile, 'ai_ready': service.generator is not None,
+        if intake_for:
+            authorize(service.engine, tenant, identity)
+            profile, intake = intake_for(tenant, identity)
+        else:
+            profile, intake = scope(tenant, identity), []
+        return {'profile': profile, 'intake': intake, 'ai_ready': service.generator is not None,
             'session': run(service.latest, tenant, identity.email), 'research_started': False,
             'mode': 'real_isolated' if service.engine.real else 'local_demo'}
 

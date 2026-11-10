@@ -9,14 +9,19 @@
 <header><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
 <nav><a class="active" href="/prospecting-guide">Prospección guiada</a><a href="/portal#results">Leads y CRM</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
 <main class="guide-main">
-  <p class="eyebrow">PROSPECCIÓN GUIADA</p><h1>Define tu cliente ideal</h1>
-  <p id="guide-environment" class="muted small"></p>
+  <div class="guide-title"><div><p class="eyebrow">PROSPECCIÓN GUIADA</p><h1>Define tu cliente ideal</h1></div><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
+  <section class="guide-learning" aria-labelledby="guide-learning-label">
+    <div><strong id="guide-learning-label">Aprendizaje de tu búsqueda</strong><span id="guide-progress-label"></span></div>
+    <progress id="guide-progress" max="10" value="0" aria-labelledby="guide-learning-label" aria-describedby="guide-learning-note"></progress>
+    <p id="guide-learning-note" class="muted small">Más contexto ayuda a afinar el perfil de tus leads.</p>
+  </section>
   <p id="guide-error" role="alert" hidden></p>
-  <label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label>
   <div class="guide-layout">
-    <section class="panel guide-card">
-      <p id="guide-progress-label" class="eyebrow" hidden></p>
-      <progress id="guide-progress" max="10" value="0" aria-label="Progreso del cuestionario" hidden></progress>
+    <section class="guide-card" aria-label="Configura tu búsqueda">
+      <div id="guide-busy" class="guide-busy" role="status" aria-live="polite" aria-atomic="true" hidden>
+        <span class="guide-brand-spinner" aria-hidden="true"><img src="/static/favicon.svg" alt=""></span>
+        <div><strong id="guide-busy-title"></strong><p id="guide-busy-detail"></p></div>
+      </div>
       <p id="guide-status" role="status" aria-live="polite">Cargando tu cuenta…</p>
       <form id="guide-answer" hidden>
         <fieldset id="guide-question-fieldset"><legend id="guide-question"></legend><div id="guide-options"></div></fieldset>
@@ -37,14 +42,15 @@
       </div>
       <div class="actions guide-actions"><button class="primary" id="guide-start" disabled>Analizar mi empresa</button><button id="guide-new" hidden>Empezar otra búsqueda</button><button id="guide-refresh" hidden>Consultar estado</button></div>
       <details id="guide-history" hidden><summary id="guide-history-label">Respuestas guardadas</summary><ol id="guide-history-list"></ol></details>
-      <p class="muted small">Guardar el enfoque no inicia un raspado.</p>
+      <p id="guide-environment" class="muted small"></p>
     </section>
-    <aside><section class="panel guide-context-card">
-      <p class="eyebrow">CONTEXTO DE TU EMPRESA</p><h2 id="guide-company">Tu onboarding</h2>
-      <p id="guide-offer"></p><p id="guide-analysis">Primero analizo tu onboarding y tu web.</p>
+    <aside class="guide-context-card" aria-labelledby="guide-company">
+      <p class="eyebrow">FICHA DEL CLIENTE</p><h2 id="guide-company">Tu empresa</h2>
+      <p id="guide-analysis">Primero analizo tu onboarding y tu web.</p>
       <p id="guide-feedback" class="muted small" hidden></p>
+      <div id="guide-intake"></div>
       <details id="guide-source-details" hidden><summary>Fuentes consultadas</summary><p id="guide-web-status" class="muted small"></p><ul id="guide-sources"></ul></details>
-    </section></aside>
+    </aside>
   </div>
 </main>
 <script src="/static/prospecting-guide.js" defer></script>

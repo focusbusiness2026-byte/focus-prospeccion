@@ -48,11 +48,15 @@ con una operación pendiente también exige revisión. La conversación no descu
 raspados. El cliente confirma criterios y supuestos antes de guardar una búsqueda
 con nombre propio; no se modifican el onboarding ni las búsquedas anteriores.
 El raspado requiere después una acción manual separada y conserva sus validaciones
-y su cuota actuales. En el portal, los controles previos siguen disponibles en
-«Ajustes avanzados y configuración anterior».
+y su cuota actuales. En la copia, Prospección guiada es el único editor visible;
+las búsquedas guardadas siguen disponibles para ejecutar. La barra de aprendizaje
+cuenta aportes reales de contexto y respuestas, sin medir la calidad de los leads.
+La ficha lateral muestra datos del onboarding autorizado; esos campos de
+visualización no se añaden a las solicitudes de IA.
 
-`/integrations/ghl` muestra autorización, subcuenta y comprobaciones de envío por
-empresa. `GHL_OAUTH_ENABLED=1` permite preparar OAuth sin activar email; requiere
+`/integrations/ghl` indica el paso pendiente y enlaza al inicio de sesión,
+la autorización disponible y la configuración de la subcuenta para administración.
+`GHL_OAUTH_ENABLED=1` permite preparar OAuth sin activar email; requiere
 `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET` y `OUTREACH_ENCRYPTION_KEY` (32 bytes en base64),
 configurados solo en hosting. La URL de retorno es
 `PUBLIC_BASE_URL/integrations/ghl/callback`. La subcuenta esperada se vincula en la

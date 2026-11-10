@@ -19,6 +19,34 @@ EXTRA_ROUND = 5
 MAX_ANSWERS = 20
 
 
+def guide_intake(source):
+    """Display client-entered data separately from the model's targeting context."""
+    sections = (
+        ('Empresa y contacto', ('Razón social', 'Web', 'Actividad', 'Ciudad / país', 'Tamaño equipo',
+            'Descripción', 'Responsable', 'Cargo', 'Email responsable', 'Teléfono / WhatsApp',
+            'Propietario / representante', 'Email corporativo', 'Idioma principal', 'Zona horaria',
+            'Redes oficiales', 'Dominio/subdominio deseado', 'Equipo y roles iniciales')),
+        ('Oferta y cliente ideal', ('Servicio prioritario', 'Servicios', 'Ticket medio', 'Modelo de precio',
+            'Público', 'Sectores', 'Mercados', 'Ciudad objetivo', 'Región objetivo', 'Regiones objetivo',
+            'Países objetivo', 'Tipos de cliente objetivo', 'Tamaño empresa ideal', 'Perfil ideal detallado',
+            'Decisor habitual', 'Presupuesto mínimo', 'Criterio de cualificación', 'Capacidad mensual',
+            'Casos de éxito / portafolio', 'Empresas de referencia', 'Exclusiones de prospección',
+            'Preferencias de prospección')),
+        ('Objetivos y seguimiento', ('Objetivos', 'Canales', 'Campos del lead', 'Preguntas adicionales',
+            'Tiempo de respuesta', 'Asignación de leads', 'Ciclo de venta', 'Nombre reunión',
+            'Duración reunión', 'Disponibilidad', 'Horario', 'Tratamiento', 'Tono marca',
+            'Tono comunicación', 'Herramientas actuales', 'Herramientas a conectar',
+            'Automatizaciones workflow', 'Automatizaciones WhatsApp', 'Automatizaciones email',
+            'Plataformas anuncios', 'Fecha lanzamiento', 'Objetivo campaña', 'Conversión campaña',
+            'Público campaña', 'Destino campaña', 'Objetivo landing', 'Contenido landing', 'Uso VSL',
+            'Enlace VSL', 'Indicaciones VSL', 'Responsable copy landing', 'Copy / referencias / CTA landing',
+            'Color marca', 'Color corporativo primario', 'Color corporativo secundario',
+            'Logo URL', 'Tipografía títulos', 'Tipografía textos')),
+    )
+    return [{'title': title, 'fields': [{'label': key, 'value': source.raw_form[key]} for key in keys
+        if source.raw_form.get(key)]} for title, keys in sections if any(source.raw_form.get(k) for k in keys)]
+
+
 def review_feedback(prospects, source_id, owner):
     """Aggregate current CRM decisions without passing lead identities or notes to AI."""
     buckets = {'approved': [], 'discarded': []}

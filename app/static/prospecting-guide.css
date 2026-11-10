@@ -4,10 +4,27 @@
 .guide-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,.9fr);gap:20px;align-items:start}
 .guide-layout .panel{min-width:0}
 .guide-main .small{font-size:13px}
+.guide-title,.guide-learning>div{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.guide-title p{margin:0}
+.guide-learning{margin:16px 0 23px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.guide-learning>div span{color:var(--gold);font-size:14px}
+.guide-learning p{margin:5px 0 0}
+.guide-card{min-width:0;padding:7px 6px 0 0}
+.guide-context-card{min-width:0;border-left:1px solid var(--line);padding:4px 0 4px 22px}
+.guide-context-card h2{margin:6px 0 12px}
+.guide-context-card .eyebrow{margin:0}
+.guide-context-card details{border-top:1px solid var(--line);padding-top:10px}
+.guide-context-card dd{white-space:pre-wrap}
+.guide-busy{display:flex;align-items:center;gap:12px;padding:12px 0 18px;color:var(--gold)}
+.guide-busy p{margin:5px 0 0;color:var(--muted);font-size:14px}
+.guide-brand-spinner{position:relative;display:grid;place-items:center;flex:0 0 42px;height:42px}
+.guide-brand-spinner img{width:26px;height:26px;border-radius:6px}
+.guide-brand-spinner::before{content:'';position:absolute;inset:0;border:2px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:guide-spin 1s linear infinite}
+@keyframes guide-spin{to{transform:rotate(1turn)}}
+@media(prefers-reduced-motion:reduce){.guide-brand-spinner::before{animation:none;border-color:var(--gold)}}
 .guide-card fieldset{border:0;padding:0;margin:0;min-width:0}
 .guide-card legend{font-size:clamp(21px,3vw,29px);line-height:1.25;font-weight:700;margin-bottom:16px;padding:0}
-#guide-progress{width:100%;height:7px;accent-color:var(--gold)}
-#guide-progress-label{margin:0 0 6px}
+#guide-progress{width:100%;height:9px;accent-color:var(--gold)}
 #guide-status:empty{display:none}
 #guide-status{color:var(--muted);margin:10px 0}
 #guide-options{display:grid;gap:9px;margin-bottom:13px}
@@ -27,4 +44,12 @@
 .guide-context-card p,.guide-main a,#guide-history-list{overflow-wrap:anywhere}
 #guide-history-list li{margin-bottom:8px}
 #guide-error{padding:12px;border:1px solid #ba6c66;background:#321e24;border-radius:10px}
-@media(max-width:780px){.guide-layout{grid-template-columns:1fr}.guide-main{padding:22px 14px}.guide-layout .panel{padding:16px}header{gap:12px;padding:13px 14px}header nav{gap:11px;font-size:13px}}
+.ghl-guide ol{list-style:none;counter-reset:ghl-step;padding:0;max-width:850px}
+.ghl-guide li{counter-increment:ghl-step;display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;align-items:start;padding:16px;border:1px solid var(--line);border-radius:12px;margin:8px 0}
+.ghl-guide li::before{content:counter(ghl-step);display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;width:30px;height:30px}
+.ghl-guide li.ghl-current{border-color:var(--gold);background:#d9af3c12}
+.ghl-guide li.ghl-current::before{color:#080e18;background:var(--gold)}
+.ghl-guide li h2{margin:2px 0;font-size:19px}
+.ghl-guide li p{margin:7px 0 12px}
+.ghl-guide li .button,.ghl-guide li button{margin:0 6px 4px 0}
+@media(max-width:780px){.guide-layout{grid-template-columns:1fr}.guide-main{padding:22px 14px}.guide-context-card{border-left:0;border-top:1px solid var(--line);padding:16px 0 0}header{gap:12px;padding:13px 14px}header nav{gap:11px;font-size:13px}}

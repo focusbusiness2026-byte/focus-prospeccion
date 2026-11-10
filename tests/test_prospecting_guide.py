@@ -21,7 +21,7 @@ from app.onboarding import OnboardingSource
 from app.outreach import OutreachService
 from app.outreach_api import outreach_router
 from app.outreach_setup import mount_outreach
-from app.prospecting_guide import OpenAITargetingGuide, TargetingGuide, base_criteria, review_feedback
+from app.prospecting_guide import OpenAITargetingGuide, TargetingGuide, base_criteria, guide_intake, review_feedback
 from app.prospecting_guide_api import guide_router
 
 SEED = Path(__file__).parents[1] / 'app/intelligence_seed.json'
@@ -312,17 +312,28 @@ def test_api_scoping_csrf_validation_and_live_ghl_disabled(setup):
     with engine.db() as db:
         row = json.loads(db.execute('SELECT payload FROM tenants WHERE id=?',(T,)).fetchone()[0])
         row['access_emails'] = [ACTOR]
+        row['source_id'] = 'ONB-TEST'
         db.execute('UPDATE tenants SET payload=? WHERE id=?',(json.dumps(row),T))
     app = FastAPI()
     template = lambda *a, **k: HTMLResponse('private review')
-    app.include_router(guide_router(service,lambda:actor[0],template,lambda *a:profile(),lambda *a:None))
+    source = OnboardingSource.from_sheet_record({'Empresa':'Estudio de prueba', 'Responsable':'Contacto de prueba',
+        'Email responsable':'responsable@example.test', 'Ciclo de venta':'Dos semanas', 'Notas internas':'interno',
+        'ID fiscal empresarial':'privado', 'Clave API':'secret-value', 'Config. técnica URL':'https://private.example.test'})
+    app.include_router(guide_router(service,lambda:actor[0],template,lambda *a:profile(),lambda *a:None,
+        intake_for=lambda *a:(profile(), guide_intake(source))))
     app.include_router(outreach_router(OutreachService(engine),lambda:actor[0],template))
     with TestClient(app) as client:
         sid = str(uuid4()); headers={'x-csrf-token':'test-csrf'};client.cookies.set('focus_csrf','test-csrf')
+        assert client.get('/api/intelligence/accounts').json()['accounts'][0]['source_id'] == 'ONB-TEST'
+        info = client.get(f'/api/intelligence/{T}/guide').json()
+        fields = {row['label']:row['value'] for group in info['intake'] for row in group['fields']}
+        assert fields == {'Responsable':'Contacto de prueba','Email responsable':'responsable@example.test',
+            'Ciclo de venta':'Dos semanas'}
         assert client.post(f'/api/intelligence/{T}/guide/sessions',json={'request_id':sid}).status_code == 403
         assert client.post('/api/intelligence/control/guide/sessions',json={'request_id':sid},headers=headers).status_code == 403
         r = client.post(f'/api/intelligence/{T}/guide/sessions',json={'request_id':sid},headers=headers)
         assert r.status_code == 200
+        assert 'responsable@example.test' not in json.dumps(reasoner.calls)
         session = r.json()
         for _ in range(10):
             r = client.post(f'/api/intelligence/{T}/guide/sessions/{sid}/answers',json={
