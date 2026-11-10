@@ -1,5 +1,6 @@
 """Map the real research contact schema without inventing a decision maker."""
 import json
+from app.intelligence import CampaignError
 
 def array(value):
     try:parsed=json.loads(value or "[]") if isinstance(value,str) else value
@@ -20,3 +21,16 @@ def prospect_contact(p):
         "linkedin":linkedin,"sector":p.get("sector",""),"city":p.get("city",""),"summary":p.get("summary",""),
         "research_dossier_json":p.get("research_dossier_json",""),"approved":p.get("lead_status")=="Aprobado para descarga",
         "source":"Copia privada de investigación aprobada de Three Dots Studio; cargos actuales solo con fuente"}
+
+
+def import_approved_selection(engine, rows, source_id, ids):
+    """Import just this reviewed selection; never overwrite prior contacts."""
+    wanted = set(ids)
+    if not wanted or len(wanted) > 100:
+        raise CampaignError("Selecciona entre 1 y 100 leads aprobados")
+    prospects = {str(p.get("execution_id")): p for p in (dict(zip(rows[0], row)) for row in rows[1:]) if p.get("onboarding_id") == source_id} if rows else {}
+    if any(id not in prospects or prospects[id].get("lead_status") != "Aprobado para descarga" for id in wanted):
+        raise CampaignError("La selección contiene leads no aprobados o de otra cuenta")
+    with engine.db() as db:
+        added = sum(db.execute("INSERT OR IGNORE INTO contacts(tenant,id,payload) VALUES('three-dots',?,?)", (id, json.dumps(prospect_contact(prospects[id])))).rowcount for id in sorted(wanted))
+    return added

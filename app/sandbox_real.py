@@ -12,21 +12,27 @@ from datetime import datetime,timezone
 from urllib.parse import quote
 from fastapi import HTTPException,Request,Depends
 from fastapi.responses import RedirectResponse,HTMLResponse
+from pydantic import BaseModel, ConfigDict, Field
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 from app import auth,main
 from app.config import Settings
 from app.auth import Identity,validate_csrf,verify_session,create_session
 from app.sheet_store import SheetStore,_column_letter
-from app.intelligence import CampaignEngine
+from app.intelligence import CampaignEngine, CampaignError
 from app.intelligence_api import campaign_router
 from app.intelligence_adapters import SheetsSnapshot,PrivatePortalSnapshot,OpenAIMessageGenerator,PRODUCTION_BOOK
 from app.sandbox_security import verify_handoff
-from app.intelligence_contacts import prospect_contact
+from app.intelligence_contacts import prospect_contact, import_approved_selection
 
 SOURCE_ID="ONB-A23D5DB5"
 OWNER="sandbox-owner@example.test"
 PORTAL="https://focus-business-sandbox-20261108.moisses.chatgpt.site"
+
+
+class ApprovedSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ids: list[str] = Field(min_length=1, max_length=100)
 
 
 class ReadOnlySource(SheetStore):
@@ -153,6 +159,14 @@ def configure(app):
             store.claim("review_required")
             raise
     main._run_onboarding_research=isolated_research
+
+    @app.post("/api/intelligence/three-dots/sync-approved-selection")
+    def sync_selected(payload:ApprovedSelection,request:Request,identity=Depends(required)):
+        validate_csrf(request)
+        try:
+            added=import_approved_selection(engine,RealStore()._load().get("Prospeccion",[]),SOURCE_ID,payload.ids)
+        except CampaignError as exc:raise HTTPException(422,str(exc)) from None
+        return {"ok":True,"added":added,"production_written":False}
 
     @app.post("/api/intelligence/three-dots/sync-approved")
     def sync_approved(request:Request,identity=Depends(required)):

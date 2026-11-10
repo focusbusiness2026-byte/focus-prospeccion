@@ -16,10 +16,22 @@
         board.querySelectorAll('[data-campaign-select]').forEach(input => {input.checked = event.target.checked; if(input.checked)selected.add(input.value);else selected.delete(input.value);});
         count();
       };
-      controls.querySelector('[data-campaign-prepare]').onclick = () => {
+      controls.querySelector('[data-campaign-prepare]').onclick = async event => {
         const visible = new Set([...board.querySelectorAll('[data-campaign-select]')].map(input => input.value));
-        sessionStorage.setItem('focus-campaign-selection',JSON.stringify({ids:[...selected].filter(id=>visible.has(id))}));
-        window.location.assign('/campaigns/outreach');
+        const ids=[...selected].filter(id=>visible.has(id)), button=event.currentTarget;
+        if(!ids.length)return;
+        button.disabled=true;
+        try {
+          const csrf=document.cookie.split('; ').find(row=>row.startsWith('focus_csrf='))?.split('=').slice(1).join('=')||'';
+          const response=await fetch('/api/intelligence/three-dots/sync-approved-selection',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf)},body:JSON.stringify({ids})});
+          const result=await response.json();
+          if(!response.ok||!result.ok)throw Error(result.detail||'No se pudo preparar la selección.');
+          sessionStorage.setItem('focus-campaign-selection',JSON.stringify({ids}));
+          window.location.assign('/campaigns/outreach');
+        } catch(error) {
+          controls.querySelector('[data-campaign-count]').textContent=error.message||'No se pudo preparar la selección.';
+          button.disabled=false;
+        }
       };
     }
     board.querySelectorAll('.crm-board-card[data-current-column="Aprobado para descarga"]').forEach(card => {
