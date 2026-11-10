@@ -7,7 +7,33 @@
   let tenant = '', session = null, busy = false, aiReady = false, startId = null, shownQuestion = '';
   let answerRequest = null, operation = null, waitTimer = null, intakeLoaded = false;
   let stateTimer = null, stateChecks = 0;
+  let historyOpen = false, resetOpen = false, editIndex = null, revisionRequest = null;
+  let saved = new Map();
   const isWaiting = () => ['generating', 'applying'].includes(session?.state);
+  const dialog = $('#guide-busy');
+  dialog.addEventListener('cancel', (event) => event.preventDefault());
+
+  function reveal(selector, block = 'start') {
+    const element = $(selector);
+    element.focus({preventScroll:true});
+    element.scrollIntoView({block, behavior:matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
+  }
+
+  function stage() {
+    return session && [session.id, session.version, session.state].join(':');
+  }
+
+  function revealStep() {
+    const target = historyOpen ? '#guide-history-label' : session?.state === 'checkpoint' ? '#guide-checkpoint-title' :
+      ['ready','applied'].includes(session?.state) ? '#guide-review-title' : !$('#guide-answer').hidden ? '#guide-question' : null;
+    if (target) reveal(target);
+  }
+
+  function remember() {
+    if (!session) return;
+    saved.set(session.id, {id:session.id, created_at:session.created_at, count:session.history.length,
+      state:session.state, revision:Boolean(session.revision_of)});
+  }
 
   async function api(path = '', method = 'GET', data) {
     const csrf = decodeURIComponent(document.cookie.split('; ').find((x) => x.startsWith('focus_csrf='))?.split('=').slice(1).join('=') || '');
@@ -23,12 +49,18 @@
 
   async function work(action, title = 'Cargando tu empresa…') {
     if (busy) return;
+    const before = stage(), scrollOnChange = intakeLoaded;
+    let failed = false;
     clearTimeout(stateTimer);
     busy = true; operation = {title, long: false}; $('#guide-error').hidden = true; render();
     waitTimer = setTimeout(() => { operation.long = true; render(); }, 10000);
     try { await action(); }
-    catch (error) { $('#guide-error').textContent = error.message; $('#guide-error').hidden = false; }
-    finally { clearTimeout(waitTimer); operation = null; busy = false; render(); followSavedState(); }
+    catch (error) { failed = true; $('#guide-error').textContent = error.message; $('#guide-error').hidden = false; }
+    finally {
+      clearTimeout(waitTimer); operation = null; busy = false; remember(); render(); followSavedState();
+      if (failed && !dialog.open) reveal('#guide-error', 'nearest');
+      else if (scrollOnChange && before !== stage() && !dialog.open) revealStep();
+    }
   }
 
   function followSavedState() {
@@ -79,27 +111,34 @@
   function render() {
     const s = session, n = s?.history.length || 0, limit = s?.round_limit || 10;
     const legacy = Boolean(s && !s.round_limit), isApplied = s?.state === 'applied';
-    const canAsk = s?.state === 'draft' && !legacy && Boolean(s.turn);
+    const showFlow = !historyOpen && !resetOpen;
+    const canAsk = showFlow && s?.state === 'draft' && !legacy && Boolean(s.turn);
     const waiting = isWaiting();
     const ready = s?.state === 'ready', checkpoint = s?.state === 'checkpoint';
     const canExtend = !legacy && limit < 20;
     const criteriaComplete = ['sectors','target_countries'].every((key) => s?.criteria[key]?.some((value) => value.trim()));
     $('#guide-account').disabled = busy;
-    $('#guide-start').hidden = Boolean(s) || !intakeLoaded || busy; $('#guide-start').disabled = busy || !aiReady;
-    $('#guide-new').hidden = !s || busy || (!legacy && !['review_required','applied'].includes(s.state));
-    $('#guide-new').textContent = legacy && s.state === 'draft' ? 'Empezar con opciones' : 'Empezar otra búsqueda';
+    $('#guide-start').hidden = Boolean(s) || !intakeLoaded || !showFlow; $('#guide-start').disabled = busy || !aiReady;
+    $('#guide-new').hidden = !s || !showFlow;
     $('#guide-new').disabled = busy || waiting || !aiReady;
+    $('#guide-history-open').hidden = !showFlow || ![...saved.values()].some((item) => item.count);
     $('#guide-refresh').hidden = !tenant || (!waiting && s?.state !== 'review_required' && $('#guide-error').hidden);
     $('#guide-refresh').disabled = busy;
     const note = learning(s, n, limit);
     const showWait = busy || (waiting && stateChecks < 16);
     const waitTitle = operation?.title || (s?.state === 'applying' ? 'Guardando tu búsqueda…' : 'Preparando la siguiente pregunta…');
-    $('#guide-busy').hidden = !showWait;
     liveText('#guide-busy-title', showWait ? waitTitle : '');
     liveText('#guide-busy-detail', showWait
       ? (operation?.long ? 'La consulta sigue en curso. ' : '') + (intakeLoaded ? note : 'Estamos leyendo tu ficha de onboarding.')
       : '');
-    liveText('#guide-status', showWait ? '' : waiting ? 'Aún no se confirmó el resultado. Usa «Consultar estado» para comprobarlo.' : statuses[s?.state] ||
+    if (showWait && !dialog.open) {
+      dialog.showModal();
+      document.documentElement.classList.add('guide-locked');
+    } else if (!showWait && dialog.open) {
+      document.documentElement.classList.remove('guide-locked');
+      dialog.close();
+    }
+    liveText('#guide-status', !showFlow ? '' : waiting && !showWait ? 'Aún no se confirmó el resultado. Usa «Consultar estado» para comprobarlo.' : statuses[s?.state] ||
       (!s ? (intakeLoaded && !aiReady ? 'La administración debe habilitar el asistente para esta cuenta.' : '') :
         legacy && s.state === 'draft' ? 'Tu conversación anterior se conserva.' : canAsk ? 'Pregunta ' + (n + 1) + ' de ' + limit : ''));
     $('#guide-answer').hidden = !canAsk;
@@ -115,12 +154,12 @@
       $('#guide-custom').hidden = true; $('#answer').required = false; $('#answer').value = '';
     }
     $('#answer').disabled = busy;
-    $('#guide-checkpoint').hidden = !checkpoint;
+    $('#guide-checkpoint').hidden = !showFlow || !checkpoint;
     $('#guide-checkpoint-title').textContent = canExtend ? '¿Afinamos un poco más?' : 'Ya tienes tu enfoque';
     $('#guide-checkpoint-summary').textContent = s?.turn?.summary || '';
     $('#guide-review-choice').disabled = busy;
     $('#guide-more').hidden = !canExtend; $('#guide-more').disabled = busy;
-    $('#guide-review').hidden = !ready && !isApplied;
+    $('#guide-review').hidden = !showFlow || (!ready && !isApplied);
     $('#guide-summary').textContent = s?.turn?.summary || '';
     $('#guide-criteria').innerHTML = Object.entries(s?.criteria || {}).map(([key, value]) =>
       '<div><dt>' + esc(labels[key] || key) + '</dt><dd>' + esc((Array.isArray(value) ? value.join(', ') : value) || 'Por confirmar') + '</dd></div>').join('');
@@ -132,9 +171,25 @@
     $('#guide-more-review').hidden = !ready || !canExtend; $('#guide-more-review').disabled = busy;
     $('#guide-research').hidden = !isApplied;
     if (s?.saved_search) $('#guide-research').href = '/portal?guided_source=' + encodeURIComponent(s.profile.onboarding_id) + '&guided_search=' + encodeURIComponent(s.saved_search.saved_search_id) + '#sources';
-    $('#guide-history').hidden = !n;
-    $('#guide-history-label').textContent = 'Respuestas guardadas (' + n + ')';
-    $('#guide-history-list').innerHTML = (s?.history || []).map((h) => '<li><b>' + esc(h.question) + '</b><br>' + esc(h.answer) + '</li>').join('');
+    $('#guide-reset').hidden = !resetOpen;
+    $('#guide-history').hidden = !historyOpen;
+    if (historyOpen) {
+      const items = [...saved.values()].sort((a,b) => b.created_at - a.created_at);
+      const selector = $('#guide-history-account');
+      selector.innerHTML = items.map((item) => {
+        const date = new Date(item.created_at * 1000).toLocaleString('es-ES', {dateStyle:'short', timeStyle:'short', timeZone:'Europe/Madrid'});
+        return '<option value="' + esc(item.id) + '">' + esc(date + ' · ' + item.count +
+          (item.count === 1 ? ' respuesta' : ' respuestas') + (item.revision ? ' · corregida' : '')) + '</option>';
+      }).join('');
+      selector.value = s?.id || '';
+      $('#guide-history-account-label').hidden = items.length < 2;
+      $('#guide-history-empty').hidden = Boolean(n);
+      const canEdit = aiReady && ['draft','checkpoint','ready','applied'].includes(s?.state);
+      $('#guide-history-list').innerHTML = (s?.history || []).map((h, index) => '<li><b>' + esc(h.question) + '</b><p>' +
+        esc(h.answer) + '</p>' + (canEdit ? '<button type="button" data-edit-index="' + index + '" aria-label="Editar respuesta ' +
+          (index + 1) + '">Editar</button>' : '') + '</li>').join('');
+    }
+    $('#guide-edit').hidden = !historyOpen || editIndex === null;
     $('#guide-analysis').textContent = s?.analysis_summary || (s ? 'Se conserva el contexto de tu empresa.' : 'El asistente usa estos datos y tu web para preparar las preguntas.');
     const discarded = s?.feedback?.discarded?.count || 0, approved = s?.feedback?.approved?.count || 0;
     $('#guide-feedback').hidden = !discarded && !approved;
@@ -145,7 +200,10 @@
   }
 
   async function load() {
-    const result = await api(); session = result.session; aiReady = result.ai_ready;
+    const result = await api();
+    if (session?.id !== result.session?.id) editIndex = null;
+    session = result.session; aiReady = result.ai_ready;
+    saved = new Map((result.saved || []).map((item) => [item.id, item]));
     intakeLoaded = true;
     $('#guide-environment').textContent = result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Guardar tu enfoque no inicia una búsqueda.';
     $('#guide-company').textContent = result.profile.productora;
@@ -154,8 +212,9 @@
   function newSession() {
     return work(async () => {
       startId ||= crypto.randomUUID();
-      session = await api('/sessions', 'POST', {request_id:startId});
+      session = await api('/sessions', 'POST', {request_id:startId, fresh:resetOpen});
       startId = null; answerRequest = null; $('#guide-confirm').checked = false;
+      historyOpen = resetOpen = false; editIndex = null;
     }, 'Analizando tu empresa y preparando la primera pregunta…');
   }
   function decision(choice) {
@@ -164,7 +223,56 @@
       $('#guide-confirm').checked = false;
     }, choice === 'review' ? 'Preparando el resumen de tu búsqueda…' : 'Abriendo la siguiente pregunta…');
   }
-  $('#guide-start').onclick = $('#guide-new').onclick = newSession;
+  $('#guide-start').onclick = $('#guide-reset-confirm').onclick = newSession;
+  $('#guide-new').onclick = () => {
+    resetOpen = true; render(); reveal('#guide-reset-title');
+  };
+  $('#guide-reset-cancel').onclick = () => {
+    resetOpen = false; render(); revealStep();
+    if ($('#guide-answer').hidden && $('#guide-checkpoint').hidden && $('#guide-review').hidden) $('#guide-new').focus();
+  };
+  $('#guide-history-open').onclick = () => {
+    historyOpen = true; render(); reveal('#guide-history-label');
+  };
+  $('#guide-history-close').onclick = () => {
+    historyOpen = false; editIndex = null; render(); revealStep();
+    if ($('#guide-answer').hidden && $('#guide-checkpoint').hidden && $('#guide-review').hidden) $('#guide-history-open').focus();
+  };
+  $('#guide-history-account').onchange = (event) => {
+    const id = event.target.value;
+    work(async () => {
+      session = await api('/sessions/' + id);
+      editIndex = null; answerRequest = null; $('#guide-confirm').checked = false;
+    }, 'Abriendo tus respuestas guardadas…');
+  };
+  $('#guide-history-list').onclick = (event) => {
+    const button = event.target.closest('[data-edit-index]');
+    if (!button) return;
+    editIndex = Number(button.dataset.editIndex);
+    const response = session.history[editIndex];
+    $('#guide-edit-question').textContent = '· ' + response.question;
+    $('#guide-edit-answer').value = response.answer;
+    render(); reveal('#guide-edit-answer', 'center');
+  };
+  $('#guide-edit-cancel').onclick = () => {
+    const index = editIndex;
+    editIndex = null; render(); reveal('[data-edit-index="' + index + '"]', 'nearest');
+  };
+  $('#guide-edit').onsubmit = (event) => {
+    event.preventDefault();
+    const answer = $('#guide-edit-answer').value.trim(), index = editIndex;
+    if (index === null || !answer) return;
+    work(async () => {
+      const {id, version} = session;
+      const key = JSON.stringify([id, version, index, answer]);
+      if (revisionRequest?.key !== key) revisionRequest = {key, id:crypto.randomUUID()};
+      session = await api('/sessions/' + id + '/revisions', 'POST', {
+        request_id:revisionRequest.id, version, index, answer,
+      });
+      revisionRequest = null; answerRequest = null; historyOpen = false; editIndex = null;
+      $('#guide-confirm').checked = false;
+    }, 'Guardando tu corrección y actualizando el enfoque…');
+  };
   $('#guide-refresh').onclick = () => work(async () => { stateChecks = 0; await load(); });
   $('#guide-review-choice').onclick = () => decision('review');
   $('#guide-more').onclick = $('#guide-more-review').onclick = () => decision('more');
@@ -204,6 +312,7 @@
     tenant = account.id; $('#guide-account').value = tenant;
     $('#guide-account').onchange = () => work(async () => {
       tenant = $('#guide-account').value; session = null; startId = answerRequest = null; aiReady = intakeLoaded = false;
+      historyOpen = resetOpen = false; editIndex = null; saved.clear();
       $('#guide-company').textContent = 'Tu empresa'; showIntake([]);
       $('#guide-confirm').checked = false; await load();
     });

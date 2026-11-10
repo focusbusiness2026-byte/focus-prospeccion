@@ -13,6 +13,7 @@ from app.outreach_api import authorize
 class Start(BaseModel):
     model_config = ConfigDict(extra='forbid')
     request_id: UUID
+    fresh: bool = False
 
 
 class Answer(BaseModel):
@@ -21,6 +22,13 @@ class Answer(BaseModel):
     version: int = Field(ge=1, le=100)
     answer: str = Field(min_length=1, max_length=2000)
     mode: Literal['option', 'custom'] = 'custom'
+
+class Revise(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+    version: int = Field(ge=1, le=100)
+    index: int = Field(ge=0, lt=20)
+    answer: str = Field(min_length=1, max_length=2000)
 
 
 class Checkpoint(BaseModel):
@@ -63,6 +71,7 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
             profile, intake = scope(tenant, identity), []
         return {'profile': profile, 'intake': intake, 'ai_ready': service.generator is not None,
             'session': run(service.latest, tenant, identity.email), 'research_started': False,
+            'saved': run(service.saved, tenant, identity.email),
             'mode': 'real_isolated' if service.engine.real else 'local_demo'}
 
     @router.post('/api/intelligence/{tenant}/guide/sessions')
@@ -70,7 +79,7 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
         validate_csrf(request)
         profile = scope(tenant, identity)
         feedback = run(feedback_for, tenant, identity) if feedback_for else {}
-        return run(service.start, tenant, str(payload.request_id), identity.email, profile, feedback)
+        return run(service.start, tenant, str(payload.request_id), identity.email, profile, feedback, payload.fresh)
 
     @router.get('/api/intelligence/{tenant}/guide/sessions/{sid}')
     def get(tenant: str, sid: UUID, identity=Depends(identity_dependency)):
@@ -82,6 +91,13 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
         validate_csrf(request)
         scope(tenant, identity)
         return run(service.answer, tenant, str(sid), identity.email, str(payload.request_id), payload.version, payload.answer, payload.mode)
+
+    @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/revisions')
+    def revise(tenant: str, sid: UUID, payload: Revise, request: Request, identity=Depends(identity_dependency)):
+        validate_csrf(request)
+        profile = scope(tenant, identity)
+        return run(service.revise, tenant, str(sid), identity.email, str(payload.request_id),
+            payload.version, payload.index, payload.answer, profile)
 
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/checkpoint')
     def checkpoint(tenant: str, sid: UUID, payload: Checkpoint, request: Request, identity=Depends(identity_dependency)):

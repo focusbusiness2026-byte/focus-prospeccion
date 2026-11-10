@@ -15,33 +15,51 @@
     <progress id="guide-progress" max="10" value="0" aria-labelledby="guide-learning-label" aria-describedby="guide-learning-note"></progress>
     <p id="guide-learning-note" class="muted small">Más contexto ayuda a afinar el perfil de tus leads.</p>
   </section>
-  <p id="guide-error" role="alert" hidden></p>
+  <p id="guide-error" role="alert" tabindex="-1" hidden></p>
   <div class="guide-layout">
     <section class="guide-card" aria-label="Configura tu búsqueda">
-      <div id="guide-busy" class="guide-busy" role="status" aria-live="polite" aria-atomic="true" hidden>
-        <span class="guide-brand-spinner" aria-hidden="true"><img src="/static/favicon.svg" alt=""></span>
-        <div><strong id="guide-busy-title"></strong><p id="guide-busy-detail"></p></div>
-      </div>
       <p id="guide-status" role="status" aria-live="polite">Cargando tu cuenta…</p>
       <form id="guide-answer" hidden>
-        <fieldset id="guide-question-fieldset"><legend id="guide-question"></legend><div id="guide-options"></div></fieldset>
+        <fieldset id="guide-question-fieldset"><legend id="guide-question" tabindex="-1"></legend><div id="guide-options"></div></fieldset>
         <div id="guide-custom" hidden><label for="answer">Escribe tu respuesta</label><textarea id="answer" maxlength="2000" rows="2" placeholder="Con tus palabras…"></textarea></div>
         <button class="primary" id="guide-next" type="submit">Continuar</button>
       </form>
       <div id="guide-checkpoint" hidden>
-        <h2 id="guide-checkpoint-title">¿Afinamos un poco más?</h2>
+        <h2 id="guide-checkpoint-title" tabindex="-1">¿Afinamos un poco más?</h2>
         <p id="guide-checkpoint-summary"></p>
         <div class="actions"><button class="primary" id="guide-review-choice">Revisar mi búsqueda</button><button id="guide-more">Responder 5 más</button></div>
       </div>
       <div id="guide-review" hidden>
-        <h2>Tu búsqueda propuesta</h2><p id="guide-summary"></p>
+        <h2 id="guide-review-title" tabindex="-1">Tu búsqueda propuesta</h2><p id="guide-summary"></p>
         <details><summary>Ver criterios y supuestos</summary><dl id="guide-criteria"></dl><div id="guide-assumptions"></div></details>
         <p id="guide-missing" class="muted" hidden>Falta concretar el sector o el país antes de guardar.</p>
         <label class="guide-check" id="guide-confirm-label"><input type="checkbox" id="guide-confirm"> He revisado los criterios.</label>
         <div class="actions"><button class="primary" id="guide-apply">Guardar búsqueda</button><button id="guide-more-review" hidden>Responder 5 más</button><a id="guide-research" class="button" href="/portal#sources" hidden>Abrir búsqueda guardada →</a></div>
       </div>
-      <div class="actions guide-actions"><button class="primary" id="guide-start" disabled>Analizar mi empresa</button><button id="guide-new" hidden>Empezar otra búsqueda</button><button id="guide-refresh" hidden>Consultar estado</button></div>
-      <details id="guide-history" hidden><summary id="guide-history-label">Respuestas guardadas</summary><ol id="guide-history-list"></ol></details>
+      <div class="actions guide-actions">
+        <button class="primary" id="guide-start" disabled>Analizar mi empresa</button>
+        <button id="guide-history-open" type="button" aria-controls="guide-history" hidden>Respuestas guardadas</button>
+        <button id="guide-new" type="button" aria-controls="guide-reset" hidden>Empezar de cero</button>
+        <button id="guide-refresh" type="button" hidden>Consultar estado</button>
+      </div>
+      <section id="guide-history" aria-labelledby="guide-history-label" hidden>
+        <h2 id="guide-history-label" tabindex="-1">Respuestas guardadas</h2>
+        <label id="guide-history-account-label" hidden>Conversación<select id="guide-history-account"></select></label>
+        <p id="guide-history-empty" class="muted" hidden>Todavía no hay respuestas en esta conversación.</p>
+        <ol id="guide-history-list"></ol>
+        <form id="guide-edit" hidden>
+          <label for="guide-edit-answer">Editar respuesta <span id="guide-edit-question"></span></label>
+          <textarea id="guide-edit-answer" maxlength="2000" rows="3" required></textarea>
+          <p class="muted small">La corrección crea un borrador con tus demás respuestas. El original se conserva.</p>
+          <div class="actions"><button class="primary" type="submit">Guardar corrección</button><button id="guide-edit-cancel" type="button">Cancelar edición</button></div>
+        </form>
+        <button id="guide-history-close" type="button">Volver a las preguntas</button>
+      </section>
+      <section id="guide-reset" aria-labelledby="guide-reset-title" hidden>
+        <h2 id="guide-reset-title" tabindex="-1">¿Empezar de cero?</h2>
+        <p>La nueva conversación empezará sin respuestas. Podrás volver a las anteriores desde «Respuestas guardadas».</p>
+        <div class="actions"><button class="primary" id="guide-reset-confirm" type="button">Empezar nueva conversación</button><button id="guide-reset-cancel" type="button">Cancelar</button></div>
+      </section>
       <p id="guide-environment" class="muted small"></p>
     </section>
     <aside class="guide-context-card" aria-labelledby="guide-company">
@@ -53,5 +71,10 @@
     </aside>
   </div>
 </main>
+<dialog id="guide-busy" class="guide-busy" aria-labelledby="guide-busy-title" aria-describedby="guide-busy-detail">
+  <span class="guide-brand-spinner" aria-hidden="true"><img src="/static/favicon.svg" alt=""></span>
+  <h2 id="guide-busy-title" tabindex="-1" autofocus></h2>
+  <p id="guide-busy-detail" aria-live="polite"></p>
+</dialog>
 <script src="/static/prospecting-guide.js" defer></script>
 </body></html>

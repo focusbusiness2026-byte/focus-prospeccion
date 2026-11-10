@@ -132,6 +132,8 @@ class OpenAITargetingGuide:
                     'No relajes exclusiones ni amplíes territorio sin indicación del usuario. Distingue siempre datos '
                     'declarados, observados y propuestas provisionales; enumera como máximo 5 supuestos breves. '
                     'El perfil anterior aprobado orienta, pero prevalecen los datos nuevos y la respuesta actual. '
+                    'Si revised_answer_number está presente, reconstruye los criterios con el historial corregido. '
+                    'Conserva las demás respuestas y señala o pregunta por incompatibilidades con la corrección. '
                     'El historial de CRM contiene muestras agregadas, no motivos: compara aprobados con descartados, '
                     'pregunta si hay un patrón útil y nunca conviertas una correlación en exclusión automática. No inventes '
                     'clientes, personas, ingresos, presupuestos o necesidades. Si falta evidencia, pregunta. '
@@ -217,11 +219,21 @@ class TargetingGuide:
             value = self._read(db, tenant, row['id'], actor, allow_expired=True)
             return value if time.time() - value['created_at'] <= 7 * 86400 else None
 
+    def saved(self, tenant, actor):
+        with self.engine.db() as db:
+            values = [json.loads(row[0]) for row in db.execute(
+                'SELECT payload FROM targeting_sessions WHERE tenant=? AND actor=? ORDER BY rowid DESC LIMIT 30',
+                (tenant, actor))]
+        cutoff = time.time() - 7 * 86400
+        return [{'id': v['id'], 'created_at': v['created_at'], 'count': len(v['history']),
+            'state': v['state'], 'revision': bool(v.get('revision_of'))}
+            for v in values if v['created_at'] >= cutoff]
+
     def get(self, tenant, sid, actor):
         with self.engine.db() as db:
             return self._read(db, tenant, sid, actor)
 
-    def start(self, tenant, sid, actor, profile, feedback=None):
+    def start(self, tenant, sid, actor, profile, feedback=None, fresh=False):
         if self.generator is None:
             raise CampaignError('El asistente de IA está pendiente de configuración administrativa.')
         with self.engine.db() as db:
@@ -230,9 +242,9 @@ class TargetingGuide:
                 return self._read(db, tenant, sid, actor)
             recent = [json.loads(r[0]) for r in db.execute(
                 'SELECT payload FROM targeting_sessions WHERE tenant=? AND actor=? ORDER BY rowid DESC', (tenant, actor))]
-            if sum(r['created_at'] > time.time() - 3600 for r in recent) >= 3:
+            if sum(not r.get('revision_of') and r['created_at'] > time.time() - 3600 for r in recent) >= 3:
                 raise CampaignError('Ya hay varias conversaciones recientes. Continúa una existente antes de empezar otra.')
-            previous = next((r for r in recent if r['state'] == 'applied' and
+            previous = None if fresh else next((r for r in recent if r['state'] == 'applied' and
                 r['profile']['onboarding_id'] == profile['onboarding_id']), None)
             value = {'id': sid, 'created_at': time.time(), 'profile': profile, 'profile_hash': fingerprint(profile),
                 'version': 0, 'state': 'draft', 'history': [], 'turn': None, 'criteria': base_criteria(profile),
@@ -279,12 +291,67 @@ class TargetingGuide:
             value['state'] = 'generating'
             self._save(db, tenant, actor, value)
             db.execute('INSERT INTO targeting_requests VALUES(?,?,?,?,?,?)', (tenant, sid, rid, digest, 'started', None))
+        return self._generate(tenant, actor, rid, version, limit, value)
+
+    def revise(self, tenant, sid, actor, revision_id, version, index, answer, profile):
+        if self.generator is None:
+            raise CampaignError('Asistente no configurado; no se ha consumido IA.')
+        answer = answer.strip()
+        if not answer:
+            raise CampaignError('Escribe tu respuesta para guardarla.')
+        digest = fingerprint({'source': sid, 'version': version, 'index': index, 'answer': answer})
+        rid = 'revision'
+        with self.engine.db() as db:
+            original = self._read(db, tenant, sid, actor)
+            prior = db.execute('SELECT hash FROM targeting_requests WHERE tenant=? AND session=? AND id=?',
+                (tenant, revision_id, rid)).fetchone()
+            if prior:
+                if prior['hash'] != digest:
+                    raise CampaignError('No se puede reutilizar una solicitud con otra respuesta.')
+                return self._read(db, tenant, revision_id, actor)
+            if db.execute('SELECT 1 FROM targeting_sessions WHERE tenant=? AND id=?', (tenant, revision_id)).fetchone():
+                raise CampaignError('La solicitud ya corresponde a otra conversación.')
+            if original['version'] != version or original['state'] not in {'draft', 'checkpoint', 'ready', 'applied'}:
+                raise CampaignError('La conversación cambió o tiene una operación pendiente. Actualiza su estado.')
+            if original['profile_hash'] != fingerprint(profile):
+                raise CampaignError('El onboarding cambió. Empieza de cero para usar la ficha actual.')
+            history = original['history']
+            if not 0 <= index < len(history):
+                raise CampaignError('Esa respuesta no está guardada.')
+            if answer == history[index]['answer'].strip():
+                raise CampaignError('Modifica la respuesta antes de guardar.')
+            now = time.time()
+            recent_revisions = [json.loads(row[0]) for row in db.execute(
+                'SELECT payload FROM targeting_sessions WHERE tenant=? AND actor=? ORDER BY rowid DESC LIMIT 30',
+                (tenant, actor))]
+            if any(v.get('revision_of') == sid and v['state'] == 'generating' for v in recent_revisions):
+                raise CampaignError('Ya hay una corrección en curso. Consulta su estado antes de volver a editar.')
+            if sum(bool(v.get('revision_of')) and v['created_at'] > now - 3600 for v in recent_revisions) >= 10:
+                raise CampaignError('Ya hay varias correcciones recientes. Continúa con la última revisión.')
+            limit = original.get('round_limit', FIRST_ROUND)
+            revised = [{**h, 'answer': answer, 'mode': 'custom'} if i == index else h for i, h in enumerate(history)]
+            value = {'id': revision_id, 'created_at': now, 'profile': profile, 'profile_hash': original['profile_hash'],
+                'version': 0, 'state': 'generating', 'history': revised, 'turn': None, 'criteria': base_criteria(profile),
+                'sources': original['sources'], 'web_status': original['web_status'], 'round_limit': limit,
+                'analysis_summary': original.get('analysis_summary') or (original['turn'] or {}).get('summary', '')[:450],
+                'feedback': original.get('feedback', {}), 'prior_approved': original.get('prior_approved'),
+                'revision_of': sid}
+            self._save(db, tenant, actor, value)
+            db.execute('INSERT INTO targeting_requests VALUES(?,?,?,?,?,?)',
+                (tenant, revision_id, rid, digest, 'started', None))
+        return self._generate(tenant, actor, rid, 0, limit, value, revised_answer_number=index + 1)
+
+    def _generate(self, tenant, actor, rid, version, limit, value, revised_answer_number=None):
+        sid = value['id']
         try:
             count = len(value['history'])
-            result = self.generator({'profile': value['profile'], 'history': value['history'], 'criteria': value['criteria'],
+            context = {'profile': value['profile'], 'history': value['history'], 'criteria': value['criteria'],
                 'website_sources': value['sources'], 'website_status': value['web_status'],
                 'analysis_summary': value['analysis_summary'], 'crm_feedback': value['feedback'],
-                'prior_approved': value['prior_approved'], 'question_number': count + 1 if count < MAX_ANSWERS else None})
+                'prior_approved': value['prior_approved'], 'question_number': count + 1 if count < MAX_ANSWERS else None}
+            if revised_answer_number is not None:
+                context['revised_answer_number'] = revised_answer_number
+            result = self.generator(context)
             result['turn'] = Turn.model_validate(result['turn']).model_dump()
             # Bound every free-text array member as well as the number of members.
             if any(len(x) > 500 for field in Criteria.model_fields if isinstance(result['turn']['criteria'][field], list) for x in result['turn']['criteria'][field]):

@@ -53,6 +53,10 @@ las búsquedas guardadas siguen disponibles para ejecutar. La barra de aprendiza
 cuenta aportes reales de contexto y respuestas, sin medir la calidad de los leads.
 La ficha lateral muestra datos del onboarding autorizado; esos campos de
 visualización no se añaden a las solicitudes de IA.
+Al procesar un paso se muestra un aviso modal con el fondo bloqueado; al avanzar
+se enfoca y se vuelve a mostrar la pregunta. En «Respuestas guardadas» se pueden
+reabrir conversaciones recientes y corregir una respuesta en un borrador nuevo.
+«Empezar de cero» deja intactos los borradores y las búsquedas anteriores.
 
 `/integrations/ghl` indica el paso pendiente y enlaza al inicio de sesión,
 la autorización disponible y la configuración de la subcuenta para administración.

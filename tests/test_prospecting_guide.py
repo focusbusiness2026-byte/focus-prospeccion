@@ -183,6 +183,33 @@ def test_new_guide_learns_only_from_previous_confirmed_criteria(setup):
     assert reasoner.calls[-1]['prior_approved'] == applied['criteria']
 
 
+def test_edit_forks_history_without_overwriting_a_saved_search_or_repeating_ai(setup):
+    _, service, reasoner = setup
+    review = review_first_round(service)
+    applied = service.apply(T, review['id'], ACTOR, review['version'], profile(),
+        lambda *args: {'saved_search_id':'SEARCH-ORIGINAL'})
+    rid = str(uuid4())
+    args = (T, applied['id'], ACTOR, rid, applied['version'], 0)
+    revised = service.revise(*args, 'Priorizar estudios culturales', profile())
+    assert revised['state'] == 'checkpoint' and 'saved_search' not in revised
+    assert revised['history'][0]['answer'] == 'Priorizar estudios culturales'
+    assert revised['history'][1:] == applied['history'][1:]
+    assert service.get(T, applied['id'], ACTOR) == applied
+    assert reasoner.calls[-1]['revised_answer_number'] == 1
+    count = len(reasoner.calls)
+    assert service.revise(*args, 'Priorizar estudios culturales', profile()) == revised
+    with pytest.raises(CampaignError):
+        service.revise(*args, 'No reutilizar la solicitud', profile())
+    with pytest.raises(CampaignError):
+        service.revise(T, applied['id'], 'other@example.test', str(uuid4()),
+            applied['version'], 0, 'No debe acceder', profile())
+    assert len(reasoner.calls) == count
+    reset = service.start(T, str(uuid4()), ACTOR, profile(), fresh=True)
+    assert reset['history'] == [] and reasoner.calls[-1]['prior_approved'] is None
+    assert {v['id'] for v in service.saved(T, ACTOR)} == {applied['id'], revised['id'], reset['id']}
+    assert service.saved(T, 'other@example.test') == []
+
+
 def test_two_concurrent_answers_claim_only_one_call(setup):
     _, service, reasoner = setup
     session = start(service)
@@ -345,7 +372,13 @@ def test_api_scoping_csrf_validation_and_live_ghl_disabled(setup):
         decision = {'version':session['version'],'choice':'review'}
         url = f'/api/intelligence/{T}/guide/sessions/{sid}/checkpoint'
         assert client.post(url, json=decision).status_code == 403
-        assert client.post(url, json=decision, headers=headers).json()['state'] == 'ready'
+        ready = client.post(url, json=decision, headers=headers).json()
+        assert ready['state'] == 'ready'
+        revision = {'version':ready['version'], 'index':0, 'answer':'Un tipo de cliente distinto', 'request_id':str(uuid4())}
+        revisions = f'/api/intelligence/{T}/guide/sessions/{sid}/revisions'
+        assert client.post(revisions,json=revision).status_code == 403
+        response = client.post(revisions,json=revision,headers=headers)
+        assert response.status_code == 200 and response.json()['history'][0]['answer'] == revision['answer']
         assert client.post(f'/api/intelligence/{T}/guide/sessions/{sid}/apply',json={'version':1,'confirmed':False},headers=headers).status_code == 422
         r = client.get(f'/api/intelligence/{T}/outreach/ghl/status')
         assert r.json()['state'] == 'setup_pending'
