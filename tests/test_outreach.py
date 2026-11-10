@@ -301,6 +301,8 @@ def test_openai_strict_fifteen_no_tools_store_or_search_quota(service):
     def handler(request):
         payload=json.loads(request.content)
         assert payload['store'] is False and 'tools' not in payload
+        instruction=payload['input'][0]['content']
+        assert 'No incluyas notas internas' in instruction and 'exclusivamente el correo dirigido al destinatario' in instruction
         assert payload['text']['format']['schema']['properties']['emails']['minItems']==15
         return httpx.Response(200,json={'status':'completed','model':'mock-model','id':'mock-response','usage':{'input_tokens':12,'output_tokens':34},'output':[{'content':[{'type':'output_text','text':json.dumps(DemoSequenceGenerator()(ctx))}]}]})
     gen=OpenAISequenceGenerator(SimpleNamespace(openai_model='mock-model',openai_api_key='mock-only'),transport=httpx.MockTransport(handler))
