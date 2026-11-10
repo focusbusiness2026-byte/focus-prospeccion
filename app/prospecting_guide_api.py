@@ -1,5 +1,6 @@
 """Mounted by the private sandbox only; existing research routes are unchanged."""
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,17 +18,24 @@ class Start(BaseModel):
 class Answer(BaseModel):
     model_config = ConfigDict(extra='forbid')
     request_id: UUID
-    version: int = Field(ge=1, le=7)
+    version: int = Field(ge=1, le=100)
     answer: str = Field(min_length=1, max_length=2000)
+    mode: Literal['option', 'custom'] = 'custom'
+
+
+class Checkpoint(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    version: int = Field(ge=1, le=100)
+    choice: Literal['review', 'more']
 
 
 class Apply(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    version: int = Field(ge=1, le=7)
+    version: int = Field(ge=1, le=100)
     confirmed: bool
 
 
-def guide_router(service, identity_dependency, template, source_for, save_for):
+def guide_router(service, identity_dependency, template, source_for, save_for, feedback_for=None):
     router = APIRouter()
 
     def scope(tenant, identity):
@@ -57,7 +65,8 @@ def guide_router(service, identity_dependency, template, source_for, save_for):
     def start(tenant: str, payload: Start, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
         profile = scope(tenant, identity)
-        return run(service.start, tenant, str(payload.request_id), identity.email, profile)
+        feedback = run(feedback_for, tenant, identity) if feedback_for else {}
+        return run(service.start, tenant, str(payload.request_id), identity.email, profile, feedback)
 
     @router.get('/api/intelligence/{tenant}/guide/sessions/{sid}')
     def get(tenant: str, sid: UUID, identity=Depends(identity_dependency)):
@@ -68,7 +77,13 @@ def guide_router(service, identity_dependency, template, source_for, save_for):
     def answer(tenant: str, sid: UUID, payload: Answer, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
         scope(tenant, identity)
-        return run(service.answer, tenant, str(sid), identity.email, str(payload.request_id), payload.version, payload.answer)
+        return run(service.answer, tenant, str(sid), identity.email, str(payload.request_id), payload.version, payload.answer, payload.mode)
+
+    @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/checkpoint')
+    def checkpoint(tenant: str, sid: UUID, payload: Checkpoint, request: Request, identity=Depends(identity_dependency)):
+        validate_csrf(request)
+        scope(tenant, identity)
+        return run(service.checkpoint, tenant, str(sid), identity.email, payload.version, payload.choice)
 
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/apply')
     def apply(tenant: str, sid: UUID, payload: Apply, request: Request, identity=Depends(identity_dependency)):

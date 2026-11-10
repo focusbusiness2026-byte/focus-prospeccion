@@ -28,17 +28,21 @@ Formulario Onboarding
 
 ### Prospección guiada (implementación exclusiva de la copia privada)
 
-`app.sandbox:app` incorpora `/prospecting-guide`, con una pregunta abierta de IA
-por turno y revisión explícita antes de guardar una búsqueda nueva. Utiliza el
+`app.sandbox:app` incorpora `/prospecting-guide`, con un análisis inicial breve y
+una pregunta de IA por turno, con opciones y respuesta libre. Tras 10 respuestas
+se puede revisar la propuesta o responder cinco más, hasta 20. Utiliza el
 perfil empresarial normalizado del onboarding y, en el primer turno, hasta dos
 consultas de la web oficial mediante Responses `web_search`. No utiliza preguntas
 precargadas ni solicita claves al cliente. Mantiene el modelo y la clave ya
 configurados en servidor, bajo la autorización explícita de IA de la copia.
+Las futuras propuestas toman en cuenta los criterios aprobados y una muestra
+agregada de aprobados y descartados del propio tablero. Esto orienta preguntas;
+no convierte los descartes en exclusiones ni cambia búsquedas ya guardadas.
 
 Las conversaciones se conservan en tablas aditivas `targeting_sessions` y
 `targeting_requests` del almacenamiento de campañas aislado. Tienen control de
-cuenta/actor/versión, solicitudes idempotentes y un máximo de seis respuestas por
-conversación y tres conversaciones nuevas por hora y usuario. Una llamada o
+cuenta/actor/versión, solicitudes idempotentes y un máximo de tres conversaciones
+nuevas por hora y usuario. Una llamada o
 escritura incierta queda para revisión, sin reintento automático; un reinicio
 con una operación pendiente también exige revisión. La conversación no descuenta
 raspados. El cliente confirma criterios y supuestos antes de guardar una búsqueda

@@ -1,16 +1,154 @@
 'use strict';
 (() => {
-const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let tenant='',session=null,busy=false,initialRequest=null,aiReady=false;
-async function api(path='',method='GET',data){const csrf=decodeURIComponent(document.cookie.split('; ').find(x=>x.startsWith('focus_csrf='))?.split('=').slice(1).join('=')||'');const response=await fetch('/api/intelligence/'+encodeURIComponent(tenant)+'/guide'+path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:data===undefined?undefined:JSON.stringify(data)});let result;try{result=await response.json();}catch{throw Error('El servidor no confirmó la operación. Consulta el estado antes de repetir.');}if(!response.ok)throw Error(typeof result.detail==='string'?result.detail:'Revisa la solicitud.');return result;}
-async function work(fn){if(busy)return;busy=true;$('#guide-error').hidden=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);$('#guide-status').textContent='Preparando tu siguiente paso… Puedes cerrar esta página y consultar después el estado guardado.';try{await fn();}catch(e){$('#guide-error').textContent=e.message;$('#guide-error').hidden=false;$('#guide-refresh').hidden=false;}finally{busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false);render();}}
-const labels={sectors:'Sectores',target_countries:'Países',target_city:'Ciudad',target_region:'Región',client_types:'Tipo de cliente',ideal_company_size:'Perfil o tamaño',minimum_budget:'Presupuesto',decision_roles:'Responsables a identificar',keywords:'Contexto de búsqueda',excluded_sectors:'Sectores excluidos',exclusions:'Exclusiones',preferences:'Preferencias'};
-function render(){const s=session;$('#guide-start').hidden=Boolean(s);$('#guide-refresh').hidden=!s;$('#guide-new').hidden=!s;$('#guide-new').disabled=busy||['generating','applying'].includes(s?.state);if(!s){$('#guide-start').disabled=busy||!aiReady;return;}const pending=['generating','applying'].includes(s.state),review=s.state==='review_required';$('#guide-status').textContent=({draft:'Responde con tus palabras para ajustar el enfoque.',ready:'Ya puedes revisar el enfoque. También puedes responder para matizarlo.',applied:'Búsqueda guardada. El raspado todavía no se ha iniciado.',generating:'La IA está preparando la respuesta. Consulta el estado en unos segundos.',applying:'Guardado en curso. Consulta el estado antes de repetir.',review_required:'Hay una operación sin confirmar. Conservamos el contexto; no se repetirá automáticamente.'})[s.state]||'';$('#guide-conversation').innerHTML=s.history.map(h=>`<div class="guide-message assistant">${esc(h.question)}</div><div class="guide-message user">${esc(h.answer)}</div>`).join('')+(s.turn?`<div class="guide-message assistant">${esc(s.turn.summary)}${s.turn.question?'\n\n'+esc(s.turn.question):''}<small>${esc(s.turn.reason)}</small></div>`:'');$('#guide-answer').hidden=pending||review||s.state==='applied'||s.history.length>=6;$('#guide-review').hidden=!['ready','applied'].includes(s.state);$('#guide-summary').textContent=s.turn?.summary||'';$('#guide-criteria').innerHTML=Object.entries(s.criteria).map(([k,v])=>`<div><dt>${esc(labels[k]||k)}</dt><dd>${esc(Array.isArray(v)?v.join(', ')||'Por confirmar':v||'Por confirmar')}</dd></div>`).join('');$('#guide-assumptions').innerHTML='<strong>Propuestas y datos por confirmar</strong>'+(s.turn?.assumptions.length?'<ul>'+s.turn.assumptions.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'<p>Revisa los criterios antes de usarlos; no implican hechos comprobados sobre futuros leads.</p>');$('#guide-apply').disabled=s.state!=='ready'||busy;$('#guide-confirm').disabled=s.state!=='ready';$('#guide-research').hidden=s.state!=='applied';if(s.saved_search)$('#guide-research').href='/portal?guided_source='+encodeURIComponent(s.profile.onboarding_id)+'&guided_search='+encodeURIComponent(s.saved_search.saved_search_id)+'#sources';$('#guide-web-status').textContent=({consulted:'Se consultaron estas fuentes públicas de la web oficial.',not_requested:'Web no consultada; el contexto procede del onboarding.',unavailable:'No hay evidencia web recuperada; el contexto procede del onboarding.',blocked_or_unavailable:'No se pudo consultar esta dirección pública; usa el onboarding para continuar.'})[s.web_status]||'Web pendiente';$('#guide-sources').innerHTML=s.sources.map(x=>`<p><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a></p>`).join('');}
-async function load(){const result=await api();session=result.session;aiReady=result.ai_ready;$('#guide-environment').textContent=result.mode==='local_demo'?'PRUEBA LOCAL · Proveedores reales deshabilitados. Las respuestas de esta revisión son simuladas.':'COPIA PRIVADA · IA de OpenAI en el servidor · Sin envíos';$('#guide-company').textContent=result.profile.productora;$('#guide-context').innerHTML='<p><b>Oferta declarada:</b> '+esc(result.profile.targeting.main_service||result.profile.targeting.services.join(', '))+'</p><p>'+esc(result.profile.description)+'</p><p><b>Web registrada:</b> '+esc(result.profile.website||'No indicada')+'</p>';$('#guide-start').disabled=!result.ai_ready;$('#guide-status').textContent=result.ai_ready?'La IA está disponible. Analizará tu empresa antes de preguntar.':'El asistente está pendiente de configuración administrativa.';render();}
-$('#guide-start').onclick=()=>work(async()=>{initialRequest=initialRequest||crypto.randomUUID();session=await api('/sessions','POST',{request_id:initialRequest});});
-$('#guide-answer').onsubmit=e=>{e.preventDefault();const answer=$('#answer').value.trim();if(!answer)return;work(async()=>{session=await api('/sessions/'+encodeURIComponent(session.id)+'/answers','POST',{request_id:crypto.randomUUID(),version:session.version,answer});$('#answer').value='';$('#guide-confirm').checked=false;});};
-$('#guide-refresh').onclick=()=>work(load);
-$('#guide-new').onclick=()=>work(async()=>{initialRequest=crypto.randomUUID();session=await api('/sessions','POST',{request_id:initialRequest});$('#guide-confirm').checked=false;});
-$('#guide-apply').onclick=()=>work(async()=>{if(!$('#guide-confirm').checked)throw Error('Confirma que has revisado los criterios.');session=await api('/sessions/'+encodeURIComponent(session.id)+'/apply','POST',{version:session.version,confirmed:true});});
-work(async()=>{const response=await fetch('/api/intelligence/accounts',{credentials:'same-origin'}),data=await response.json();if(!response.ok||!data.accounts?.length)throw Error('No hay una empresa autorizada para esta sesión.');$('#guide-account').innerHTML=data.accounts.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');$('#guide-account-label').hidden=data.accounts.length<2;tenant=data.accounts[0].id;$('#guide-account').onchange=()=>work(async()=>{tenant=$('#guide-account').value;session=null;initialRequest=null;await load();});await load();});
+  const $ = (selector) => document.querySelector(selector);
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+  const labels = {sectors:'Sectores', target_countries:'Países', target_city:'Ciudad', target_region:'Región', client_types:'Tipo de cliente', ideal_company_size:'Perfil o tamaño', minimum_budget:'Presupuesto', decision_roles:'Decisores', keywords:'Contexto', excluded_sectors:'Sectores excluidos', exclusions:'Exclusiones', preferences:'Preferencias'};
+  const statuses = {generating:'Preparando tu pregunta…', applying:'Guardando…', review_required:'La última operación no se confirmó. Consulta el estado antes de repetir.', applied:'Búsqueda guardada.'};
+  let tenant = '', session = null, busy = false, aiReady = false, startId = null, shownQuestion = '';
+  let answerRequest = null;
+
+  async function api(path = '', method = 'GET', data) {
+    const csrf = decodeURIComponent(document.cookie.split('; ').find((x) => x.startsWith('focus_csrf='))?.split('=').slice(1).join('=') || '');
+    const response = await fetch('/api/intelligence/' + encodeURIComponent(tenant) + '/guide' + path, {
+      method, credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
+      body: data === undefined ? undefined : JSON.stringify(data),
+    });
+    let body;
+    try { body = await response.json(); } catch { throw Error('No se confirmó la operación. Consulta el estado guardado.'); }
+    if (!response.ok) throw Error(typeof body.detail === 'string' ? body.detail : 'Revisa la solicitud.');
+    return body;
+  }
+
+  async function work(action) {
+    if (busy) return;
+    busy = true; $('#guide-error').hidden = true; render();
+    try { await action(); }
+    catch (error) { $('#guide-error').textContent = error.message; $('#guide-error').hidden = false; }
+    finally { busy = false; render(); }
+  }
+
+  function render() {
+    const s = session, n = s?.history.length || 0, limit = s?.round_limit || 10;
+    const legacy = Boolean(s && !s.round_limit), isApplied = s?.state === 'applied';
+    const canAsk = s?.state === 'draft' && !legacy && Boolean(s.turn);
+    const waiting = ['generating', 'applying'].includes(s?.state);
+    const ready = s?.state === 'ready', checkpoint = s?.state === 'checkpoint';
+    const canExtend = !legacy && limit < 20;
+    const criteriaComplete = ['sectors','target_countries'].every((key) => s?.criteria[key]?.some((value) => value.trim()));
+    $('#guide-account').disabled = busy;
+    $('#guide-start').hidden = Boolean(s); $('#guide-start').disabled = busy || !aiReady;
+    $('#guide-new').hidden = !s;
+    $('#guide-new').textContent = legacy && s.state === 'draft' ? 'Empezar con opciones' : 'Empezar otra búsqueda';
+    $('#guide-new').disabled = busy || waiting || !aiReady;
+    $('#guide-refresh').hidden = !tenant || (!waiting && s?.state !== 'review_required' && $('#guide-error').hidden);
+    $('#guide-refresh').disabled = busy;
+    $('#guide-status').textContent = busy ? 'Preparando…' : statuses[s?.state] ||
+      (!s ? (aiReady ? '10 preguntas para empezar.' : 'Asistente pendiente de configuración.') :
+        legacy && s.state === 'draft' ? 'Tu conversación anterior se conserva.' : '');
+    const showProgress = Boolean(s && !legacy);
+    $('#guide-progress-label').hidden = $('#guide-progress').hidden = !showProgress;
+    $('#guide-progress').max = limit; $('#guide-progress').value = n;
+    $('#guide-progress-label').textContent = canAsk ? 'Pregunta ' + (n + 1) + ' de ' + limit : n + ' respuestas guardadas';
+    $('#guide-answer').hidden = !canAsk;
+    $('#guide-question-fieldset').disabled = busy;
+    $('#guide-next').disabled = busy;
+    if (canAsk && shownQuestion !== s.id + ':' + s.version) {
+      shownQuestion = s.id + ':' + s.version;
+      $('#guide-question').textContent = s.turn.question;
+      $('#guide-options').innerHTML = s.turn.options.map((option, index) =>
+        '<label class="guide-option"><input type="radio" name="choice" value="' + index + '" required> ' + esc(option) + '</label>').join('') +
+        '<label class="guide-option"><input type="radio" name="choice" value="unknown" required> No lo sé todavía</label>' +
+        '<label class="guide-option"><input type="radio" name="choice" value="other" required> Otra respuesta</label>';
+      $('#guide-custom').hidden = true; $('#answer').required = false; $('#answer').value = '';
+    }
+    $('#answer').disabled = busy;
+    $('#guide-checkpoint').hidden = !checkpoint;
+    $('#guide-checkpoint-title').textContent = canExtend ? '¿Afinamos un poco más?' : 'Ya tienes tu enfoque';
+    $('#guide-checkpoint-summary').textContent = s?.turn?.summary || '';
+    $('#guide-review-choice').disabled = busy;
+    $('#guide-more').hidden = !canExtend; $('#guide-more').disabled = busy;
+    $('#guide-review').hidden = !ready && !isApplied;
+    $('#guide-summary').textContent = s?.turn?.summary || '';
+    $('#guide-criteria').innerHTML = Object.entries(s?.criteria || {}).map(([key, value]) =>
+      '<div><dt>' + esc(labels[key] || key) + '</dt><dd>' + esc((Array.isArray(value) ? value.join(', ') : value) || 'Por confirmar') + '</dd></div>').join('');
+    $('#guide-assumptions').innerHTML = (s?.turn?.assumptions || []).map((value) => '<p>' + esc(value) + '</p>').join('');
+    $('#guide-confirm-label').hidden = !ready || !criteriaComplete;
+    $('#guide-missing').hidden = !ready || criteriaComplete;
+    $('#guide-confirm').disabled = busy;
+    $('#guide-apply').hidden = !ready || !criteriaComplete; $('#guide-apply').disabled = busy || !$('#guide-confirm').checked;
+    $('#guide-more-review').hidden = !ready || !canExtend; $('#guide-more-review').disabled = busy;
+    $('#guide-research').hidden = !isApplied;
+    if (s?.saved_search) $('#guide-research').href = '/portal?guided_source=' + encodeURIComponent(s.profile.onboarding_id) + '&guided_search=' + encodeURIComponent(s.saved_search.saved_search_id) + '#sources';
+    $('#guide-history').hidden = !n;
+    $('#guide-history-label').textContent = 'Respuestas guardadas (' + n + ')';
+    $('#guide-history-list').innerHTML = (s?.history || []).map((h) => '<li><b>' + esc(h.question) + '</b><br>' + esc(h.answer) + '</li>').join('');
+    $('#guide-analysis').textContent = s?.analysis_summary || (s ? 'Se conserva el contexto de tu empresa.' : 'Primero analizo tu onboarding y tu web.');
+    const discarded = s?.feedback?.discarded?.count || 0, approved = s?.feedback?.approved?.count || 0;
+    $('#guide-feedback').hidden = !discarded && !approved;
+    $('#guide-feedback').textContent = 'Tu tablero orienta las propuestas: ' + approved + ' aprobados y ' + discarded + ' descartados revisados.';
+    $('#guide-source-details').hidden = !s;
+    $('#guide-web-status').textContent = s?.web_status === 'consulted' ? 'Web oficial consultada.' : 'Sin evidencia web; se usó el onboarding.';
+    $('#guide-sources').innerHTML = (s?.sources || []).map((x) => '<li><a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title) + '</a></li>').join('');
+  }
+
+  async function load() {
+    const result = await api(); session = result.session; aiReady = result.ai_ready;
+    $('#guide-environment').textContent = result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Copia privada · Sin envíos';
+    $('#guide-company').textContent = result.profile.productora;
+    $('#guide-offer').textContent = result.profile.targeting.main_service || result.profile.targeting.services.join(', ');
+  }
+  function newSession() {
+    return work(async () => {
+      startId ||= crypto.randomUUID();
+      session = await api('/sessions', 'POST', {request_id:startId});
+      startId = null; answerRequest = null; $('#guide-confirm').checked = false;
+    });
+  }
+  function decision(choice) {
+    return work(async () => {
+      session = await api('/sessions/' + session.id + '/checkpoint', 'POST', {version:session.version, choice});
+      $('#guide-confirm').checked = false;
+    });
+  }
+  $('#guide-start').onclick = $('#guide-new').onclick = newSession;
+  $('#guide-refresh').onclick = () => work(load);
+  $('#guide-review-choice').onclick = () => decision('review');
+  $('#guide-more').onclick = $('#guide-more-review').onclick = () => decision('more');
+  $('#guide-confirm').onchange = render;
+  $('#guide-options').onchange = (event) => {
+    const custom = event.target.value === 'other';
+    $('#guide-custom').hidden = !custom; $('#answer').required = custom;
+    if (custom) $('#answer').focus();
+  };
+  $('#guide-answer').onsubmit = (event) => {
+    event.preventDefault();
+    const choice = new FormData(event.target).get('choice');
+    if (choice === null) return;
+    const mode = ['unknown','other'].includes(choice) ? 'custom' : 'option';
+    const answer = choice === 'other' ? $('#answer').value.trim() : choice === 'unknown' ? 'No lo sé todavía' : session.turn.options[Number(choice)];
+    if (!answer) return;
+    work(async () => {
+      const version = session.version;
+      const key = JSON.stringify([session.id, version, mode, answer]);
+      if (answerRequest?.key !== key) answerRequest = {key, id:crypto.randomUUID()};
+      session = await api('/sessions/' + session.id + '/answers', 'POST', {request_id:answerRequest.id, version, answer, mode});
+      answerRequest = null; $('#guide-confirm').checked = false;
+    });
+  };
+  $('#guide-apply').onclick = () => work(async () => {
+    if (!$('#guide-confirm').checked) return;
+    session = await api('/sessions/' + session.id + '/apply', 'POST', {version:session.version, confirmed:true});
+  });
+  work(async () => {
+    const response = await fetch('/api/intelligence/accounts', {credentials:'same-origin'}), data = await response.json();
+    if (!response.ok || !data.accounts?.length) throw Error('No hay una empresa autorizada para esta sesión.');
+    $('#guide-account').innerHTML = data.accounts.map((x) => '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>').join('');
+    $('#guide-account-label').hidden = data.accounts.length < 2;
+    tenant = data.accounts[0].id;
+    $('#guide-account').onchange = () => work(async () => {
+      tenant = $('#guide-account').value; session = null; startId = answerRequest = null; aiReady = false;
+      $('#guide-confirm').checked = false; await load();
+    });
+    await load();
+  });
 })();

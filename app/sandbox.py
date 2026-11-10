@@ -245,7 +245,7 @@ from app.outreach_setup import mount_outreach
 outreach_service = mount_outreach(app, campaign_engine, auth.require_identity, main._template, getattr(campaign_engine, "outreach_settings", SETTINGS))
 
 # New guided flow is mounted only in this isolated entry point.
-from app.prospecting_guide import TargetingGuide, OpenAITargetingGuide
+from app.prospecting_guide import TargetingGuide, OpenAITargetingGuide, review_feedback
 from app.prospecting_guide_api import guide_router
 from app.outreach_setup import outreach_ai_authorized
 from app.outreach_api import authorize
@@ -270,6 +270,11 @@ def guide_source(tenant, identity):
 def guide_profile(tenant, identity):
     return main._questionnaire_source_profile(guide_source(tenant, identity))
 
+def guide_feedback(tenant, identity):
+    source = guide_source(tenant, identity)
+    prospects = main.SheetStore(SETTINGS).recent_prospects(source.email, limit=1000)
+    return review_feedback(prospects, source.record_id, source.email)
+
 def guide_save(tenant, identity, name, criteria):
     source = guide_source(tenant, identity)
     adjustments = main.ResearchAdjustments.model_validate(criteria).model_dump()
@@ -278,4 +283,4 @@ def guide_save(tenant, identity, name, criteria):
 
 guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campaign_engine) and SETTINGS.openai_api_key else None
 targeting_guide = TargetingGuide(campaign_engine, guide_generator)
-app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile, guide_save))
+app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile, guide_save, guide_feedback))

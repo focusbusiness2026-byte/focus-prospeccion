@@ -1,6 +1,51 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Prospección guiada · Focus Business</title><link rel="icon" href="/static/favicon.svg"><link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css"></head>
-<body><header><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a><nav><a class="active" href="/prospecting-guide">Prospección guiada</a><a href="/portal#results">Leads y CRM</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
-<main class="guide-main"><p class="eyebrow">ENCUENTRA TU CLIENTE IDEAL</p><h1>Cuéntanos qué buscas.<br>Definimos el enfoque contigo.</h1><p id="guide-environment" role="status"></p><p class="muted">El asistente usa tu onboarding y la web pública de tu empresa. Te hará una pregunta cada vez, según lo que necesite aclarar contigo.</p><p id="guide-error" role="alert" hidden></p><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label>
-<div class="guide-layout"><section class="panel"><h2>Tu próxima búsqueda</h2><p id="guide-status" role="status" aria-live="polite">Comprobando tu cuenta…</p><div id="guide-conversation" role="log" aria-label="Conversación para definir el cliente ideal" aria-live="polite"></div><form id="guide-answer" hidden><label for="answer">Tu respuesta</label><textarea id="answer" required maxlength="2000" rows="4" placeholder="Explícalo con tus palabras…"></textarea><button class="primary" type="submit">Continuar</button></form><div class="actions"><button class="primary" id="guide-start" disabled>Analizar mi empresa y empezar</button><button id="guide-new" hidden>Definir otra búsqueda con IA</button><button id="guide-refresh" hidden>Consultar estado guardado</button></div><p class="muted small">Esta conversación utiliza IA. No descuenta raspados ni inicia búsquedas de clientes, automatizaciones o envíos.</p></section>
-<aside><section class="panel"><p class="eyebrow">CONTEXTO DE TU EMPRESA</p><h2 id="guide-company">Tu onboarding</h2><div id="guide-context"></div><h3>Web consultada</h3><p id="guide-web-status" class="muted">Se comprobará al empezar.</p><div id="guide-sources"></div></section><section class="panel" id="guide-review" hidden><p class="eyebrow">REVISA ANTES DE BUSCAR</p><h2>El enfoque propuesto</h2><p id="guide-summary"></p><dl id="guide-criteria"></dl><div id="guide-assumptions"></div><p class="muted">Estas son propuestas para tu próxima búsqueda. El onboarding y tus configuraciones anteriores se conservan.</p><label class="guide-check"><input type="checkbox" id="guide-confirm"> He revisado los criterios y los supuestos.</label><button class="primary" id="guide-apply">Guardar esta búsqueda</button><a id="guide-research" class="button" href="/portal#sources" hidden>Revisar e iniciar el raspado →</a></section></aside></div></main><script src="/static/prospecting-guide.js" defer></script></body></html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prospección guiada · Focus Business</title><link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css">
+</head>
+<body>
+<header><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
+<nav><a class="active" href="/prospecting-guide">Prospección guiada</a><a href="/portal#results">Leads y CRM</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
+<main class="guide-main">
+  <p class="eyebrow">PROSPECCIÓN GUIADA</p><h1>Define tu cliente ideal</h1>
+  <p id="guide-environment" class="muted small"></p>
+  <p id="guide-error" role="alert" hidden></p>
+  <label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label>
+  <div class="guide-layout">
+    <section class="panel guide-card">
+      <p id="guide-progress-label" class="eyebrow" hidden></p>
+      <progress id="guide-progress" max="10" value="0" aria-label="Progreso del cuestionario" hidden></progress>
+      <p id="guide-status" role="status" aria-live="polite">Cargando tu cuenta…</p>
+      <form id="guide-answer" hidden>
+        <fieldset id="guide-question-fieldset"><legend id="guide-question"></legend><div id="guide-options"></div></fieldset>
+        <div id="guide-custom" hidden><label for="answer">Escribe tu respuesta</label><textarea id="answer" maxlength="2000" rows="2" placeholder="Con tus palabras…"></textarea></div>
+        <button class="primary" id="guide-next" type="submit">Continuar</button>
+      </form>
+      <div id="guide-checkpoint" hidden>
+        <h2 id="guide-checkpoint-title">¿Afinamos un poco más?</h2>
+        <p id="guide-checkpoint-summary"></p>
+        <div class="actions"><button class="primary" id="guide-review-choice">Revisar mi búsqueda</button><button id="guide-more">Responder 5 más</button></div>
+      </div>
+      <div id="guide-review" hidden>
+        <h2>Tu búsqueda propuesta</h2><p id="guide-summary"></p>
+        <details><summary>Ver criterios y supuestos</summary><dl id="guide-criteria"></dl><div id="guide-assumptions"></div></details>
+        <p id="guide-missing" class="muted" hidden>Falta concretar el sector o el país antes de guardar.</p>
+        <label class="guide-check" id="guide-confirm-label"><input type="checkbox" id="guide-confirm"> He revisado los criterios.</label>
+        <div class="actions"><button class="primary" id="guide-apply">Guardar búsqueda</button><button id="guide-more-review" hidden>Responder 5 más</button><a id="guide-research" class="button" href="/portal#sources" hidden>Abrir búsqueda guardada →</a></div>
+      </div>
+      <div class="actions guide-actions"><button class="primary" id="guide-start" disabled>Analizar mi empresa</button><button id="guide-new" hidden>Empezar otra búsqueda</button><button id="guide-refresh" hidden>Consultar estado</button></div>
+      <details id="guide-history" hidden><summary id="guide-history-label">Respuestas guardadas</summary><ol id="guide-history-list"></ol></details>
+      <p class="muted small">Guardar el enfoque no inicia un raspado.</p>
+    </section>
+    <aside><section class="panel guide-context-card">
+      <p class="eyebrow">CONTEXTO DE TU EMPRESA</p><h2 id="guide-company">Tu onboarding</h2>
+      <p id="guide-offer"></p><p id="guide-analysis">Primero analizo tu onboarding y tu web.</p>
+      <p id="guide-feedback" class="muted small" hidden></p>
+      <details id="guide-source-details" hidden><summary>Fuentes consultadas</summary><p id="guide-web-status" class="muted small"></p><ul id="guide-sources"></ul></details>
+    </section></aside>
+  </div>
+</main>
+<script src="/static/prospecting-guide.js" defer></script>
+</body></html>

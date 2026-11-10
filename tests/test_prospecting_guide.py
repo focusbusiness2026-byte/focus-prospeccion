@@ -21,7 +21,7 @@ from app.onboarding import OnboardingSource
 from app.outreach import OutreachService
 from app.outreach_api import outreach_router
 from app.outreach_setup import mount_outreach
-from app.prospecting_guide import OpenAITargetingGuide, TargetingGuide, base_criteria
+from app.prospecting_guide import OpenAITargetingGuide, TargetingGuide, base_criteria, review_feedback
 from app.prospecting_guide_api import guide_router
 
 SEED = Path(__file__).parents[1] / 'app/intelligence_seed.json'
@@ -46,9 +46,10 @@ class FakeReasoner:
         criteria = copy.deepcopy(context['criteria'])
         if history:
             criteria['preferences'] = history[-1]['answer']
+        question = '¿Qué oferta de podcast quieres priorizar?' if not history else '¿Qué tipo de equipo necesita ese formato?'
         return {'turn': {'summary': 'Propuesta basada en lo declarado, pendiente de revisión.',
-            'question': '¿Qué oferta de podcast quieres priorizar?' if not history else '¿Qué tipo de equipo necesita ese formato?',
-            'reason': 'La oferta concreta determina el perfil que debemos buscar.', 'ready': len(history) >= 2,
+            'question': question if len(history) < 20 else '',
+            'options': ['Podcast corporativo', 'Contenido para redes', 'Vídeo corporativo'] if len(history) < 20 else [],
             'criteria': criteria, 'assumptions': ['Confirmar tamaño de empresa.']},
             'sources': [], 'web_status': 'unavailable', 'usage': {'input_tokens': 10, 'output_tokens': 20}, 'model': 'mock'}
 
@@ -68,6 +69,17 @@ def answer(service, session, text='Podcast dirigido a empresas de tecnología'):
     return service.answer(T, session['id'], ACTOR, str(uuid4()), session['version'], text)
 
 
+def reach_checkpoint(service, session):
+    while session['state'] == 'draft':
+        session = answer(service, session)
+    return session
+
+
+def review_first_round(service):
+    session = reach_checkpoint(service, start(service))
+    return service.checkpoint(T, session['id'], ACTOR, session['version'], 'review')
+
+
 def test_adaptive_context_includes_each_answer_and_preserves_business_tables(setup):
     engine, service, reasoner = setup
     with engine.db() as db:
@@ -78,7 +90,7 @@ def test_adaptive_context_includes_each_answer_and_preserves_business_tables(set
     assert reasoner.calls[-1]['history'][-1]['answer'] == 'Series de entrevistas para software B2B'
     assert reasoner.calls[-1]['profile']['targeting']['main_service'] == 'Podcast'
     session = answer(service, session, 'Equipos de marketing de pymes')
-    assert session['state'] == 'ready' and len(reasoner.calls) == 3
+    assert session['state'] == 'draft' and len(reasoner.calls) == 3
     assert session['criteria']['preferences'] == 'Equipos de marketing de pymes'
     assert session['criteria']['exclusions'] == 'Competidores'
     with engine.db() as db:
@@ -92,10 +104,83 @@ def test_request_idempotency_and_optimistic_version_stop_duplicate_charges(setup
     assert service.start(T, sid, ACTOR, profile()) == session
     rid = str(uuid4())
     result = service.answer(T, sid, ACTOR, rid, 1, 'Quiero podcast')
+    answer(service, result)
     assert service.answer(T, sid, ACTOR, rid, 1, 'Quiero podcast') == result
     with pytest.raises(CampaignError): service.answer(T, sid, ACTOR, rid, 1, 'Otra respuesta')
     with pytest.raises(CampaignError): service.answer(T, sid, ACTOR, str(uuid4()), 1, 'Respuesta desfasada')
-    assert len(reasoner.calls) == 2
+    assert len(reasoner.calls) == 3
+
+
+def test_options_and_custom_answers_survive_reload(setup):
+    _, service, reasoner = setup
+    session = start(service)
+    sid, version = session['id'], session['version']
+    with pytest.raises(CampaignError, match='Selecciona una opción'):
+        service.answer(T, sid, ACTOR, str(uuid4()), version, 'No es una opción', 'option')
+    assert len(reasoner.calls) == 1
+    option = session['turn']['options'][0]
+    session = service.answer(T, sid, ACTOR, str(uuid4()), version, option, 'option')
+    session = answer(service, session, 'Queremos organizaciones culturales')
+    history = service.get(T, sid, ACTOR)['history']
+    assert [(h['answer'], h['mode']) for h in history] == [
+        (option, 'option'), ('Queremos organizaciones culturales', 'custom')]
+    assert session['analysis_summary'] and reasoner.calls[-1]['analysis_summary'] == session['analysis_summary']
+
+
+def test_round_checkpoints_allow_review_or_more_with_a_finite_limit(setup):
+    _, service, reasoner = setup
+    session = reach_checkpoint(service, start(service))
+    assert session['state'] == 'checkpoint' and len(session['history']) == 10
+    sid, version = session['id'], session['version']
+    with pytest.raises(CampaignError):
+        answer(service, session)
+    next_question = session['turn']['question']
+    review = service.checkpoint(T, sid, ACTOR, version, 'review')
+    assert review['state'] == 'ready' and len(reasoner.calls) == 11
+    with pytest.raises(CampaignError):
+        service.checkpoint(T, sid, ACTOR, version, 'more')
+    session = service.checkpoint(T, sid, ACTOR, review['version'], 'more')
+    assert session['turn']['question'] == next_question and len(reasoner.calls) == 11
+    for limit in (15, 20):
+        session = reach_checkpoint(service, session)
+        assert session['state'] == 'checkpoint' and len(session['history']) == limit
+        if limit < 20:
+            session = service.checkpoint(T, sid, ACTOR, session['version'], 'more')
+    with pytest.raises(CampaignError, match='máximo'):
+        service.checkpoint(T, sid, ACTOR, session['version'], 'more')
+    assert len(reasoner.calls) == 21 and reasoner.calls[-1]['question_number'] is None
+
+
+def test_feedback_is_account_scoped_and_current_and_carries_no_lead_identity(setup):
+    _, service, reasoner = setup
+    lead = {'onboarding_id':'ONB-TEST', 'email':ACTOR.upper(), 'lead_status':'Descartado',
+        'execution_id':'private-id', 'company':'private-company', 'crm_notes':'private-notes',
+        'country':'España', 'sector':'Turismo', 'client_type':'Pymes'}
+    feedback = review_feedback([
+        dict(lead, lead_status='Nuevo'),
+        lead,  # Old discarded snapshot for the reopened lead.
+        dict(lead, execution_id='discarded-now'),
+        dict(lead, execution_id='approved-now', lead_status='Aprobado para descarga', sector='Tecnología'),
+        dict(lead, execution_id='different-record', onboarding_id='ONB-OTHER'),
+        dict(lead, execution_id='different-owner', email='other@example.test'),
+        dict(lead, execution_id='empty-result', prospect_found=False),
+    ], 'ONB-TEST', ACTOR)
+    session = service.start(T, str(uuid4()), ACTOR, profile(), feedback)
+    assert session['feedback']['discarded']['count'] == session['feedback']['approved']['count'] == 1
+    assert reasoner.calls[-1]['crm_feedback']['approved']['sector'] == [{'label':'Tecnología', 'count':1}]
+    assert 'private-' not in json.dumps(reasoner.calls[-1]['crm_feedback'])
+    assert 'discarded-now' not in json.dumps(reasoner.calls[-1]['crm_feedback'])
+
+
+def test_new_guide_learns_only_from_previous_confirmed_criteria(setup):
+    _, service, reasoner = setup
+    review = review_first_round(service)
+    applied = service.apply(T, review['id'], ACTOR, review['version'], profile(),
+        lambda *args: {'saved_search_id':'SEARCH-CONFIRMED'})
+    draft = answer(service, start(service), 'Un borrador sin aprobar')
+    assert draft['state'] == 'draft'
+    start(service)
+    assert reasoner.calls[-1]['prior_approved'] == applied['criteria']
 
 
 def test_two_concurrent_answers_claim_only_one_call(setup):
@@ -135,7 +220,7 @@ def test_uncertain_failure_requires_review_and_restart_never_retries(setup):
 
 def test_apply_explicit_version_and_profile_fingerprint_idempotent_no_research(setup):
     _, service, _ = setup
-    session = answer(service, answer(service, start(service)))
+    session = review_first_round(service)
     writes = []
     def save(name, criteria):
         writes.append((name, criteria))
@@ -174,7 +259,7 @@ def test_invalid_ai_schema_fails_closed_without_replacing_onboarding(setup):
 
 def test_failed_save_is_not_retried_and_new_sessions_are_rate_limited(setup):
     _, service, reasoner = setup
-    session = answer(service, answer(service, start(service)))
+    session = review_first_round(service)
     calls = []
     def uncertain(*args):
         calls.append(args)
@@ -238,6 +323,18 @@ def test_api_scoping_csrf_validation_and_live_ghl_disabled(setup):
         assert client.post('/api/intelligence/control/guide/sessions',json={'request_id':sid},headers=headers).status_code == 403
         r = client.post(f'/api/intelligence/{T}/guide/sessions',json={'request_id':sid},headers=headers)
         assert r.status_code == 200
+        session = r.json()
+        for _ in range(10):
+            r = client.post(f'/api/intelligence/{T}/guide/sessions/{sid}/answers',json={
+                'version':session['version'],'request_id':str(uuid4()),
+                'answer':session['turn']['options'][0],'mode':'option'},headers=headers)
+            assert r.status_code == 200
+            session = r.json()
+        assert session['state'] == 'checkpoint'
+        decision = {'version':session['version'],'choice':'review'}
+        url = f'/api/intelligence/{T}/guide/sessions/{sid}/checkpoint'
+        assert client.post(url, json=decision).status_code == 403
+        assert client.post(url, json=decision, headers=headers).json()['state'] == 'ready'
         assert client.post(f'/api/intelligence/{T}/guide/sessions/{sid}/apply',json={'version':1,'confirmed':False},headers=headers).status_code == 422
         r = client.get(f'/api/intelligence/{T}/outreach/ghl/status')
         assert r.json()['state'] == 'setup_pending'
