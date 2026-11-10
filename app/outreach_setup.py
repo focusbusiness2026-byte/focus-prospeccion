@@ -18,9 +18,18 @@ class HideOAuthQuery(logging.Filter):
         return True
 
 
+def outreach_ai_authorized(engine):
+    """Enable paid drafts only with explicit server-side credential authorization."""
+    credential_authorized = (
+        os.getenv("OUTREACH_KEY_ROTATION_CONFIRMED") == "1"
+        or os.getenv("OUTREACH_EXISTING_KEY_REUSE_AUTHORIZED") == "1"
+    )
+    return bool(engine.real and os.getenv("OUTREACH_AI_ENABLED") == "1" and credential_authorized)
+
+
 def mount_outreach(app, engine, identity, template, settings):
     generator = None
-    if engine.real and os.getenv("OUTREACH_AI_ENABLED") == "1" and os.getenv("OUTREACH_KEY_ROTATION_CONFIRMED") == "1":
+    if outreach_ai_authorized(engine):
         generator = OpenAISequenceGenerator(settings)
     service = OutreachService(engine, generator=generator)
     oauth = None
