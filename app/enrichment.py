@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import ipaddress
 import json
 import re
@@ -14,6 +15,18 @@ from bs4 import BeautifulSoup
 
 from app.config import Settings, get_settings
 from app.scoring import score_company
+
+
+def research_profile_for_run(profile: dict, controls: dict) -> dict:
+    """Resolve explicit geography without modifying the stored client profile."""
+    effective = deepcopy(profile)
+    targeting = effective.setdefault("targeting", {})
+    for key in ("target_city", "target_region", "target_countries"):
+        if key in controls:
+            targeting[key] = deepcopy(controls[key])
+    if "target_region" in controls:
+        targeting["target_regions"] = [controls["target_region"]] if controls["target_region"] else []
+    return effective
 
 
 SOCIAL_HOSTS = {
@@ -716,10 +729,17 @@ class OpenAIProspectDiscovery(OpenAIWebResearcher):
 
     def build_discovery_payload(self, prospecting_profile: dict, adjustments: dict | None = None) -> dict:
         controls = adjustments or {}
+        # Resolve explicit geography before sending the profile. Clearing a
+        # dashboard field removes that restriction for this run; it must not
+        # silently revive the original city/region. Never mutate onboarding.
+        prospecting_profile = research_profile_for_run(prospecting_profile, controls)
         prompt = f"""
 Encuentra empresas que puedan ser prospectos comerciales adecuados para la productora descrita en el perfil de
-Onboarding. La configuración del formulario es la fuente principal; los ajustes del dashboard solo acotan esa
-configuración y no autorizan a inventar criterios ausentes.
+Onboarding. Los ajustes explícitos del dashboard definen los filtros de esta ejecución y prevalecen sobre las
+preferencias históricas del formulario. No autorizan a inventar criterios ausentes. Ciudad o región vacías significan
+sin restricción local dentro de los países seleccionados. La ubicación de la productora y las menciones geográficas
+en su campaña describen al remitente; no son restricciones adicionales de la búsqueda. «No limitar» en un filtro
+elimina esa restricción para esta ejecución; no reutilices el tamaño o facturación del perfil como filtro obligatorio.
 
 El objetivo operativo es devolver 5 leads válidos y deduplicables. Si no encuentras cinco, entrega únicamente los
 resultados reales que cumplan los criterios y explica el motivo del déficit; no inventes, rellenes ni relajes la calidad.
@@ -801,22 +821,27 @@ AJUSTES OPCIONALES DEL DASHBOARD:
 
         prospects: list[dict] = []
         seen_prospects: set[tuple[str, str]] = set()
+        rejected = {key: 0 for key in ("invalid_identity", "duplicate", "missing_verified_evidence", "missing_decision_maker", "disqualified", "inactive_entity")}
         require_identifiable_decision_maker = bool((adjustments or {}).get("require_identifiable_decision_maker"))
         rejected_without_decision_maker = 0
         for raw in data["prospects"]:
             if not isinstance(raw, dict):
+                rejected["invalid_identity"] += 1
                 continue
             website = self._valid_url(raw.get("website"))
             company = str(raw.get("company") or "").strip()
             if not company or not website:
+                rejected["invalid_identity"] += 1
                 continue
             prospect_key = (company.casefold(), (urlparse(website).hostname or "").lower().removeprefix("www."))
             if prospect_key in seen_prospects:
+                rejected["duplicate"] += 1
                 continue
             evidence_urls = list(dict.fromkeys(
                 url for url in (cited_source(value) for value in raw.get("evidence_urls") or []) if url
             ))
             if not evidence_urls:
+                rejected["missing_verified_evidence"] += 1
                 continue
             contacts = []
             for contact in raw.get("public_contacts") or []:
@@ -855,6 +880,7 @@ AJUSTES OPCIONALES DEL DASHBOARD:
                     decision_makers.append({"name": name, "role": role, "role_status": "current", "public_contact": str(person.get("public_contact") or "").strip(), "source_url": source_url})
             if require_identifiable_decision_maker and not decision_makers:
                 rejected_without_decision_maker += 1
+                rejected["missing_decision_maker"] += 1
                 continue
             social_links: dict[str, str] = {}
             for network, value in (raw.get("social_links") or {}).items():
@@ -866,9 +892,11 @@ AJUSTES OPCIONALES DEL DASHBOARD:
                 if not isinstance(raw.get(key), list):
                     raw[key] = []
             if raw["disqualifiers"]:
+                rejected["disqualified"] += 1
                 continue
             raw["legal_status_source_url"] = cited_source(raw.get("legal_status_source_url"))
             if raw.get("legal_status") in {"inactive", "absorbed", "extinct"}:
+                rejected["inactive_entity"] += 1
                 continue
             for key in ("capital_event", "financial_alert", "decision_recent"):
                 raw[key] = raw.get(key) is True
@@ -929,6 +957,8 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             for query in trace_queries[: self.settings.web_search_call_limit]
         ]
         trace = {
+            "discovery_candidates_received": len(data["prospects"]),
+            "discovery_validation_rejections": rejected,
             "prompt_tokens": int(usage.get("input_tokens") or 0),
             "output_tokens": int(usage.get("output_tokens") or 0),
             "total_tokens": int(usage.get("total_tokens") or 0),
@@ -945,6 +975,13 @@ AJUSTES OPCIONALES DEL DASHBOARD:
             "search_configuration": prospecting_profile,
             "adjustments": adjustments or {},
         }
+        if any(rejected.values()):
+            reasons = {"invalid_identity": "identidad incompleta", "duplicate": "duplicado", "missing_verified_evidence": "sin evidencia citada verificable", "missing_decision_maker": "sin decisor requerido", "disqualified": "criterios de exclusión", "inactive_entity": "entidad inactiva"}
+            explanation = "; ".join(f"{reasons[k]}: {count}" for k, count in rejected.items() if count)
+            audit = f"Validación: {len(data['prospects'])} candidatas recibidas; {len(prospects)} aceptadas. Descartes: {explanation}."
+            trace["research_summary"] = (trace["research_summary"] + " " + audit).strip()
+            if not prospects:
+                trace["no_prospect_reason"] += " " + audit
         return prospects, trace
 
 
@@ -965,6 +1002,7 @@ def enrich_discovered_prospects(
     dated buying signals for five companies with the same depth as one dossier.
     """
     config = settings or get_settings()
+    prospecting_profile = research_profile_for_run(prospecting_profile, adjustments or {})
     detailed = researcher or OpenAIWebResearcher(
         config, max_search_calls=config.company_research_call_limit
     )

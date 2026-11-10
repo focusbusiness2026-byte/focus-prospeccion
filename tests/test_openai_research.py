@@ -50,6 +50,33 @@ def test_discovery_clamps_web_search_to_five_and_keeps_traceable_public_data():
     assert prospects[0]["public_signals"][0]["evidence_class"] == "company_declared"
 
 
+def test_explicit_geography_replaces_old_target_for_this_run_without_changing_onboarding():
+    profile = {"targeting": {"target_city": "Alicante", "target_region": "Comunidad Valenciana", "target_regions": ["Comunidad Valenciana"], "target_countries": ["España"], "sectors": ["Salud"]}}
+    original = deepcopy(profile)
+    researcher = OpenAIProspectDiscovery(Settings(openai_api_key="test-only"))
+    payload = researcher.build_discovery_payload(profile, {"target_city": "", "target_region": "", "target_countries": ["España"]})
+    resolved = json.loads(payload["input"].split("PERFIL NORMALIZADO DEL ONBOARDING:\n")[1].split("AJUSTES OPCIONALES DEL DASHBOARD:")[0])
+    assert resolved["targeting"] == {**original["targeting"], "target_city": "", "target_region": "", "target_regions": []}
+    assert profile == original
+    assert "prevalecen" in payload["input"] and "sin restricción local" in payload["input"]
+    unchanged = researcher.build_discovery_payload(profile, {})["input"]
+    assert '"target_city": "Alicante"' in unchanged
+
+
+def test_rejected_candidates_are_explained_without_accepting_unverified_evidence():
+    response = mock_response()
+    data = json.loads(response["output"][1]["content"][0]["text"])
+    data["prospects"][0]["evidence_urls"] = ["https://uncited.example/contact"]
+    response["output"][1]["content"][0]["text"] = json.dumps(data)
+    researcher = OpenAIProspectDiscovery(Settings(openai_api_key="test-only"), response_provider=lambda _: response)
+    prospects, trace = researcher.discover({}, {})
+    assert prospects == []
+    assert trace["discovery_candidates_received"] == 1
+    assert trace["discovery_validation_rejections"]["missing_verified_evidence"] == 1
+    assert "1 candidatas recibidas; 0 aceptadas" in trace["no_prospect_reason"]
+    assert "sin evidencia citada verificable" in trace["research_summary"]
+
+
 def test_discovery_uses_the_five_lead_goal_without_more_search_calls():
     response = mock_response()
     original = json.loads(response["output"][1]["content"][0]["text"])
