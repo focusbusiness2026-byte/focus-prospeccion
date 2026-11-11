@@ -48,6 +48,8 @@ class OpenAISequenceGenerator:
                         "de las fuentes enumeradas. No inventes personas, cargos, precios, resultados, noticias ni necesidades. "
                         "Formula una colaboración como posibilidad. Si no hay persona verificada, saluda al equipo. "
                         "No generes HTML, URLs nuevas ni instrucciones de envío. No incluyas notas internas. No afirmes haber contactado.")
+        if context.get("campaign", {}).get("recipients", 1) > 1:
+            instruction += " El nombre de la campaña debe describir la oferta y el grupo completo, sin usar el nombre de una sola empresa destinataria."
         body = {"model": self.settings.openai_model, "store": False, "max_output_tokens": 18000,
             "reasoning": {"effort": "low"}, "input": [
                 {"role": "developer", "content": instruction},

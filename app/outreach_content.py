@@ -169,17 +169,19 @@ class DemoSequenceGenerator:
     def __call__(self, context, library=None):
         sender = context["sender"]
         recipient = context.get("recipient", {})
+        group = context.get("campaign", {}).get("recipients", 1)
+        title = f"{sender.get('offer') or 'Colaboración'} · " + (f"{group} empresas" if group > 1 else recipient.get('company') or sender.get('name') or 'Contacto')
         if context.get("networks"):
             company = recipient.get("company") or "vuestro equipo"
             offer = sender.get("offer") or "nuestros servicios"
             greetings = {"linkedin":"¿Os encajaría conectar y hablar sobre una colaboración?",
                          "instagram":"¿Os puedo compartir una idea en un mensaje?",
                          "facebook":"¿Con quién podría comentar una posible colaboración?"}
-            return {"name": f"{offer} · {company}", "social": {
+            return {"name": title, "social": {
                 channel:f"Hola, equipo de {company}. En {sender.get('name')} ofrecemos {offer}. {greetings[channel]}"
                 for channel in context["networks"]}, "model":"fixture-local-no-openai", "simulated":True}
         topics = ["Presentación", "Cómo trabajamos", "Explorar un formato", "Preparar el contenido", "Dar voz al equipo", "Compartir conocimiento", "Organizar la producción", "Conversaciones útiles", "Elegir un enfoque", "Revisar el formato", "Preparar una sesión", "Valorar una colaboración", "Resolver dudas", "Proponer una conversación", "Cerrar el seguimiento"]
-        return {"name": f"{sender.get('offer') or 'Colaboración'} · {recipient.get('company') or sender.get('name')}",
+        return {"name": title,
             "emails": [{"step": n, "subject": f"{topic} · {sender.get('offer', 'Servicios')}", "preheader": f"Una propuesta de {sender.get('name', 'nuestro equipo')}", "objective": topic,
             "body": f"Hola, equipo de {recipient.get('company', 'vuestra empresa')}.\n\nEn {sender.get('name')} ofrecemos {sender.get('offer')}. ¿Os encajaría conversar para valorar una posible colaboración?\n\nEste es el paso {n}: {topic.lower()}. Sin asumir necesidades ni resultados.",
             "source_ids": [s["id"] for s in context["sources"]]} for n, topic in enumerate(topics[:context.get("steps", STEPS)], 1)], "model": "fixture-local-no-openai", "usage": {"input_tokens": 0, "output_tokens": 0}, "simulated": True}

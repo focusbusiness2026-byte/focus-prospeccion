@@ -312,6 +312,8 @@ class OutreachService:
         prepared = {}
         for recipient in c["recipients"]:
             ctx = evidence(profile, recipient["contact"])
+            if social_only or steps != STEPS:
+                ctx["campaign"] = {"recipients":len(c["recipients"]), "company":profile.get("name", "")}
             if social_only:
                 ctx["networks"] = list(recipient["contact"]["social_profiles"])
             else:
@@ -336,7 +338,7 @@ class OutreachService:
             current["messages"] = prepared
             current["library"] = lib
             if current.get("auto_name"):
-                generated_name = next(iter(prepared.values())).get("name") if len(prepared) == 1 else (lib or {}).get("name")
+                generated_name = (lib or {}).get("name") or next(iter(prepared.values())).get("name")
                 name = " ".join(str(generated_name or "").split())[:120]
                 if name and "<" not in name and ">" not in name:
                     current["name"] = name
@@ -387,7 +389,7 @@ class OutreachService:
             p = current.get(r["lead_id"], {})
             if not p.get("approved") or any(p.get("flags", {}).get(k) for k in ("opt_out", "responded", "meeting", "not_interested")):
                 issues.append("Un lead dejó de estar aprobado o disponible")
-            if evidence(self.engine._profile(db, t), p) != {k: v for k, v in c.get("messages", {}).get(r["key"], {}).get("context", {}).items() if k not in {"library_hash", "steps", "networks"}}:
+            if evidence(self.engine._profile(db, t), p) != {k: v for k, v in c.get("messages", {}).get(r["key"], {}).get("context", {}).items() if k not in {"library_hash", "steps", "networks", "campaign"}}:
                 issues.append("El contexto cambió; prepara y revisa de nuevo los textos")
             if "email" in c["channels"]:
                 emails = p.get("email_options") or [{"email": p.get("email", "")}]
