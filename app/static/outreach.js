@@ -264,7 +264,8 @@ function library() {
     <p class="muted">Para preparar correos dirigidos a una persona, usa «Preparar email» en su tarjeta.</p>
     ${libraryEdit ? `<div class="email-review email-previews">${libraryEdit.emails.map(email =>
       emailPreview(email, catalog.brand, emailEditor(email, ''))).join('')}</div>
-      <button id="save-library">Guardar nueva versión de las plantillas</button>`
+      <button id="save-library">Guardar nueva versión de las plantillas</button>
+      ${ghlConnection?.can_prepare_templates ? '<button id="stage-library">Cargar cinco plantillas HTML en GoHighLevel</button><p id="stage-status" role="status" hidden></p>' : ''}`
     : '<button class="primary" id="generate-library">Preparar las cinco plantillas base</button>'}`;
   if (!libraryEdit) {
     el('#generate-library').onclick = () => work(async () => {
@@ -284,6 +285,17 @@ function library() {
     return;
   }
   bindEmailPreviews(view, step => '/library/' + libraryEdit.version + '/preview?step=' + step);
+  el('#stage-library')?.addEventListener('click', () => work(async () => {
+    const status = el('#stage-status');
+    status.hidden = false;
+    status.textContent = 'Cargando las plantillas HTML en la subcuenta autorizada…';
+    try {
+      const result = await api('/ghl/templates/' + libraryEdit.version, 'POST', {});
+      status.textContent = result.template_ids.length + ' plantillas disponibles en GoHighLevel. Revisa el flujo antes de vincularlas.';
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  }));
   el('#save-library').onclick = () => work(async () => {
     const emails = structuredClone(libraryEdit.emails);
     view.querySelectorAll('[data-preview-step]').forEach(item => {

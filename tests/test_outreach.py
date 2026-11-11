@@ -19,7 +19,7 @@ from app.intelligence import CampaignEngine, CampaignError
 from app.outreach import OutreachService
 from app.outreach_api import outreach_router
 from app.outreach_content import DemoSequenceGenerator, dates, evidence, personal_linkedin, public_url, render_email, validate_emails
-from app.outreach_providers import FOCUS_TEMPLATE_PREFIX, FOCUS_WORKFLOW_NAME, GHLGateway, GHLOAuth, OAuthVault, OpenAISequenceGenerator, verify_webhook
+from app.outreach_providers import FOCUS_TEMPLATE_PREFIX, FOCUS_WORKFLOW_NAME, GHL_SETUP_WRITE_SCOPES, GHLGateway, GHLOAuth, OAuthVault, OpenAISequenceGenerator, verify_webhook
 
 SEED = Path(__file__).parents[1] / 'app/intelligence_seed.json'
 T = 'three-dots'
@@ -457,6 +457,110 @@ def test_restore_full_snapshot_preserves_approval_and_no_browser_scheduler(servi
     before=recovered.detail(T,c['id']);restored.tick(advance=20*86400);after=recovered.detail(T,c['id'])
     assert before['campaign']==after['campaign'] and after['metrics']['sent_confirmed']==0
     assert len(after['campaign']['messages'][c['recipients'][0]['key']]['emails'])==15
+
+
+def test_location_link_reuses_exact_subaccount_without_replacing_it(service):
+    app = FastAPI()
+    actor = Identity('admin@example.test', 'Administrador', 'test', True, True)
+    app.include_router(outreach_router(service, lambda: actor, lambda *a, **k: None))
+    client = TestClient(app, cookies={'focus_csrf': 'test-csrf'}, headers={'X-CSRF-Token': 'test-csrf'})
+    url = '/api/intelligence/three-dots/outreach/ghl/location'
+    assert client.put(url, json={'url':'https://app.gohighlevel.com.example.test/v2/location/fake-account'}).status_code == 422
+    link = {'url':'https://app.gohighlevel.com/v2/location/own-location/media-storage'}
+    assert client.put(url, json=link).status_code == 200
+    saved = service.brand(T)
+    assert saved['location_id'] == 'own-location'
+    assert client.put(url, json=link).status_code == 200
+    assert service.brand(T) == saved
+    assert client.put(url, json={'url':'https://app.gohighlevel.com/v2/location/other-account'}).status_code == 422
+    assert service.brand(T) == saved
+
+
+@pytest.mark.parametrize(('available','scope','state'), [(True,GHL_SETUP_WRITE_SCOPES,'can_prepare_draft'),
+    (True,'workflows.readonly','permission_pending'), (False,GHL_SETUP_WRITE_SCOPES,'base_workflow')])
+def test_workflow_capability_uses_read_only_probe(service, available, scope, state):
+    vault = OAuthVault(service.engine, b'k'*32)
+    vault.put(T, {'access_token':'mock','locationId':'loc-test','scope':scope})
+
+    def handler(request):
+        assert request.method == 'GET' and request.url.path == '/workflows/step-types'
+        assert request.url.params['locationId'] == 'loc-test'
+        return httpx.Response(200, json={}) if available else httpx.Response(403, json={'code':'WORKFLOW_API_NOT_ENABLED_FOR_LOCATION'})
+
+    gateway = GHLGateway(vault, fields={}, checkpoint=None, transport=httpx.MockTransport(handler), enabled=True, read_only=True)
+    assert gateway.workflow_capability(T, {'location_id':'loc-test'}) == {'state':state}
+    with pytest.raises(CampaignError, match='Autoriza la subcuenta'):
+        gateway.workflow_capability(T, {'location_id':'other-location'})
+
+
+def test_oauth_uses_location_token_and_draft_preparation_never_publishes(service):
+    vault = OAuthVault(service.engine, b'k'*32)
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, request.url.path))
+        assert request.headers['Version'] == 'v3'
+        if request.url.path == '/oauth/token':
+            assert b'user_type=Location' in request.content
+            return httpx.Response(200, json={'access_token':'mock','userType':'Location','locationId':'loc-test','expires_in':3600})
+        if request.url.path == '/workflows/definition/validate':
+            return httpx.Response(200, json={'valid':True})
+        if request.url.path == '/workflows':
+            return httpx.Response(201, json={'workflowId':'owned-flow','status':'draft'})
+        assert request.method == 'GET' and request.url.path == '/workflows/step-types'
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    oauth = GHLOAuth(vault, 'client', 'secret', 'https://example.test/callback', transport=transport)
+    state = vault.begin(T, 'reviewer')
+    assert oauth.callback(state, 'code', 'reviewer', 'loc-test') == T
+    gateway = GHLGateway(vault, fields={}, checkpoint=None, transport=transport, enabled=True)
+    brand = {'location_id':'loc-test'}
+    with pytest.raises(CampaignError, match='sin disparadores'):
+        gateway.prepare_workflow(T, brand, {'triggers':[{'type':'contact_created'}]})
+    definition = {'triggers':[], 'settings':{'allowReEntry':False, 'stopOnResponse':True}}
+    assert gateway.prepare_workflow(T, brand, definition)['status'] == 'draft'
+    assert calls == [('POST','/oauth/token'), ('GET','/workflows/step-types'), ('POST','/workflows/definition/validate'), ('POST','/workflows')]
+
+
+def test_uploads_five_html_templates_once_without_contact_or_workflow_writes(service):
+    service.configure_brand(T, {'location_id':'loc-test'})
+    vault = OAuthVault(service.engine, b'k'*32)
+    vault.put(T, {'access_token':'mock','locationId':'loc-test'})
+    paths = []
+    uploads = []
+    fields_installed = False
+    template_path = '/emails/locations/loc-test/templates'
+
+    def handler(request):
+        paths.append((request.method, request.url.path))
+        if request.method == 'GET' and request.url.path == template_path:
+            return httpx.Response(200, json={'total':0, 'items':[]})
+        if request.method == 'GET' and request.url.path == '/locations/loc-test/customFields':
+            fields = []
+            if fields_installed:
+                keys = [f'fi_email_{step:02}_{part}' for step in range(1, 6) for part in ('subject','preheader','body')]
+                fields = [{'id':key, 'fieldKey':'contact.'+key, 'locationId':'loc-test', 'model':'contact'} for key in keys+['fi_next_step']]
+            return httpx.Response(200, json={'customFields':fields})
+        assert request.method == 'POST' and request.url.path == template_path
+        payload = json.loads(request.content)
+        uploads.append(payload)
+        return httpx.Response(201, json={'id':f'template-{len(uploads)}'})
+
+    service.template_provider = GHLGateway(vault, fields={}, checkpoint=service.checkpoint, transport=httpx.MockTransport(handler), enabled=True)
+    library = service.library(T, 5)
+    with pytest.raises(CampaignError, match='Instala los campos'):
+        service.provision_templates(T, library['version'])
+    assert not uploads
+    fields_installed = True
+    first = service.provision_templates(T, library['version'])
+    again = service.provision_templates(T, library['version'])
+    assert again['reused'] and first['template_ids'] == again['template_ids']
+    assert len(uploads) == 5 and service.provider is None
+    for step, item in enumerate(uploads, 1):
+        assert item['name'] == f'{FOCUS_TEMPLATE_PREFIX}{step:02}' and item['fromEmail'] == 'team@example.test'
+        assert '{{contact.fi_email_' + f'{step:02}' + '_body}}' in item['editorContent']
+    assert all(method == 'GET' or path == template_path for method, path in paths)
 
 
 def test_stop_provider_confirmation_and_no_repeated_cancel(service):

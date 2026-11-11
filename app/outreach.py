@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.intelligence import CampaignError
+from app.outreach_providers import TemplateSetupPending
 from app.outreach_content import (DemoSequenceGenerator, QUICK_STEPS, STEPS, STOP_EVENTS, dates,
     evidence, fingerprint, personal_linkedin, render_email, social_profiles, valid_email, validate_brand, validate_emails)
 
@@ -20,6 +21,7 @@ class OutreachService:
         self.engine = engine
         self.generator = generator if generator is not None else (None if engine.real else DemoSequenceGenerator())
         self.provider = provider
+        self.template_provider = None
         with engine.db() as db:
             db.executescript('''
             CREATE TABLE IF NOT EXISTS outreach_brand(tenant TEXT PRIMARY KEY,payload TEXT NOT NULL);
@@ -73,11 +75,15 @@ class OutreachService:
             b = self._read(db, "outreach_brand", t) or {"company": p["name"], "color": "#d9af3c", "version": 0}
             return b
 
-    def configure_brand(self, t, payload):
+    def configure_brand(self, t, payload, *, initial_location_only=False):
         payload = validate_brand(payload)
         with self.engine.db() as db:
             self.engine._profile(db, t)
             old = self._read(db, "outreach_brand", t) or {"version": 0}
+            if initial_location_only and old.get("location_id"):
+                if old["location_id"] != payload["location_id"]:
+                    raise CampaignError("Ya hay una subcuenta vinculada. Revisa el cambio en Configuración administrativa")
+                return old
             if old.get("location_id") and payload.get("location_id", old["location_id"]) != old["location_id"]:
                 active = [json.loads(r[0]) for r in db.execute("SELECT payload FROM outreach_campaigns WHERE tenant=?", (t,))]
                 if any(c.get("delivery_mode") == "live" and c["state"] not in {"completed", "archived"} for c in active):
@@ -277,7 +283,8 @@ class OutreachService:
         return self.detail(t, cid)
 
     def provision_templates(self, t, version):
-        if self.provider is None:
+        provider = self.template_provider or self.provider
+        if provider is None:
             raise CampaignError("Preparación GHL deshabilitada; no se ha creado ninguna plantilla")
         with self.engine.db() as db:
             self.engine._profile(db, t)
@@ -290,13 +297,20 @@ class OutreachService:
                 raise CampaignError("Completa la configuración administrativa antes de preparar GHL")
             template_brand = {k: brand.get(k) for k in ("location_id", "company", "logo_url", "color", "sender_name", "sender_email", "signature", "calendar_url", "reply_to")}
             key = "provision:" + fingerprint({"library": library, "brand": template_brand})
-            if self._read(db, "outreach_claims", t, key):
+            prior = self._read(db, "outreach_claims", t, key)
+            if prior and len(library["emails"]) == QUICK_STEPS and prior.get("status") == "completed":
+                return {"template_ids": prior["template_ids"], "workflow_verified": False, "reused": True}
+            if prior:
                 raise CampaignError("Preparación ya iniciada; revisa los IDs guardados, sin repetir automáticamente")
             db.execute("INSERT INTO outreach_claims VALUES(?,?,?,?)", (t, key, "started", json.dumps({"status":"started"})))
         try:
-            ids = self.provider.provision_templates(t, brand, library)
+            ids = provider.provision_templates(t, brand, library)
             if len(ids) != len(library["emails"]):
                 raise ValueError()
+        except TemplateSetupPending as error:
+            with self.engine.db() as db:
+                db.execute("DELETE FROM outreach_claims WHERE tenant=? AND id=?", (t, key))
+            raise CampaignError(str(error)) from None
         except Exception:
             raise CampaignError("GHL no confirmó todas las plantillas; revisa los IDs parciales del historial antes de repetir") from None
         with self.engine.db() as db:
@@ -305,7 +319,8 @@ class OutreachService:
                 raise CampaignError("La marca cambió durante la preparación; revisa las plantillas creadas")
             current.update(template_ids=ids, workflow_verified=False, unsubscribe_verified=False)
             db.execute("UPDATE outreach_brand SET payload=? WHERE tenant=?", (json.dumps(current), t))
-            db.execute("UPDATE outreach_claims SET status='completed' WHERE tenant=? AND id=?", (t, key))
+            db.execute("UPDATE outreach_claims SET status='completed',payload=? WHERE tenant=? AND id=?",
+                (json.dumps({"status":"completed", "template_ids":ids}), t, key))
         return {"template_ids": ids, "workflow_verified": False}
 
     def prepare(self, t, cid):

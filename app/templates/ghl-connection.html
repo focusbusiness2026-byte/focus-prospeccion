@@ -16,6 +16,8 @@
     <a class="button" href="https://app.gohighlevel.com/" target="_blank" rel="noopener noreferrer">Abrir GoHighLevel ↗</a>
     <button id="ghl-next-step" type="button">Ya tengo mi subcuenta abierta</button></div></li>
     <li id="ghl-authorize"><div><h2>Vincula la subcuenta</h2><p id="ghl-auth-help"></p>
+    <form id="ghl-location-form" hidden><label>Enlace de la subcuenta<input name="url" type="url" required placeholder="https://app.gohighlevel.com/v2/location/…"></label>
+    <button type="submit">Guardar subcuenta</button></form>
     <a class="button" id="ghl-admin-link" hidden>Ir a configuración de la subcuenta →</a>
     <a class="button" id="ghl-connect-action" hidden>Autorizar GoHighLevel →</a></div></li>
     <li id="ghl-verify"><div><h2>Revisa el dominio y la secuencia</h2><p>En GoHighLevel, abre <b>Settings → Email Services</b> para verificar el dominio. Luego revisa el flujo en <b>Automation → Workflows</b>. La administración confirma también la opción de baja y las reglas de parada.</p>
@@ -23,6 +25,7 @@
     <p id="ghl-verify-status" class="muted"></p>
     <p id="ghl-sender" class="muted"></p>
     <p id="ghl-assets-status" class="muted" role="status"></p>
+    <p id="ghl-capability" class="muted" role="status" hidden></p>
     <button id="ghl-check-assets" type="button" hidden>Comprobar el flujo y sus cinco plantillas</button>
     <ul id="ghl-asset-results" hidden></ul>
     <div class="actions"><a href="https://help.gohighlevel.com/support/solutions/articles/48001226115" target="_blank" rel="noopener noreferrer">Ver guía del dominio ↗</a>

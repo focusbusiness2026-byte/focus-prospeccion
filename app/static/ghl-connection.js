@@ -34,20 +34,22 @@
     $('#ghl-check-assets').hidden = !(s.admin && s.connected && s.asset_check_enabled);
     $('#ghl-asset-results').hidden = true;
     $('#ghl-asset-results').replaceChildren();
-    text('#ghl-auth-help', s.connected ? 'La autorización de esta empresa está guardada.' :
+    text('#ghl-auth-help', s.setup_permissions_missing ? 'Renueva la autorización para conceder permisos de plantillas y workflows.' :
+      s.connected ? 'La autorización de esta empresa está guardada.' :
       s.state === 'wrong_location' ? 'La autorización no coincide con esta empresa. El administrador debe revisar la subcuenta antes de continuar.' :
       s.can_connect ? 'Pulsa Autorizar GoHighLevel y concede acceso solo a la subcuenta que abriste.' :
       !s.admin ? 'Pide a tu administrador que vincule y autorice esta subcuenta. No necesitas compartir claves.' :
       !s.oauth_ready ? 'Focus Business debe preparar OAuth en el servidor antes de poder autorizar. Puedes revisar el ID de la subcuenta mientras tanto.' :
-      'Abre Configuración de la subcuenta, pega su ID y guarda. Después vuelve y pulsa Volver a comprobar.');
+      'Pega el enlace de la subcuenta abierta en GoHighLevel y guarda. Después autoriza esa subcuenta.');
     text('#ghl-send-help', s.connected && complete && s.sending_enabled ? 'La conexión y sus comprobaciones están listas para revisar una campaña.' :
       !s.sending_enabled ? 'Envíos deshabilitados. La administración debe revisar los requisitos antes de habilitarlos.' :
       'Todavía faltan comprobaciones de la conexión o del envío.');
     const admin = $('#ghl-admin-link'), connect = $('#ghl-connect-action');
+    $('#ghl-location-form').hidden = !s.admin || s.location_configured;
     admin.href = '/campaigns/outreach?account=' + encodeURIComponent(tenant) + '#ghl-setup';
     admin.hidden = !s.admin || s.connected;
     connect.href = '/api/intelligence/' + encodeURIComponent(tenant) + '/outreach/ghl/connect';
-    connect.hidden = !s.can_connect || s.connected;
+    connect.hidden = !s.can_connect || (s.connected && !s.setup_permissions_missing);
     $('#ghl-next-step').hidden = s.connected || loginConfirmed;
     $('#ghl-steps').hidden = $('#ghl-recheck').hidden = false;
     currentStep = !s.connected ? (loginConfirmed ? 'ghl-authorize' : 'ghl-login') :
@@ -62,7 +64,40 @@
     if (!r.ok) throw Error(typeof s.detail === 'string' ? s.detail : 'No se pudo comprobar la conexión.');
     current = s;
     render(s);
+    const capability = $('#ghl-capability');
+    capability.hidden = !(s.admin && s.connected && s.asset_check_enabled);
+    if (capability.hidden) return;
+    capability.textContent = 'Comprobando la API de workflows…';
+    try {
+      const response = await fetch('/api/intelligence/' + encodeURIComponent(tenant) + '/outreach/ghl/workflow-capability', {credentials:'same-origin'});
+      const result = await response.json();
+      if (!response.ok) throw Error(typeof result.detail === 'string' ? result.detail : 'No se pudo comprobar la API de workflows.');
+      const states = {can_prepare_draft:'La API de workflows responde y hay permisos de preparación. El primer borrador debe validarse con GoHighLevel.',
+        base_workflow:'La API de workflows está limitada para esta subcuenta. Usa un flujo base instalado en GoHighLevel.',
+        permission_pending:'La API responde. Falta renovar la autorización con permisos de plantillas y workflows.'};
+      capability.textContent = states[result.state] || 'Capacidad de workflows sin confirmar.';
+    } catch (error) {
+      capability.textContent = error.message;
+    }
   }
+
+  $('#ghl-location-form').onsubmit = event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    work(async () => {
+      const token = document.cookie.split('; ').find(row => row.startsWith('focus_csrf='))?.slice('focus_csrf='.length) || '';
+      const tenant = $('#ghl-account').value;
+      const response = await fetch('/api/intelligence/' + encodeURIComponent(tenant) + '/outreach/ghl/location', {
+        method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json', 'X-CSRF-Token':decodeURIComponent(token)},
+        body:JSON.stringify({url:new FormData(form).get('url')}),
+      });
+      const result = await response.json();
+      if (!response.ok) throw Error(typeof result.detail === 'string' ? result.detail : 'Revisa el enlace de GoHighLevel.');
+      form.reset();
+      loginConfirmed = true;
+      await load();
+    });
+  };
 
   async function work(action) {
     if (busy) return;

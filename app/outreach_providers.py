@@ -16,12 +16,22 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.intelligence import CampaignError
-from app.outreach_content import STEPS, fingerprint, render_email
+from app.outreach_content import QUICK_STEPS, STEPS, fingerprint, render_email
 
 
 FOCUS_WORKFLOW_NAME = "Focus · Prospección · 5 correos"
 FOCUS_TEMPLATE_PREFIX = "Focus · Prospección · Correo "
 GHL_ASSET_READ_SCOPES = "workflows.readonly emails/templates.readonly locations/customFields.readonly"
+GHL_SETUP_WRITE_SCOPES = "workflows.write emails/templates.write"
+GHL_TEMPLATE_SETUP_SCOPES = {"emails/templates.readonly", "emails/templates.write", "locations/customFields.readonly"}
+
+
+class WorkflowApiUnavailable(CampaignError):
+    pass
+
+
+class TemplateSetupPending(CampaignError):
+    """Template provisioning stopped before any write was attempted."""
 
 
 class OpenAISequenceGenerator:
@@ -126,11 +136,13 @@ class GHLOAuth:
     def callback(self, state, code, actor, expected_location):
         tenant = self.vault.consume(state, actor)
         with httpx.Client(timeout=30, transport=self.transport, follow_redirects=False) as client:
-            r = client.post("https://services.leadconnectorhq.com/oauth/token", data={"client_id": self.client_id, "client_secret": self.client_secret, "redirect_uri": self.redirect_uri, "grant_type": "authorization_code", "code": code})
+            r = client.post("https://services.leadconnectorhq.com/oauth/token", headers={"Version":"v3"},
+                data={"client_id": self.client_id, "client_secret": self.client_secret, "redirect_uri": self.redirect_uri,
+                      "grant_type": "authorization_code", "user_type":"Location", "code": code})
         if r.status_code != 200:
             raise CampaignError("GHL no confirmó la autorización")
         token = r.json()
-        if not expected_location or token.get("locationId") != expected_location or token.get("userType") not in ("Location", None):
+        if not token.get("access_token") or not expected_location or token.get("locationId") != expected_location or token.get("userType") != "Location":
             raise CampaignError("La autorización pertenece a otra subcuenta")
         token["expires_at"] = time.time() + int(token.get("expires_in", 0))
         self.vault.put(tenant, token)
@@ -148,7 +160,9 @@ class GHLOAuth:
             self.vault.put(tenant, {**token, "refresh_pending": True})
             try:
                 with httpx.Client(timeout=30, transport=self.transport, follow_redirects=False) as client:
-                    r = client.post("https://services.leadconnectorhq.com/oauth/token", data={"client_id": self.client_id, "client_secret": self.client_secret, "grant_type": "refresh_token", "refresh_token": token["refresh_token"], "user_type": "Location"})
+                    r = client.post("https://services.leadconnectorhq.com/oauth/token", headers={"Version":"v3"},
+                        data={"client_id": self.client_id, "client_secret": self.client_secret, "grant_type": "refresh_token",
+                              "refresh_token": token["refresh_token"], "user_type": "Location"})
                 new = r.json()
                 if r.status_code != 200 or not new.get("access_token") or new.get("locationId") != token.get("locationId"):
                     raise ValueError()
@@ -180,9 +194,37 @@ class GHLGateway:
         if r.status_code not in (200, 201, 204):
             # Never include provider bodies, headers, token or contact values.
             if r.status_code == 403:
+                if path.startswith("/workflows") and "WORKFLOW_API_NOT_ENABLED_FOR_LOCATION" in r.text:
+                    raise WorkflowApiUnavailable("Esta subcuenta requiere un flujo base instalado en GoHighLevel")
                 raise CampaignError("GHL requiere permisos o preparación administrativa")
             raise CampaignError("GHL no confirmó la operación")
         return r.json() if r.content else {}
+
+    def workflow_capability(self, tenant, brand):
+        token = self.vault.get(tenant)
+        location = brand.get("location_id")
+        if not location or token.get("locationId") != location:
+            raise CampaignError("Autoriza la subcuenta de esta empresa antes de comprobar sus recursos")
+        try:
+            self.request(tenant, "GET", "/workflows/step-types?" + urlencode({"locationId": location}))
+        except WorkflowApiUnavailable:
+            return {"state": "base_workflow"}
+        scopes = set(str(token.get("scope") or "").split())
+        return {"state": "can_prepare_draft" if set(GHL_SETUP_WRITE_SCOPES.split()) <= scopes else "permission_pending"}
+
+    def five_step_fields(self, tenant, location):
+        path = f"/locations/{quote(location, safe='')}/customFields?model=contact"
+        fields = self.request(tenant, "GET", path)["customFields"]
+        names = [f"fi_email_{step:02}_{part}" for step in range(1, QUICK_STEPS + 1) for part in ("subject", "preheader", "body")]
+        names.append("fi_next_step")
+        mapping = {}
+        for name in names:
+            key = "contact." + name
+            matches = [field for field in fields if field.get("fieldKey") == key and field.get("locationId") == location and field.get("model") == "contact" and field.get("id")]
+            if len(matches) != 1:
+                raise CampaignError("Instala los campos de la secuencia base de Focus y resuelve los duplicados")
+            mapping[name] = {"id": matches[0]["id"], "key": key}
+        return mapping
 
     def inspect_five_step_assets(self, tenant, brand):
         location = brand.get("location_id")
@@ -234,12 +276,19 @@ class GHLGateway:
                 "templates_found": templates, "template_senders_match": sender_matches,
                 "fields_found": sum(actual.count(key) == 1 for key in expected), "fields_expected": len(expected)}
 
-    def provision_templates(self, tenant, brand, library):
+    def _template_payloads(self, tenant, brand, library):
         if self.vault.get(tenant).get("locationId") != brand["location_id"]:
             raise CampaignError("La conexión corresponde a otra subcuenta")
-        ids = []
+        mapping = self.fields.get(tenant, {})
+        if len(library["emails"]) == QUICK_STEPS:
+            path = f"/emails/locations/{quote(brand['location_id'], safe='')}/templates"
+            params = urlencode({"search": FOCUS_TEMPLATE_PREFIX.strip(), "include": "templates", "limit": 20})
+            existing = self.request(tenant, "GET", f"{path}?{params}")
+            if existing["total"] > len(existing["items"]) or any(item.get("name", "").startswith(FOCUS_TEMPLATE_PREFIX) for item in existing["items"]):
+                raise CampaignError("Ya hay plantillas Focus o la lista no es concluyente. Revisa los recursos instalados antes de crear otras")
+            mapping = self.five_step_fields(tenant, brand["location_id"])
+        payloads = []
         for email in library["emails"]:
-            mapping = self.fields.get(tenant, {})
             merged = {**email}
             for part in ("subject", "preheader", "body"):
                 field = mapping.get(f"fi_email_{email['step']:02}_{part}")
@@ -247,26 +296,50 @@ class GHLGateway:
                     raise CampaignError("El administrador debe verificar los merge keys propios de cada paso")
                 merged[part] = "{{" + field["key"] + "}}"
             rendered = render_email(merged, brand)
-            result = self.request(tenant, "POST", f"/emails/locations/{quote(brand['location_id'], safe='')}/templates", {"name": f"Focus · v{library['version']} · {email['step']:02}", "editorType": "html", "editorContent": rendered["html"], "subjectLine": merged["subject"], "previewText": merged["preheader"], "fromName": brand["sender_name"], "fromEmail": brand["sender_email"]})
+            name = f"Focus · v{library['version']} · {email['step']:02}"
+            if len(library["emails"]) == QUICK_STEPS:
+                name = f"{FOCUS_TEMPLATE_PREFIX}{email['step']:02}"
+            payloads.append({"name": name, "editorType": "html", "editorContent": rendered["html"], "subjectLine": merged["subject"], "previewText": merged["preheader"], "fromName": brand["sender_name"], "fromEmail": brand["sender_email"]})
+        return payloads
+
+    def provision_templates(self, tenant, brand, library):
+        try:
+            payloads = self._template_payloads(tenant, brand, library)
+        except CampaignError as error:
+            raise TemplateSetupPending(str(error)) from None
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            raise TemplateSetupPending("No se pudo verificar la configuración de plantillas de GoHighLevel") from None
+        ids = []
+        for step, payload in enumerate(payloads, 1):
+            result = self.request(tenant, "POST", f"/emails/locations/{quote(brand['location_id'], safe='')}/templates", payload)
             ids.append(result["id"])
-            self.checkpoint(tenant, "templates", str(email["step"]), {"template_id": result["id"], "library_version": library["version"]})
+            self.checkpoint(tenant, "templates", str(step), {"template_id": result["id"], "library_version": library["version"]})
         return ids
 
     def prepare_workflow(self, tenant, brand, definition):
         if self.vault.get(tenant).get("locationId") != brand["location_id"]:
             raise CampaignError("La conexión corresponde a otra subcuenta")
+        settings = definition.get("settings", {})
+        if definition.get("triggers") != [] or settings.get("allowReEntry") is not False or settings.get("stopOnResponse") is not True:
+            raise CampaignError("El borrador debe quedar sin disparadores, sin reentrada y con parada por respuesta")
         # Native action schemas are obtained from this subaccount, never guessed.
         self.request(tenant, "GET", "/workflows/step-types?" + urlencode({"locationId": brand["location_id"]}))
         valid = self.request(tenant, "POST", "/workflows/definition/validate?" + urlencode({"locationId": brand["location_id"]}), definition)
         if valid.get("valid") is not True:
             raise CampaignError("El flujo requiere preparación y validación del administrador")
-        return self.request(tenant, "POST", "/workflows?" + urlencode({"locationId": brand["location_id"]}), definition)
+        result = self.request(tenant, "POST", "/workflows?" + urlencode({"locationId": brand["location_id"]}), definition)
+        if result.get("status") != "draft" or not result.get("workflowId"):
+            raise CampaignError("GoHighLevel no confirmó un borrador. Revisa la subcuenta antes de repetir")
+        return result
 
     def transition(self, tenant, campaign, action):
         brand, result = campaign["brand"], dict(campaign.get("provider_states", {}))
         token = self.vault.get(tenant)
         if token.get("locationId") != brand["location_id"]:
             raise CampaignError("La conexión corresponde a otra subcuenta")
+        mapping = self.fields.get(tenant, {})
+        if not mapping and action != "pause" and len(campaign["schedule"]) == QUICK_STEPS:
+            mapping = self.five_step_fields(tenant, brand["location_id"])
         for recipient in campaign["recipients"]:
             key = recipient["key"]
             prior = result.get(key, {})
@@ -286,7 +359,7 @@ class GHLGateway:
                     next_step = self.resume_state(tenant, campaign["id"], key, prior)
                 else:
                     remote = self.request(tenant, "GET", "/contacts/" + quote(prior["contact_id"], safe=""))["contact"]
-                    field = self.fields.get(tenant, {}).get("fi_next_step")
+                    field = mapping.get("fi_next_step")
                     field_id = field.get("id") if isinstance(field, dict) else field
                     if remote.get("locationId") != brand["location_id"]:
                         raise CampaignError("La reanudación pertenece a otra cuenta")
@@ -299,7 +372,6 @@ class GHLGateway:
                     raise CampaignError("No se pudo confirmar el siguiente paso")
             else:
                 next_step = 1
-            mapping = self.fields.get(tenant, {})
             values = []
             for email in campaign["messages"][key]["emails"]:
                 # Plain-text fields only; HTML is controlled by the native template.

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Literal
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.auth import validate_csrf
 from app.intelligence import CampaignError
-from app.outreach_providers import verify_webhook
+from app.outreach_providers import GHL_ASSET_READ_SCOPES, GHL_SETUP_WRITE_SCOPES, GHL_TEMPLATE_SETUP_SCOPES, verify_webhook
 
 
 class Payload(BaseModel):
@@ -45,6 +47,10 @@ class Edit(Payload):
 
 class LibraryEdit(Payload):
     emails: list[dict] = Field(min_length=5, max_length=15)
+
+
+class LocationLink(Payload):
+    url: str = Field(max_length=700)
 
 
 class LinkedInEdit(Payload):
@@ -103,9 +109,11 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, asset
         brand = service.brand(tenant)
         state = 'setup_pending' if oauth is None else 'not_connected'
         linked = False
+        granted_scopes = set()
         if oauth is not None:
             try:
                 token = oauth.vault.get(tenant)
+                granted_scopes = set(str(token.get('scope') or '').split())
                 linked = bool(brand.get('location_id') and token.get('locationId') == brand['location_id'])
                 state = 'connected' if linked else 'wrong_location'
                 if linked and token.get('refresh_pending'):
@@ -115,6 +123,8 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, asset
                     state, linked = 'reconnect_required', False
             except CampaignError:
                 pass
+        required_setup = set((GHL_ASSET_READ_SCOPES + ' ' + GHL_SETUP_WRITE_SCOPES).split())
+        setup_permissions = required_setup <= granted_scopes
         return {'company': brand.get('company', ''), 'state': state, 'connected': linked,
             'oauth_ready': oauth is not None, 'location_configured': bool(brand.get('location_id')),
             'can_connect': oauth is not None and bool(brand.get('location_id')) and 'admin' in identity.role.lower(),
@@ -123,7 +133,35 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, asset
             'sender_email': brand.get('sender_email', ''), 'workflow_linked': bool(brand.get('workflow_id')),
             'template_count': len(brand.get('template_ids') or []),
             'asset_check_enabled': asset_reader is not None,
+            'can_prepare_templates': bool(linked and GHL_TEMPLATE_SETUP_SCOPES <= granted_scopes and service.template_provider is not None and 'admin' in identity.role.lower()),
+            'setup_permissions_missing': bool(linked and not setup_permissions and service.template_provider is not None),
             'domain_verified': bool(brand.get('domain_verified')), 'automatic_import': False}
+
+    @router.put("/api/intelligence/{tenant}/outreach/ghl/location")
+    def set_ghl_location(tenant: str, payload: LocationLink, request: Request, identity=Depends(identity_dependency)):
+        validate_csrf(request)
+        admin(identity)
+        scope(tenant, identity)
+        try:
+            parsed = urlsplit(payload.url.strip())
+        except ValueError:
+            raise HTTPException(422, "Pega el enlace de la subcuenta de GoHighLevel") from None
+        match = re.match(r"^/v2/location/([A-Za-z0-9_-]{5,100})(?:/|$)", parsed.path)
+        if parsed.scheme != "https" or parsed.netloc.lower() != "app.gohighlevel.com" or not match:
+            raise HTTPException(422, "Pega el enlace de la subcuenta de GoHighLevel")
+        run(service.configure_brand, tenant, {"location_id": match[1]}, initial_location_only=True)
+        return {"location_configured": True}
+
+    @router.get("/api/intelligence/{tenant}/outreach/ghl/workflow-capability")
+    def workflow_capability(tenant: str, identity=Depends(identity_dependency)):
+        admin(identity)
+        scope(tenant, identity)
+        if asset_reader is None:
+            raise HTTPException(409, "Autoriza la conexión con GoHighLevel para comprobar la API de workflows")
+        try:
+            return run(asset_reader.workflow_capability, tenant, service.brand(tenant))
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            raise HTTPException(503, "GoHighLevel no confirmó la disponibilidad de la API de workflows") from None
 
     @router.get("/api/intelligence/{tenant}/outreach/ghl/assets")
     def inspect_assets(tenant: str, identity=Depends(identity_dependency)):
@@ -238,8 +276,12 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, asset
         validate_csrf(request)
         admin(identity)
         scope(tenant, identity)
-        if not live_enabled:
+        if not live_enabled and service.template_provider is None:
             raise HTTPException(409, "Los cambios en GHL no están habilitados")
+        if service.template_provider is not None:
+            token = run(oauth.vault.get, tenant)
+            if not GHL_TEMPLATE_SETUP_SCOPES <= set(str(token.get('scope') or '').split()):
+                raise HTTPException(409, "Renueva la autorización de GoHighLevel con los permisos de preparación")
         return run(service.provision_templates, tenant, version)
 
     @router.get("/integrations/ghl/callback")
@@ -255,7 +297,7 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, asset
             raise HTTPException(403, "Conexión no reconocida")
         scope(row[0], identity)
         run(oauth.callback, state, code, identity.email, service.brand(row[0]).get("location_id"))
-        return RedirectResponse("/campaigns/outreach", status_code=303)
+        return RedirectResponse("/integrations/ghl?" + urlencode({"account":row[0], "connected":"1"}), status_code=303)
 
     @router.post("/webhooks/ghl")
     async def webhook(request: Request):
