@@ -16,3 +16,6 @@
 .crm-campaign-controls small {color:#b1bfce}
 .crm-campaign-channels {display:flex;flex-wrap:wrap;gap:8px}
 .crm-campaign-controls p {flex-basis:100%;margin:0}
+
+.crm-card-campaign {display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.crm-card-campaign small {flex-basis:100%}

@@ -329,6 +329,66 @@ def test_api_tenant_isolation_csrf_and_signed_event_rejection(service):
     assert client.post('/webhooks/ghl',json={}).status_code==401
 
 
+def test_five_base_templates_and_one_contact_draft_through_http(service):
+    app = FastAPI()
+    identity = Identity('three-dots@example.test', 'Cliente', 'test', True, True)
+    app.include_router(outreach_router(service, lambda: identity, lambda *args, **kwargs: None))
+    client = TestClient(app, cookies={'focus_csrf': 'test-csrf'}, headers={'X-CSRF-Token': 'test-csrf'})
+    url = '/api/intelligence/three-dots/outreach'
+    lead = next(contact for contact in service.eligibility(T) if contact['email_ready'])
+
+    library = client.post(url + '/library?steps=5', json={})
+    assert library.status_code == 200, library.json()
+    assert len(library.json()['emails']) == 5
+    version = library.json()['version']
+    assert client.post(url + '/library?steps=4', json={}).status_code == 422
+
+    draft = client.post(url + '/campaigns', json={
+        'channels': ['email'], 'steps': 5, 'recipients': [{'lead_id': lead['id']}],
+    })
+    assert draft.status_code == 200, draft.json()
+    cid = draft.json()['id']
+    prepared = client.post(f'{url}/campaigns/{cid}/prepare', json={})
+    assert prepared.status_code == 200, prepared.json()
+    result = prepared.json()
+    assert result['campaign']['name'] != draft.json()['name']
+    assert result['metrics']['prepared'] == 5 and result['metrics']['sent_confirmed'] == 0
+    assert result['campaign']['state'] == 'draft' and not result['campaign']['approval']
+    recipient = result['campaign']['recipients'][0]['email']
+    assert recipient == lead['email'].lower()
+    for step in range(1, 6):
+        base = client.get(f'{url}/library/{version}/preview', params={'step': step})
+        email = client.get(f'{url}/campaigns/{cid}/preview', params={'step': step, 'recipient': recipient})
+        for response in (base, email):
+            assert response.status_code == 200
+            assert response.json()['preview_only'] is True
+            assert 'https://example.test/agenda' in response.json()['html']
+    assert client.get(f'{url}/library/{version}/preview?step=6').status_code == 422
+    with service.engine.db() as db:
+        assert db.execute('SELECT count(*) FROM outbox').fetchone()[0] == 0
+
+
+def test_one_public_address_is_inferred_but_two_require_a_choice(service):
+    with service.engine.db() as db:
+        row = db.execute('SELECT payload FROM contacts WHERE tenant=? AND id=?', (T, 'td-01')).fetchone()
+        contact = json.loads(row['payload'])
+        contact['email_options'] = [{'email': contact['email'], 'source_url': 'https://example.test/contact'},
+                                    {'email': contact['email'].upper(), 'source_url': 'https://example.test/contact'}]
+        contact['summary'] = 'La empresa publica una serie de entrevistas corporativas.'
+        db.execute('UPDATE contacts SET payload=? WHERE tenant=? AND id=?', (json.dumps(contact), T, 'td-01'))
+    payload = {'channels': ['email'], 'steps': 5, 'recipients': [{'lead_id': 'td-01'}]}
+    campaign = service.create(T, payload)
+    draft = service.prepare(T, campaign['id'])['campaign']
+    context = draft['messages'][contact['email'].lower()]['context']
+    assert context['sources'][1]['summary'] == contact['summary']
+    assert contact['email'] not in json.dumps(context)
+    contact['email_options'].append({'email': 'team@example.test', 'source_url': 'https://example.test/contact'})
+    with service.engine.db() as db:
+        db.execute('UPDATE contacts SET payload=? WHERE tenant=? AND id=?', (json.dumps(contact), T, 'td-01'))
+    with pytest.raises(CampaignError, match='Elige un correo público'):
+        service.create(T, payload)
+
+
 def test_openai_strict_fifteen_no_tools_store_or_search_quota(service):
     ctx=evidence(service.engine.catalog(T)['profile'])
     def handler(request):

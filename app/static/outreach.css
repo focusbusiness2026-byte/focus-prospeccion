@@ -11,3 +11,5 @@
 .email-thumbnail{display:grid;place-items:center;flex:0 0 42px;height:48px;border-radius:6px;background:#eff1f4;color:#162232;border-top:4px solid var(--preview-accent)}
 .email-thumbnail img{width:30px;height:30px;object-fit:contain}
 .email-preview-content,.email-preview-item>label,.email-preview-item>.actions{padding:0 14px 14px}
+
+.recipient-prepare{display:block;margin-top:8px}

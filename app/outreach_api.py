@@ -145,9 +145,9 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, webho
         return run(service.configure_brand, scope(tenant, identity), payload)
 
     @router.post("/api/intelligence/{tenant}/outreach/library")
-    def library(tenant: str, request: Request, steps: Literal[5, 15] = 15, identity=Depends(identity_dependency)):
+    def library(tenant: str, request: Request, steps: Literal["5", "15"] = "15", identity=Depends(identity_dependency)):
         validate_csrf(request)
-        return run(service.library, scope(tenant, identity), steps)
+        return run(service.library, scope(tenant, identity), int(steps))
 
     @router.post("/api/intelligence/{tenant}/outreach/campaigns")
     def create(tenant: str, payload: Create, request: Request, identity=Depends(identity_dependency)):
@@ -158,6 +158,11 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, webho
     def edit_library(tenant: str, version: int, payload: LibraryEdit, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
         return run(service.edit_library, scope(tenant, identity), version, payload.emails)
+
+    @router.get("/api/intelligence/{tenant}/outreach/library/{version}/preview")
+    def library_preview(tenant: str, version: int, step: int, identity=Depends(identity_dependency)):
+        value = run(service.preview_library, scope(tenant, identity), version, step)
+        return {**value, "preview_only": True}
 
     @router.post("/api/intelligence/{tenant}/outreach/campaigns/{cid}/reschedule")
     def reschedule(tenant: str, cid: str, request: Request, identity=Depends(identity_dependency)):

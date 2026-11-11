@@ -81,16 +81,21 @@ def dates(now, steps=STEPS):
     return [datetime.combine(first.date() + timedelta(days=n), time(10), ZONE).isoformat() for n in range(steps)]
 
 
-def evidence(profile, contact=None):
+def evidence(profile, contact=None, *, include_saved_context=False):
     """Only explicit fields; no private intake, credentials, or speculative names."""
     result = {"sender": {k: profile.get(k, "") for k in ("name", "offer", "website", "services", "description")}}
     result["sources"] = [{"id": "sender:declared", "kind": "declared", "facts": result["sender"]}]
+    if include_saved_context:
+        result["sender"].update({key: profile[key] for key in ("audience", "market") if profile.get(key)})
+        result["uses_saved_context"] = True
     if contact:
         result["recipient"] = {k: contact.get(k, "") for k in ("company", "sector", "city", "website")}
         if contact.get("name_status") == "current_with_source" and contact.get("person_source_url"):
             result["recipient"].update({k: contact.get(k, "") for k in ("name", "role", "person_source_url")})
         result["sources"].append({"id": "recipient:research", "kind": "research", "facts": result["recipient"]})
         result["sources"][-1]["urls"] = list(dict.fromkeys(str(x.get("source_url")) for x in contact.get("email_options", []) if x.get("source_url")))
+        if include_saved_context and contact.get("summary"):
+            result["sources"][-1]["summary"] = str(contact["summary"]).strip()[:1200]
     return result
 
 

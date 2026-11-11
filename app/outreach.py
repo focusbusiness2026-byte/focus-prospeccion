@@ -107,7 +107,11 @@ class OutreachService:
             result = []
             for contact in self._contacts(db, t):
                 options = contact.get("email_options") or ([{"email": contact["email"], "source_url": contact.get("source_url", "")} ] if valid_email(contact.get("email")) else [])
-                options = [o for o in options if valid_email(o.get("email"))]
+                unique_options = {}
+                for option in options:
+                    if valid_email(option.get("email")):
+                        unique_options.setdefault(option["email"].strip().lower(), option)
+                options = list(unique_options.values())
                 reasons = []
                 if not contact.get("approved"):
                     reasons.append("Pendiente de aprobación del lead")
@@ -169,7 +173,7 @@ class OutreachService:
     def library(self, t, steps=STEPS):
         with self.engine.db() as db:
             p = self.engine._profile(db, t)
-            ctx = evidence(p)
+            ctx = evidence(p, include_saved_context=steps == QUICK_STEPS)
             if steps != STEPS:
                 ctx["steps"] = steps
             digest = fingerprint(ctx)
@@ -209,8 +213,12 @@ class OutreachService:
             if not p or not p.get("approved") or not (duplicate_ok or any(p.get(k) for k in ("email_ready", "linkedin_ready", "social_ready"))):
                 raise CampaignError("Solo se admiten leads aprobados y disponibles de esta cuenta")
             email = str(chosen.get("email", "")).strip().lower()
-            if "email" in channels and (not (p["email_ready"] or duplicate_ok) or email not in {o["email"].strip().lower() for o in p["email_options"]}):
-                raise CampaignError("Selecciona un email publicado entre los destinatarios de esa tarjeta")
+            if "email" in channels:
+                options = [o["email"].strip().lower() for o in p["email_options"]]
+                if not email and len(options) == 1:
+                    email = options[0]
+                if not (p["email_ready"] or duplicate_ok) or email not in options:
+                    raise CampaignError("Elige un correo público de la tarjeta para este destinatario")
             if "linkedin" in channels and not (p["linkedin_ready"] or duplicate_ok and personal_linkedin(p.get("linkedin"))):
                 raise CampaignError("Selecciona un perfil personal LinkedIn verificado")
             if "social" in channels and not (p["social_ready"] or duplicate_ok and p["social_profiles"]):
@@ -311,7 +319,7 @@ class OutreachService:
         lib = self.library(t) if not social_only and steps == STEPS else None
         prepared = {}
         for recipient in c["recipients"]:
-            ctx = evidence(profile, recipient["contact"])
+            ctx = evidence(profile, recipient["contact"], include_saved_context=steps == QUICK_STEPS)
             if social_only or steps != STEPS:
                 ctx["campaign"] = {"recipients":len(c["recipients"]), "company":profile.get("name", "")}
             if social_only:
@@ -389,7 +397,9 @@ class OutreachService:
             p = current.get(r["lead_id"], {})
             if not p.get("approved") or any(p.get("flags", {}).get(k) for k in ("opt_out", "responded", "meeting", "not_interested")):
                 issues.append("Un lead dejó de estar aprobado o disponible")
-            if evidence(self.engine._profile(db, t), p) != {k: v for k, v in c.get("messages", {}).get(r["key"], {}).get("context", {}).items() if k not in {"library_hash", "steps", "networks", "campaign"}}:
+            saved_context = c.get("messages", {}).get(r["key"], {}).get("context", {})
+            current_context = evidence(self.engine._profile(db, t), p, include_saved_context=saved_context.get("uses_saved_context", False))
+            if current_context != {k: v for k, v in saved_context.items() if k not in {"library_hash", "steps", "networks", "campaign"}}:
                 issues.append("El contexto cambió; prepara y revisa de nuevo los textos")
             if "email" in c["channels"]:
                 emails = p.get("email_options") or [{"email": p.get("email", "")}]
@@ -673,3 +683,12 @@ class OutreachService:
         if not m or not 1 <= step <= len(m["emails"]):
             raise CampaignError("Prepara primero el correo seleccionado")
         return render_email(m["emails"][step - 1], d["campaign"]["brand"], preview=True)
+
+    def preview_library(self, t, version, step):
+        with self.engine.db() as db:
+            self.engine._profile(db, t)
+            row = db.execute("SELECT payload FROM outreach_libraries WHERE tenant=? AND version=?", (t, version)).fetchone()
+        emails = json.loads(row[0])["emails"] if row else []
+        if not 1 <= step <= len(emails):
+            raise CampaignError("No se encontró la plantilla solicitada")
+        return render_email(emails[step - 1], self.brand(t), preview=True)
