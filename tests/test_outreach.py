@@ -19,7 +19,7 @@ from app.intelligence import CampaignEngine, CampaignError
 from app.outreach import OutreachService
 from app.outreach_api import outreach_router
 from app.outreach_content import DemoSequenceGenerator, dates, evidence, personal_linkedin, public_url, render_email, validate_emails
-from app.outreach_providers import GHLGateway, GHLOAuth, OAuthVault, OpenAISequenceGenerator, verify_webhook
+from app.outreach_providers import FOCUS_TEMPLATE_PREFIX, FOCUS_WORKFLOW_NAME, GHLGateway, GHLOAuth, OAuthVault, OpenAISequenceGenerator, verify_webhook
 
 SEED = Path(__file__).parents[1] / 'app/intelligence_seed.json'
 T = 'three-dots'
@@ -400,6 +400,50 @@ def test_openai_strict_fifteen_no_tools_store_or_search_quota(service):
         return httpx.Response(200,json={'status':'completed','model':'mock-model','id':'mock-response','usage':{'input_tokens':12,'output_tokens':34},'output':[{'content':[{'type':'output_text','text':json.dumps(DemoSequenceGenerator()(ctx))}]}]})
     gen=OpenAISequenceGenerator(SimpleNamespace(openai_model='mock-model',openai_api_key='mock-only'),transport=httpx.MockTransport(handler))
     result=gen(ctx);assert len(validate_emails(result,{'sender:declared'}))==15 and result['actual_cost_usd'] is None
+
+
+@pytest.mark.parametrize('duplicate', [False, True])
+def test_ghl_asset_check_uses_only_reads_and_reports_sender_mismatches(service, duplicate):
+    service.configure_brand(T, {'location_id': 'loc-test'})
+    vault = OAuthVault(service.engine, b'k'*32)
+    vault.put(T, {'access_token': 'mock', 'locationId': 'loc-test'})
+    paths = []
+
+    def handler(request):
+        assert request.method == 'GET'
+        path = request.url.path
+        paths.append(path)
+        if path == '/workflows':
+            assert request.url.params['locationId'] == 'loc-test'
+            item = {'id':'focus-flow', 'locationId':'loc-test', 'name': FOCUS_WORKFLOW_NAME, 'status':'draft'}
+            return httpx.Response(200, json={'workflows':[item, {**item, 'locationId':'other'}] + ([item] if duplicate else [])})
+        if path == '/workflows/focus-flow/definition':
+            return httpx.Response(200, json={'workflowId':'focus-flow', 'definition':{'settings':{'senderAddress':{'from_email':'other@example.test'}}}})
+        if path == '/emails/locations/loc-test/templates':
+            items = [{'id': f'template-{n}', 'name': f'{FOCUS_TEMPLATE_PREFIX}{n:02}', 'type':'template'} for n in range(1, 6)]
+            return httpx.Response(200, json={'total':len(items), 'items':items})
+        if path == '/locations/loc-test/customFields':
+            keys = [f'contact.fi_email_{n:02}_{part}' for n in range(1, 6) for part in ('subject', 'preheader', 'body')]
+            return httpx.Response(200, json={'customFields':[{'fieldKey':key, 'locationId':'loc-test', 'model':'contact'} for key in keys]})
+        return httpx.Response(200, json={'id': path.rsplit('/',1)[-1], 'fromEmail':'team@example.test', 'deleted':False})
+
+    reader = GHLGateway(vault, fields={}, checkpoint=None, transport=httpx.MockTransport(handler), enabled=True, read_only=True)
+    app = FastAPI()
+    identity = Identity('admin@example.test', 'Administrador', 'test', True, True)
+    app.include_router(outreach_router(service, lambda: identity, lambda *args, **kwargs: None, asset_reader=reader))
+    url = '/api/intelligence/three-dots/outreach/ghl'
+    client = TestClient(app)
+    status = client.get(url + '/status').json()
+    assert status['sender_email'] == 'team@example.test' and not status['sending_enabled']
+    response = client.get(url + '/assets')
+    assert response.status_code == 200
+    assert response.json() == {'workflow_state':'ambiguous' if duplicate else 'draft',
+        'workflow_sender_matches':None if duplicate else False, 'templates_found':5,
+        'template_senders_match':5, 'fields_found':15, 'fields_expected':16}
+    assert ('/workflows/focus-flow/definition' in paths) is not duplicate
+    with pytest.raises(CampaignError, match='no están habilitados'):
+        reader.request(T, 'POST', '/workflows')
+    assert client.post(url + '/assets').status_code == 405
 
 
 def test_restore_full_snapshot_preserves_approval_and_no_browser_scheduler(service,tmp_path):

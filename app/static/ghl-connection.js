@@ -27,6 +27,13 @@
     text('#ghl-location-name', company);
     text('#ghl-status', s.connected ? 'Subcuenta conectada.' : 'Subcuenta sin conectar.');
     text('#ghl-verify-status', complete ? 'Comprobaciones confirmadas.' : 'Pendiente: ' + pending.join(', ') + '.');
+    text('#ghl-sender', s.sender_email ? 'Remitente configurado · ' + s.sender_email +
+      (s.domain_verified ? ' · Verificación administrativa registrada' : ' · Verificación pendiente') : 'Remitente pendiente de configurar.');
+    text('#ghl-assets-status', (s.workflow_linked ? 'Flujo vinculado' : 'Flujo pendiente de vincular') +
+      ' · Plantillas vinculadas: ' + s.template_count + (s.asset_check_enabled ? '' : ' · Comprobación en GHL pendiente de autorización'));
+    $('#ghl-check-assets').hidden = !(s.admin && s.connected && s.asset_check_enabled);
+    $('#ghl-asset-results').hidden = true;
+    $('#ghl-asset-results').replaceChildren();
     text('#ghl-auth-help', s.connected ? 'La autorización de esta empresa está guardada.' :
       s.state === 'wrong_location' ? 'La autorización no coincide con esta empresa. El administrador debe revisar la subcuenta antes de continuar.' :
       s.can_connect ? 'Pulsa Autorizar GoHighLevel y concede acceso solo a la subcuenta que abriste.' :
@@ -68,6 +75,40 @@
     finally { busy = false; $('#ghl-account').disabled = $('#ghl-recheck').disabled = false; }
   }
 
+  $('#ghl-check-assets').onclick = async () => {
+    if (busy) return;
+    busy = true;
+    const button = $('#ghl-check-assets'), result = $('#ghl-asset-results');
+    const account = $('#ghl-account');
+    account.disabled = button.disabled = true;
+    $('#ghl-error').hidden = true;
+    result.hidden = true;
+    text('#ghl-assets-status', 'Consultando los recursos instalados en GoHighLevel…');
+    try {
+      const response = await fetch('/api/intelligence/' + encodeURIComponent(account.value) + '/outreach/ghl/assets', {credentials:'same-origin'});
+      const report = await response.json();
+      if (!response.ok) throw Error(typeof report.detail === 'string' ? report.detail : 'No se pudieron consultar los recursos.');
+      const states = {draft:'Flujo encontrado en borrador', published:'Flujo encontrado y publicado',
+        missing:'Falta instalar el flujo Focus', ambiguous:'Hay varios flujos Focus. La administración debe resolver el duplicado', unknown:'Estado del flujo sin confirmar'};
+      const rows = [states[report.workflow_state], report.templates_found + ' de 5 plantillas encontradas',
+        report.template_senders_match + ' de 5 plantillas con el remitente configurado',
+        report.fields_found + ' de ' + report.fields_expected + ' campos de contacto encontrados',
+        report.workflow_sender_matches === null ? 'Remitente del flujo sin comprobar' :
+          report.workflow_sender_matches ? 'El remitente del flujo coincide con el configurado' : 'El remitente del flujo requiere revisión'];
+      result.replaceChildren(...rows.map(value => {
+        const item = document.createElement('li');
+        item.textContent = value;
+        return item;
+      }));
+      result.hidden = false;
+      text('#ghl-assets-status', 'Consulta terminada. Los recursos encontrados están pendientes de revisión administrativa.');
+    } catch (error) {
+      text('#ghl-assets-status', error.message || 'No se pudieron consultar los recursos.');
+    } finally {
+      account.disabled = button.disabled = false;
+      busy = false;
+    }
+  };
   $('#ghl-recheck').onclick = () => work(load);
   $('#ghl-next-step').onclick = () => {
     if (!current || busy) return;

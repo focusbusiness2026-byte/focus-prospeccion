@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -70,7 +71,7 @@ def authorize(engine, tenant, identity):
     raise HTTPException(403, "Esta sesión no pertenece a esta cuenta")
 
 
-def outreach_router(service, identity_dependency, template, *, oauth=None, webhook_key=None, live_enabled=False):
+def outreach_router(service, identity_dependency, template, *, oauth=None, asset_reader=None, webhook_key=None, live_enabled=False):
     router, engine = APIRouter(), service.engine
 
     def run(fn, *args, **kw):
@@ -119,7 +120,21 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, webho
             'can_connect': oauth is not None and bool(brand.get('location_id')) and 'admin' in identity.role.lower(),
             'admin': 'admin' in identity.role.lower(), 'sending_enabled': live_enabled,
             'workflow_verified': bool(brand.get('workflow_verified')), 'unsubscribe_verified': bool(brand.get('unsubscribe_verified')),
+            'sender_email': brand.get('sender_email', ''), 'workflow_linked': bool(brand.get('workflow_id')),
+            'template_count': len(brand.get('template_ids') or []),
+            'asset_check_enabled': asset_reader is not None,
             'domain_verified': bool(brand.get('domain_verified')), 'automatic_import': False}
+
+    @router.get("/api/intelligence/{tenant}/outreach/ghl/assets")
+    def inspect_assets(tenant: str, identity=Depends(identity_dependency)):
+        admin(identity)
+        scope(tenant, identity)
+        if asset_reader is None:
+            raise HTTPException(409, "La comprobación de recursos GHL requiere autorización administrativa de lectura")
+        try:
+            return run(asset_reader.inspect_five_step_assets, tenant, service.brand(tenant))
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            raise HTTPException(503, "No se pudieron comprobar los recursos de esta subcuenta") from None
 
     @router.get("/api/intelligence/accounts")
     def accounts(identity=Depends(identity_dependency)):

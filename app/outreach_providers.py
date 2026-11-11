@@ -19,6 +19,11 @@ from app.intelligence import CampaignError
 from app.outreach_content import STEPS, fingerprint, render_email
 
 
+FOCUS_WORKFLOW_NAME = "Focus · Prospección · 5 correos"
+FOCUS_TEMPLATE_PREFIX = "Focus · Prospección · Correo "
+GHL_ASSET_READ_SCOPES = "workflows.readonly emails/templates.readonly locations/customFields.readonly"
+
+
 class OpenAISequenceGenerator:
     def __init__(self, settings, *, transport=None):
         self.settings, self.transport = settings, transport
@@ -161,12 +166,13 @@ class GHLGateway:
     `checkpoint` is a durable journal callback (per contact, not just per batch).
     `resume_state` must reconcile the actual GHL next step before a resume.
     """
-    def __init__(self, vault, *, fields, checkpoint, resume_state=None, token_provider=None, transport=None, enabled=False):
+    def __init__(self, vault, *, fields, checkpoint, resume_state=None, token_provider=None, transport=None, enabled=False, read_only=False):
         self.vault, self.fields, self.checkpoint, self.resume_state, self.transport, self.enabled = vault, fields, checkpoint, resume_state, transport, enabled
         self.token_provider = token_provider or vault.get
+        self.read_only = read_only
 
     def request(self, tenant, method, path, payload=None):
-        if not self.enabled:
+        if not self.enabled or (self.read_only and method != "GET"):
             raise CampaignError("Los cambios GHL no están habilitados")
         token = self.token_provider(tenant)
         with httpx.Client(timeout=30, transport=self.transport, follow_redirects=False) as client:
@@ -177,6 +183,56 @@ class GHLGateway:
                 raise CampaignError("GHL requiere permisos o preparación administrativa")
             raise CampaignError("GHL no confirmó la operación")
         return r.json() if r.content else {}
+
+    def inspect_five_step_assets(self, tenant, brand):
+        location = brand.get("location_id")
+        if not location or self.vault.get(tenant).get("locationId") != location:
+            raise CampaignError("Autoriza la subcuenta de esta empresa antes de comprobar sus recursos")
+        query = urlencode({"locationId": location})
+        workflows = self.request(tenant, "GET", f"/workflows?{query}")["workflows"]
+        candidates = [item for item in workflows if item.get("name") == FOCUS_WORKFLOW_NAME and item.get("locationId") == location]
+        workflow_state = "missing" if not candidates else "ambiguous"
+        workflow_sender = None
+        if len(candidates) == 1:
+            candidate = candidates[0]
+            workflow_state = candidate.get("status") if candidate.get("status") in {"draft", "published"} else "unknown"
+            try:
+                result = self.request(tenant, "GET", f"/workflows/{quote(candidate['id'], safe='')}/definition?{query}")
+                if result.get("workflowId") == candidate["id"]:
+                    settings = result.get("definition", {}).get("settings", {})
+                    sender = settings.get("senderAddress", {}).get("from_email", "")
+                    workflow_sender = bool(sender and sender.lower() == str(brand.get("sender_email", "")).lower())
+            except CampaignError:
+                # Some subaccounts can list workflows but cannot read definitions.
+                pass
+
+        location_path = quote(location, safe='')
+        template_path = f"/emails/locations/{location_path}/templates"
+        params = urlencode({"search": FOCUS_TEMPLATE_PREFIX.strip(), "include": "templates", "limit": 20})
+        result = self.request(tenant, "GET", f"{template_path}?{params}")
+        templates = 0
+        sender_matches = 0
+        if result["total"] <= len(result["items"]):
+            for step in range(1, 6):
+                name = f"{FOCUS_TEMPLATE_PREFIX}{step:02}"
+                matches = [item for item in result["items"] if item.get("type") == "template" and item.get("name") == name]
+                if len(matches) != 1:
+                    continue
+                template_id = matches[0]["id"]
+                template = self.request(tenant, "GET", f"{template_path}/{quote(template_id, safe='')}")
+                if template.get("id") != template_id or template.get("deleted") is not False:
+                    continue
+                templates += 1
+                sender = template.get("fromEmail") or ""
+                sender_matches += bool(sender and sender.lower() == str(brand.get("sender_email", "")).lower())
+
+        fields = self.request(tenant, "GET", f"/locations/{location_path}/customFields?model=contact")["customFields"]
+        expected = {f"contact.fi_email_{step:02}_{part}" for step in range(1, 6) for part in ("subject", "preheader", "body")}
+        expected.add("contact.fi_next_step")
+        actual = [field.get("fieldKey") for field in fields if field.get("locationId") == location and field.get("model") == "contact"]
+        return {"workflow_state": workflow_state, "workflow_sender_matches": workflow_sender,
+                "templates_found": templates, "template_senders_match": sender_matches,
+                "fields_found": sum(actual.count(key) == 1 for key in expected), "fields_expected": len(expected)}
 
     def provision_templates(self, tenant, brand, library):
         if self.vault.get(tenant).get("locationId") != brand["location_id"]:

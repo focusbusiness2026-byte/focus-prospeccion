@@ -14,6 +14,14 @@ Las tablas `outreach_*` son aditivas en el almacén durable de campañas. Se reu
 
 La nueva API identifica la cuenta por parámetro y comprueba su lista de usuarios autorizados. La copia real continúa limitada a Three Dots; ampliar la carga de cuentas canónicas en producción requiere su propia migración y aceptación. Los dos tenants de las pruebas son ficticios.
 
+## Reutilizar una secuencia de cinco correos
+
+La preparación del borrador y sus vistas previas se ejecuta en Prospección. GoHighLevel solo recibe datos de una campaña aprobada y confirmada cuando los envíos están habilitados. La activación reutiliza un flujo ya preparado, escribe asunto, preencabezado y cuerpo en los campos propios de cada contacto y solicita su incorporación. El registro de operaciones y las reservas existentes impiden repetir una activación incierta sin conciliación.
+
+Para el piloto, una persona administradora puede instalar una sola vez un [Snapshot de HighLevel](https://help.gohighlevel.com/support/solutions/articles/48000982582-load-snapshots-into-existing-account) que incluya el flujo, cinco plantillas y los campos de contacto. El comprobador de solo lectura busca `Focus · Prospección · 5 correos`, las plantillas `Focus · Prospección · Correo 01` a `05`, los campos `contact.fi_email_01_subject`, `contact.fi_email_01_preheader` y `contact.fi_email_01_body` a `05`, y `contact.fi_next_step`. Rechaza la ambigüedad e indica el estado, coincidencia de remitente y campos encontrados. La consulta de definición puede estar restringida aunque el flujo figure en la lista.
+
+La consulta requiere una conexión de la subcuenta y la opción de servidor `GHL_ASSET_CHECK_ENABLED=1`, con los permisos OAuth de lectura de flujos, plantillas y campos. No requiere habilitar envíos. La comprobación no vincula ni publica recursos. La vinculación, la verificación del dominio y de las acciones de cada correo y las reglas de baja siguen siendo pasos administrativos iniciales. La [API de creación de workflows](https://marketplace.gohighlevel.com/docs/ghl/workflows/create-workflow/index.html) está limitada por subcuenta y crea borradores. El portal no crea ni publica un flujo al abrir la cuenta o al preparar, aprobar o iniciar una campaña.
+
 ## Preparación administrativa posterior, con autorización específica
 
 1. El titular debe confirmar la rotación/revocación de la clave expuesta en una inspección anterior. No introducir secretos en formularios, Git, Sheets ni informes.
