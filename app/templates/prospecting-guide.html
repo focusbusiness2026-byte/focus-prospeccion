@@ -8,7 +8,7 @@
 <body>
 <header id="guide-header"><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
 <nav><a class="active" href="/prospecting-guide">Prospección</a><a href="#crm">Ir al tablero</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
-<main class="guide-main">
+<main class="guide-page"><div class="guide-main">
   <div class="guide-title"><h1>Prospección</h1><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
   <section class="guide-learning" aria-labelledby="guide-learning-label">
     <div><strong id="guide-learning-label">Aprendizaje de tu búsqueda</strong><span id="guide-progress-label"></span></div>
@@ -40,6 +40,7 @@
       </div>
       <section id="guide-execution" aria-label="Raspado y programación" hidden>
         <h3>Buscar nuevos leads</h3>
+        <p class="muted small" id="guide-research-average"></p>
         <p id="guide-job-status" role="status" hidden></p>
         <progress id="guide-job-progress" max="100" aria-label="Progreso del raspado" hidden></progress>
         <button id="guide-reconnect-job" type="button" hidden>Consultar raspado</button>
@@ -48,16 +49,19 @@
           <button id="guide-program" type="button" aria-controls="guide-schedule-form">Programar raspado</button>
         </div>
         <form id="guide-schedule-form" hidden>
+          <p class="muted small">El servidor ejecuta la programación aunque cierres esta página. Si está en reposo, continúa cuando vuelva a estar activo.</p>
           <div class="row">
             <label>Frecuencia<select id="guide-interval">
+              <option value="12">Cada 12 minutos · hasta 5 por hora</option><option value="30">Cada 30 minutos</option>
               <option value="60">Cada hora</option><option value="360">Cada 6 horas</option>
               <option value="1440" selected>Cada día</option><option value="10080">Cada semana</option>
             </select></label>
-            <label>Número de raspados<input id="guide-run-count" type="number" min="1" max="50" required value="1"></label>
+            <label>Total de raspados<input id="guide-run-count" type="number" min="1" max="50" required value="1"></label>
           </div>
           <button type="submit" class="primary" id="guide-confirm-schedule">Guardar programación</button>
         </form>
         <p id="guide-schedule-status" role="status" hidden></p>
+        <p id="guide-schedule-countdown" class="muted small" hidden></p>
         <div class="actions">
           <button id="guide-refresh-schedule" type="button" hidden>Actualizar estado</button>
           <button id="guide-pause-schedule" type="button" hidden>Pausar programación</button>
@@ -100,6 +104,7 @@
       <details id="guide-source-details" hidden><summary>Fuentes consultadas</summary><p id="guide-web-status" class="muted small"></p><ul id="guide-sources"></ul></details>
     </aside>
   </div>
+  </div>
   <section id="crm" class="guide-crm" aria-labelledby="guide-crm-title">
     <h2 id="guide-crm-title" tabindex="-1">Leads y CRM</h2>
     <p id="guide-crm-status" role="status">Cargando tu tablero…</p>
@@ -113,6 +118,8 @@
   <div id="guide-busy-job" hidden>
     <progress id="guide-busy-progress" max="100" aria-label="Progreso del raspado"></progress>
     <p class="muted small" id="guide-busy-elapsed"></p>
+    <p class="muted small" id="guide-busy-estimate"></p>
+    <ol id="guide-busy-activity" aria-label="Actividad del raspado" aria-live="polite" hidden></ol>
     <ol id="guide-busy-leads" aria-label="Leads guardados en Nuevo" aria-live="polite"></ol>
   </div>
 </dialog>

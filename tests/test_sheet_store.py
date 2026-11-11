@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 import re
 
 import pytest
@@ -600,6 +601,22 @@ def test_bounded_batch_failure_stays_paused_and_preserves_progress():
     assert current["batch"]["completed_runs"] == 0
     assert current["batch"]["error"] == "Fallo de prueba"
     assert store.due_automation_configs() == []
+
+
+def test_guided_batch_counts_the_interval_between_starts():
+    store = StatefulAutomationStore()
+    store.upsert_automation_config("ONB-001", "owner@example.com", enabled=True,
+                                   interval_minutes=12, max_total_runs=5)
+    store.rows[0][4] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    claim = store.claim_bounded_automation_run(store.due_automation_configs()[0])
+    started = datetime.now(timezone.utc) - timedelta(minutes=7)
+    adjustments = json.loads(store.rows[0][9])
+    adjustments["_batch"]["started_at"] = started.isoformat()
+    store.rows[0][9] = json.dumps(adjustments)
+    store.finish_bounded_automation_run(claim, from_start=True, result={"execution_id":"run-1", "prospects":[]})
+    scheduled = store.get_automation_config("ONB-001")
+    assert datetime.fromisoformat(scheduled["next_run_at"]) == started + timedelta(minutes=12)
+    assert scheduled["batch"]["completed_runs"] == 1
 
 
 def test_bounded_batch_manual_pause_preserves_batch_metadata():

@@ -191,6 +191,7 @@ def _public_research_job(job: dict) -> dict:
             "message",
             "leads_found",
             "saved_leads",
+            "activities",
             "execution_id",
             "quota",
             "created_at",
@@ -229,6 +230,11 @@ def _update_research_job(job_id: str, **changes) -> dict | None:
         job = _RESEARCH_JOBS.get(job_id)
         if not job:
             return None
+        activity = changes.pop("activity", "")
+        if activity:
+            history = job.get("activities") or []
+            if not history or history[-1] != activity:
+                changes["activities"] = [*history, activity][-24:]
         latest_lead = changes.pop("latest_lead", None)
         if latest_lead:
             saved = list(job.get("saved_leads") or [])
@@ -455,13 +461,24 @@ def _run_onboarding_research(
         )
         saved_count += 1
         lead_label = f"Lead {saved_count}" if total is None else f"Lead {saved_count} de {total}"
+        company = str(prospect.get("company") or "Empresa verificada")[:120]
+        details = []
+        for field, singular, plural in (
+            ("public_contacts", "contacto público", "contactos públicos"),
+            ("decision_makers", "decisor identificado", "decisores identificados"),
+            ("public_signals", "señal pública", "señales públicas"),
+        ):
+            count = len(prospect.get(field) or [])
+            if count:
+                details.append(f"{count} {singular if count == 1 else plural}")
         report(
             phase="saving",
             progress=progress,
             message=f"{lead_label} guardado en Nuevo.",
+            activity=f"{company} · Guardado en Nuevo" + (" · " + ", ".join(details) if details else ""),
             leads_found=saved_count,
             latest_lead={
-                "company": str(prospect.get("company") or "Empresa verificada")[:120],
+                "company": company,
                 "execution_id": prospect_execution_id,
             },
         )
@@ -471,10 +488,22 @@ def _run_onboarding_research(
     def verify_candidate(index: int, total: int) -> None:
         nonlocal verification_progress
         verification_progress = 45 + round((index - 1) / total * 45)
+        activity = f"Empresa {index} de {total} · Revisando su sitio público."
         report(
             phase="validating", progress=verification_progress,
-            message=f"Analizando la empresa {index} de {total}: actividad, decisores y señales públicas…",
+            message=f"Analizando la empresa {index} de {total}…", activity=activity,
         )
+
+    def verify_sources(index: int, total: int, pages: int) -> None:
+        nonlocal verification_progress
+        verification_progress += 2
+        step = f"Empresa {index} de {total}"
+        activity = f"{step} · Contrastando fuentes públicas."
+        if pages:
+            found = "página pública revisada" if pages == 1 else "páginas públicas revisadas"
+            activity = f"{step} · {pages} {found}. Contrastando la información."
+        report(phase="validating", progress=verification_progress,
+               message=f"{step} · Verificando actividad, decisores y señales…", activity=activity)
 
     try:
         report(
@@ -511,6 +540,7 @@ def _run_onboarding_research(
             )
             callbacks = {
                 "on_candidate": verify_candidate,
+                "on_sources": verify_sources,
                 "on_verified": lambda prospect: save_prospect(prospect, verification_progress),
             } if stream_results else {}
             prospects, trace = enrich_discovered_prospects(

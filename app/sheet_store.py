@@ -6,7 +6,7 @@ import time
 import unicodedata
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from google.auth.transport.requests import AuthorizedSession
@@ -572,7 +572,6 @@ class SheetStore:
 
     @staticmethod
     def _iso_after(minutes: int) -> str:
-        from datetime import timedelta
 
         return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
 
@@ -726,8 +725,8 @@ class SheetStore:
                 "updated_at": now}
 
     def finish_bounded_automation_run(self, config: dict, *, result: dict | None = None,
-                                      error: str = "") -> None:
-        """Advance only a claimed batch; failure or fifth success stays paused."""
+                                      error: str = "", from_start: bool = False) -> None:
+        """Advance only a claimed batch; failure or the final success leaves it paused."""
         current = self.get_automation_config(config["onboarding_id"])
         batch = current.get("batch") if current else None
         if not batch or batch.get("id") != (config.get("batch") or {}).get("id") or not batch.get("in_flight"):
@@ -748,6 +747,13 @@ class SheetStore:
             updated_batch["error"] = error[:240] or "Ejecución fallida"
         enabled = success and completed < maximum
         next_run = self._iso_after(current["interval_minutes"]) if enabled else ""
+        if enabled and from_start and batch.get("started_at"):
+            try:
+                started = datetime.fromisoformat(batch["started_at"])
+                due = started + timedelta(minutes=current["interval_minutes"])
+                next_run = max(due, datetime.fromisoformat(now)).isoformat()
+            except (TypeError, ValueError):
+                pass
         leads = len((result or {}).get("prospects") or [])
         status = (f"Completado lote {completed}/{maximum}: {leads} prospectos"
                   if success else f"Pausado lote {completed}/{maximum}: {error[:180]}")

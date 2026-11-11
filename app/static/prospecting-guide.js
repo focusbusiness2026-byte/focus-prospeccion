@@ -12,6 +12,7 @@
   let reanalysisRequest = null, shownCheckpoint = '';
   let researchAvailable = false, scheduleAvailable = false, scheduleOpen = false;
   let scheduleState = null, job = null, jobTimer = null;
+  let timing = null, scheduleTimer = null;
   let jobFailures = 0, jobDisconnected = false;
   let liveLeadIds = new Set();
   let saved = new Map();
@@ -32,6 +33,9 @@
       $('#guide-crm-status').hidden = true;
       crmFrame.hidden = false;
       notifyCrm();
+    }
+    if (event.data?.type === 'focus-guide-crm-height' && Number.isSafeInteger(event.data.height) && event.data.height > 0) {
+      crmFrame.style.height = event.data.height + 'px';
     }
   });
 
@@ -170,6 +174,7 @@
       $('#guide-busy-leads').replaceChildren();
     }
     job = updated;
+    if (updated?.timing) timing = updated.timing;
     jobFailures = 0;
     jobDisconnected = false;
     if (animate) {
@@ -178,10 +183,46 @@
     }
   }
 
+  function duration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    return mins ? mins + ' min ' + (seconds % 60) + ' s' : seconds + ' s';
+  }
+
+  function renderElapsed() {
+    if (jobActive() && !jobDisconnected) {
+      const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(job.created_at)) / 1000)) || 0;
+      const phaseSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(job.updated_at)) / 1000));
+      liveText('#guide-busy-elapsed', duration(seconds) + ' en curso' +
+        (phaseSeconds >= 20 && !jobFailures ? ' · ' + duration(phaseSeconds) + ' en este paso' : ''));
+      if (!timing) {
+        liveText('#guide-busy-estimate', 'El tiempo estimado se calculará con las primeras ejecuciones.');
+      } else {
+        const remaining = timing.average_seconds - seconds;
+        liveText('#guide-busy-estimate', remaining > 0 ? 'Tiempo restante orientativo: ' + duration(remaining) :
+          'Esta búsqueda está tardando más que la referencia. El servidor sigue trabajando.');
+      }
+    }
+    const countdown = $('#guide-schedule-countdown');
+    const next = scheduleState?.enabled && Date.parse(scheduleState.next_run_at);
+    countdown.hidden = !Number.isFinite(next);
+    if (!countdown.hidden) {
+      const seconds = Math.ceil((next - Date.now()) / 1000);
+      liveText('#guide-schedule-countdown', seconds > 0 ? 'En ' + duration(seconds) : 'Esperando el siguiente ciclo del servidor.');
+    }
+  }
+
   function renderJobDialog() {
     $('#guide-busy-progress').value = job.progress || 0;
-    const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(job.created_at)) / 1000)) || 0;
-    liveText('#guide-busy-elapsed', Math.floor(seconds / 60) + ' min ' + (seconds % 60) + ' s en curso');
+    const activity = $('#guide-busy-activity');
+    const latest = (job.activities || []).slice(-4);
+    activity.hidden = !latest.length;
+    if ([...activity.children].map((item) => item.textContent).join('\n') !== latest.join('\n')) {
+      activity.replaceChildren(...latest.map((message) => {
+        const item = document.createElement('li');
+        item.textContent = message;
+        return item;
+      }));
+    }
     const list = $('#guide-busy-leads');
     for (const lead of job.saved_leads || []) {
       if ([...list.children].some((item) => item.dataset.lead === lead.execution_id)) continue;
@@ -197,7 +238,7 @@
   function renderExecution(reviewed) {
     $('#guide-execution').hidden = !reviewed && !scheduleState && !job && !jobDisconnected;
     $('#guide-run-actions').hidden = !reviewed;
-    $('#guide-launch').disabled = busy || !researchAvailable || jobActive() || jobDisconnected;
+    $('#guide-launch').disabled = busy || !researchAvailable || jobActive() || jobDisconnected || Boolean(scheduleState?.in_flight);
     $('#guide-program').disabled = busy || !scheduleAvailable || Boolean(scheduleState?.enabled || scheduleState?.in_flight);
     $('#guide-program').setAttribute('aria-expanded', String(scheduleOpen));
     $('#guide-schedule-form').hidden = !reviewed || !scheduleOpen;
@@ -205,8 +246,12 @@
     $('#guide-job-status').hidden = !job && !jobDisconnected;
     $('#guide-job-progress').hidden = !jobActive();
     $('#guide-job-progress').value = job?.progress || 0;
+    const reference = timing?.sample_count === 1 ? 'Referencia de 1 raspado' : 'Promedio de ' + timing?.sample_count + ' raspados';
+    liveText('#guide-research-average', timing ? reference + ': ' + duration(timing.average_seconds) : 'Tiempo promedio pendiente de medir.');
     liveText('#guide-job-status', jobDisconnected ?
-      'Se perdió la conexión. Consulta el estado del raspado antes de iniciar otro.' : job?.message || '');
+      'Se perdió la conexión. Consulta el estado del raspado antes de iniciar otro.' :
+      job?.status === 'completed' ? (job.leads_found ? 'Raspado completado. ' + job.leads_found +
+        (job.leads_found === 1 ? ' lead guardado.' : ' leads guardados.') : 'Raspado completado.') : job?.message || '');
     $('#guide-reconnect-job').hidden = !jobDisconnected;
     $('#guide-reconnect-job').disabled = busy;
     $('#guide-view-leads').hidden = !job?.leads_found || jobActive();
@@ -220,8 +265,29 @@
       });
       const label = scheduleState.in_flight ? 'Raspado programado en curso.' : scheduleState.enabled && next ?
         'Próximo raspado el ' + next + '.' : scheduleState.last_status || 'Programación guardada.';
-      liveText('#guide-schedule-status', label + ' ' + scheduleState.completed_runs + ' de ' + scheduleState.max_total_runs + ' realizados.');
+      const cadence = scheduleState.interval_minutes % 60 === 0 && scheduleState.interval_minutes < 1440 ?
+        scheduleState.interval_minutes / 60 + ' h' : scheduleState.interval_minutes % 1440 === 0 ?
+          scheduleState.interval_minutes / 1440 + ' d' : scheduleState.interval_minutes + ' min';
+      liveText('#guide-schedule-status', label + ' · Cada ' + cadence + ' · ' + scheduleState.completed_runs + ' de ' + scheduleState.max_total_runs + ' realizados.');
     }
+    renderElapsed();
+  }
+
+  function pollSchedule() {
+    clearTimeout(scheduleTimer);
+    if (!scheduleState?.enabled && !scheduleState?.in_flight) return;
+    const account = tenant, scheduled = scheduleState;
+    scheduleTimer = setTimeout(async () => {
+      try {
+        const updated = await api('/schedule');
+        if (tenant !== account || scheduleState !== scheduled) return;
+        scheduleState = updated;
+        render();
+      } catch {
+        if (tenant !== account || scheduleState !== scheduled) return;
+      }
+      pollSchedule();
+    }, 15000);
   }
 
   function pollJob() {
@@ -355,12 +421,15 @@
     researchAvailable = result.research_available;
     scheduleAvailable = result.schedule_available;
     scheduleState = result.schedule;
+    timing = result.timing;
+    pollSchedule();
     acceptJob(result.job, false);
     pollJob();
     const params = new URLSearchParams({crm_embed:'1', source:result.profile.onboarding_id, tenant});
     const frameUrl = '/portal?' + params + '#results';
     if (crmFrame.getAttribute('src') !== frameUrl) {
       crmFrame.hidden = true;
+      crmFrame.style.height = '';
       $('#guide-crm-status').hidden = false;
       crmFrame.src = frameUrl;
     }
@@ -533,14 +602,18 @@
         max_total_runs:Number($('#guide-run-count').value),
       });
       scheduleOpen = false;
+      pollSchedule();
     }, 'Guardando la programación…');
   };
   $('#guide-refresh-schedule').onclick = () => work(async () => {
     scheduleState = await api('/schedule');
+    pollSchedule();
   }, 'Consultando la programación…');
   $('#guide-pause-schedule').onclick = () => work(async () => {
     scheduleState = await api('/schedule', 'DELETE');
+    pollSchedule();
   }, 'Pausando la programación…');
+  setInterval(renderElapsed, 1000);
   work(async () => {
     const response = await fetch('/api/intelligence/accounts', {credentials:'same-origin'}), data = await response.json();
     if (!response.ok || !data.accounts?.length) throw Error('No hay una empresa autorizada para esta sesión.');
@@ -553,7 +626,7 @@
     $('#guide-account').onchange = () => work(async () => {
       tenant = $('#guide-account').value; session = null; startId = answerRequest = null; aiReady = intakeLoaded = false;
       historyOpen = resetOpen = false; editIndex = null; saved.clear();
-      clearTimeout(jobTimer); job = scheduleState = null; scheduleOpen = false;
+      clearTimeout(jobTimer); clearTimeout(scheduleTimer); job = scheduleState = timing = null; scheduleOpen = false;
       liveLeadIds.clear(); jobFailures = 0; jobDisconnected = false;
       $('#guide-busy-leads').replaceChildren();
       $('#guide-intake-status').hidden = true;

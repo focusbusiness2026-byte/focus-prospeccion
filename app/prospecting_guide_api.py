@@ -99,7 +99,7 @@ def intake_value(field, value):
 
 def guide_router(service, identity_dependency, template, source_for, save_for, feedback_for=None,
     intake_for=None, update_intake_for=None, run_for=None, schedule_for=None, schedule_status=None, pause_schedule=None,
-    job_for=None, leads_for=None):
+    job_for=None, leads_for=None, timing_for=None):
     router = APIRouter()
 
     def scope(tenant, identity):
@@ -131,6 +131,7 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
             'research_available': bool(run_for and service.engine.real), 'schedule_available': bool(schedule_for),
             'schedule': run(schedule_status, tenant, identity) if schedule_status else None,
             'job': run(job_for, tenant, identity) if job_for else None,
+            'timing': run(timing_for, tenant, identity) if timing_for else None,
             'mode': 'real_isolated' if service.engine.real else 'local_demo'}
 
     @router.get('/api/intelligence/{tenant}/guide/job')

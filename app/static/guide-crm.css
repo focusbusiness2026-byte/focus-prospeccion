@@ -1,12 +1,47 @@
 .guide-crm-embedded .site-header,
 .guide-crm-embedded .portal-app footer,
 .guide-crm-embedded #open-custom-scrape,
-.guide-crm-embedded .crm-column-add {
+.guide-crm-embedded .crm-column-add,
+.guide-crm-embedded .crm-canvas-scroll {
   display: none;
 }
 
 .guide-crm-embedded .portal-app > .content {
-  padding: 14px;
+  width: 100%;
+  padding: 0;
+}
+
+html:has(.guide-crm-embedded), .guide-crm-embedded {
+  overflow: hidden;
+  background: transparent;
+}
+
+.guide-crm-embedded .portal-app,
+.guide-crm-embedded .portal-view {
+  min-height: 0;
+}
+
+.guide-crm-embedded .crm-preview-board {
+  overflow: visible;
+}
+
+.guide-crm-embedded .crm-board-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(min(100%, 240px),1fr));
+  width: 100%;
+}
+
+.guide-crm-embedded .crm-column {
+  width: auto;
+  min-width: 0;
+}
+
+.guide-crm-embedded dialog[open] {
+  position: fixed;
+  inset: auto 0;
+  top: var(--guide-dialog-top, 12px);
+  margin: 0 auto;
+  max-height: var(--guide-dialog-height, calc(100vh - 24px));
 }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -996,6 +996,7 @@ def enrich_discovered_prospects(
     researcher: OpenAIWebResearcher | None = None,
     scraper: PublicWebScraper | None = None,
     on_candidate: Callable[[int, int], None] | None = None,
+    on_sources: Callable[[int, int, int], None] | None = None,
     on_verified: Callable[[dict], None] | None = None,
 ) -> tuple[list[dict], dict]:
     """Verify each candidate as an operating company before it enters the CRM.
@@ -1029,6 +1030,8 @@ def enrich_discovered_prospects(
                 continue
             evidence = WebEvidence("", "", "", [], {}, [])
 
+        if on_sources:
+            on_sources(index, len(candidates), len(evidence.pages))
         analysis, usage = detailed.analyze(
             str(lead.get("company") or ""),
             evidence,

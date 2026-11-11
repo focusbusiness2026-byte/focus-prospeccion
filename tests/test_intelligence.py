@@ -258,6 +258,11 @@ with TestClient(app) as c:
     assert captured[0]['exclusions'].startswith('Conservar exclusión del cliente')
     recovered = c.get('/api/intelligence/three-dots/guide/job')
     assert recovered.status_code == 200 and recovered.json()['status'] == 'completed'
+    store.claim('completed', {'at':'2026-11-11T10:00:00+00:00', 'finished_at':'2026-11-11T10:07:00+00:00',
+                              'execution_id':'measured-1','origin':'manual'})
+    store.claim('completed', {'at':'2026-11-11T11:00:00+00:00', 'finished_at':'2026-11-11T11:09:00+00:00',
+                              'execution_id':'measured-2','origin':'automation'})
+    assert c.get('/api/intelligence/three-dots/guide').json()['timing'] == {'sample_count':2,'average_seconds':480}
     assert c.get('/api/intelligence/control/guide/job').status_code == 403
     rows = c.get('/api/intelligence/three-dots/guide/leads', params={'ids':'real-id-preserved'}).json()
     assert [lead['execution_id'] for lead in rows] == ['real-id-preserved']

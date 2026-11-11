@@ -3,7 +3,26 @@
 (() => {
   if (!embeddedCrmSource || window.parent === window) return;
   const tenant = new URLSearchParams(location.search).get('tenant');
-  if (!tenant) return;
+  const frame = window.frameElement;
+  if (!tenant || !frame) return;
+  const content = document.querySelector('.portal-app > .content');
+  const setViewport = () => {
+    const bounds = frame.getBoundingClientRect();
+    const top = Math.max(0, -bounds.top);
+    const available = Math.max(0, Math.min(window.parent.innerHeight, bounds.bottom) - Math.max(0, bounds.top));
+    document.documentElement.style.setProperty('--guide-dialog-top', (top + 12) + 'px');
+    document.documentElement.style.setProperty('--guide-dialog-height', Math.max(96, available - 24) + 'px');
+  };
+  const sizing = new ResizeObserver(() => {
+    const height = Math.ceil(content.getBoundingClientRect().height);
+    if (height > 0) window.parent.postMessage({type:'focus-guide-crm-height', height}, location.origin);
+    setViewport();
+  });
+  sizing.observe(content);
+  const view = new AbortController();
+  window.parent.addEventListener('scroll', setViewport, {passive:true, signal:view.signal});
+  window.parent.addEventListener('resize', setViewport, {passive:true, signal:view.signal});
+  window.addEventListener('pagehide', () => { view.abort(); sizing.disconnect(); }, {once:true});
   const synced = new Set(), pending = new Set();
   const status = document.createElement('p');
   status.hidden = true;

@@ -146,8 +146,9 @@ def test_private_manual_research_saves_before_analysing_the_next_company(monkeyp
     monkeypatch.setattr("app.main.OpenAIProspectDiscovery", TwoCandidates)
     store, progress = PipelineStore(), []
 
-    def detailed(leads, trace, profile, adjustments, *, settings, on_candidate, on_verified):
+    def detailed(leads, trace, profile, adjustments, *, settings, on_candidate, on_sources, on_verified):
         on_candidate(1, 2)
+        on_sources(1, 2, 2)
         on_verified(leads[0])
         on_candidate(2, 2)
         assert [lead["company"] for lead in store.prospects] == ["Prospecto Nuevo"]
@@ -172,6 +173,10 @@ def test_private_manual_research_saves_before_analysing_the_next_company(monkeyp
         assert [lead["execution_id"] for lead in store.prospects] == ["private-job-001", "private-job-002"]
     percentages = [event["progress"] for event in progress]
     assert percentages == sorted(percentages)
+    activity = [event["activity"] for event in progress if "activity" in event]
+    assert "2 páginas públicas revisadas" in activity[1]
+    assert activity[2].startswith("Prospecto Nuevo · Guardado en Nuevo")
+    assert activity[3].startswith("Empresa 2 de 2")
     assert next(event for event in progress if "latest_lead" in event)["latest_lead"]["execution_id"] == "private-job-001"
 
 

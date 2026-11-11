@@ -354,9 +354,16 @@ def guide_run(record_id, criteria, request, background_tasks, identity):
 def guide_job(tenant, identity):
     source = guide_source(tenant, identity)
     live = main.latest_manual_research_job(source.record_id, identity.email)
+    if REAL_MODE and live and live["status"] == "completed":
+        live["timing"] = main.SheetStore(SETTINGS).research_timing(source)
     if live or not REAL_MODE:
         return live
     return main.SheetStore(SETTINGS).restore_manual_job(source)
+
+
+def guide_timing(tenant, identity):
+    source = guide_source(tenant, identity)
+    return main.SheetStore(SETTINGS).research_timing(source) if REAL_MODE else None
 
 
 def guide_leads(tenant, identity, ids):
@@ -412,4 +419,4 @@ guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campa
 targeting_guide = TargetingGuide(campaign_engine, guide_generator)
 app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile,
     guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run, guide_schedule,
-    guide_schedule_status, guide_pause_schedule, guide_job, guide_leads))
+    guide_schedule_status, guide_pause_schedule, guide_job, guide_leads, guide_timing))

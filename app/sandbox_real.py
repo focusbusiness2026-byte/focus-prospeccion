@@ -28,6 +28,37 @@ from app.intelligence_contacts import prospect_contact, import_approved_selectio
 SOURCE_ID="ONB-A23D5DB5"
 OWNER="sandbox-owner@example.test"
 PORTAL="https://focus-business-sandbox-20261108.moisses.chatgpt.site"
+TIMING_SAMPLE_LIMIT = 20
+
+
+def research_duration(started_at, finished_at):
+    try:
+        started = datetime.fromisoformat(started_at)
+        finished = datetime.fromisoformat(finished_at)
+        seconds = round((finished - started).total_seconds())
+        return seconds if seconds > 0 and started.tzinfo and finished.tzinfo else None
+    except (TypeError, ValueError):
+        return None
+
+
+def seed_research_timing(db):
+    row = db.execute("SELECT payload FROM research_claims WHERE account=? AND state='completed'", (SOURCE_ID,)).fetchone()
+    if not row:
+        return
+    claim = json.loads(row[0])
+    cells = json.loads(db.execute("SELECT payload FROM sandbox WHERE id=1").fetchone()[0])
+    executions = cells.get("Ejecuciones", [])
+    for row in reversed(executions[1:]):
+        execution = dict(zip(executions[0], row))
+        if execution.get("execution_id") != claim.get("execution_id") or execution.get("onboarding_id") != SOURCE_ID:
+            continue
+        if execution.get("status") in {"Completado", "Completado sin prospectos"}:
+            end = execution.get("created_at")
+            duration = research_duration(claim.get("at"), end)
+            if duration:
+                db.execute("INSERT OR IGNORE INTO research_timings VALUES (?, ?, ?)",
+                           (execution["execution_id"], end, duration))
+        break
 
 
 class ApprovedSelection(BaseModel):
@@ -91,6 +122,8 @@ def configure(app):
                 db.execute("CREATE TABLE sandbox(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)")
                 db.execute("INSERT INTO sandbox VALUES(1,'{}')")
             db.execute("CREATE TABLE IF NOT EXISTS research_claims(account TEXT PRIMARY KEY,state TEXT,payload TEXT)")
+            db.execute("CREATE TABLE IF NOT EXISTS research_timings(execution_id TEXT PRIMARY KEY,finished_at TEXT NOT NULL,seconds INTEGER NOT NULL)")
+            seed_research_timing(db)
             # The worker of the restored process no longer exists. Release its
             # reservation without rerunning the search or changing its results.
             db.execute("UPDATE research_claims SET state='review_required' WHERE state='started'")
@@ -120,17 +153,42 @@ def configure(app):
             with sb.LOCK:
                 if config["onboarding_id"] != SOURCE_ID or not sb.is_guided_schedule(config):
                     return None
+                with sqlite3.connect(path) as db:
+                    if db.execute("SELECT 1 FROM research_claims WHERE account=? AND state='started'", (SOURCE_ID,)).fetchone():
+                        return None
                 return super().claim_bounded_automation_run(config)
+
+        def finish_bounded_automation_run(self, config, *, result=None, error=""):
+            with sb.LOCK:
+                return super().finish_bounded_automation_run(config, result=result, error=error, from_start=True)
+
         def claim(self,state,payload):
             with sb.LOCK,sqlite3.connect(path) as db:
                 db.execute("BEGIN IMMEDIATE")
                 prior=db.execute("SELECT state FROM research_claims WHERE account=?",(SOURCE_ID,)).fetchone()
                 if state=="started" and prior and prior[0]=="started":
                     raise ValueError("Ya hay un raspado en curso para esta cuenta.")
+                if state=="started" and payload["origin"]=="manual":
+                    current = self.get_automation_config(SOURCE_ID)
+                    if sb.is_guided_schedule(current) and current["batch"].get("in_flight"):
+                        raise ValueError("Ya hay un raspado programado en curso para esta cuenta.")
                 if state=="started" and prior and prior[0]=="review_required" and payload["origin"]!="manual":
                     raise RuntimeError("Hay una investigación pendiente de revisión")
                 db.execute("INSERT INTO research_claims VALUES(?,?,?) ON CONFLICT(account) DO UPDATE SET state=excluded.state,payload=excluded.payload",(SOURCE_ID,state,json.dumps(payload)))
+                if state == "completed" and payload.get("finished_at"):
+                    duration = research_duration(payload["at"], payload["finished_at"])
+                    if duration:
+                        db.execute("INSERT OR IGNORE INTO research_timings VALUES (?, ?, ?)",
+                                   (payload["execution_id"], payload["finished_at"], duration))
+                        db.execute("DELETE FROM research_timings WHERE execution_id IN (SELECT execution_id FROM research_timings ORDER BY finished_at DESC, execution_id DESC LIMIT -1 OFFSET ?)", (TIMING_SAMPLE_LIMIT,))
                 cells_remote.save("\n".join(db.iterdump()))
+
+        def research_timing(self, source):
+            if source.record_id != SOURCE_ID:
+                return None
+            with sqlite3.connect(path) as db:
+                count, average = db.execute("SELECT count(*), avg(seconds) FROM research_timings").fetchone()
+            return {"sample_count": count, "average_seconds": round(average)} if count else None
 
         def restore_manual_job(self, source):
             if source.record_id != SOURCE_ID:
@@ -207,7 +265,9 @@ def configure(app):
             if origin == "manual" and kwargs.get("progress_callback"):
                 kwargs["stream_results"] = True
             result=original(source,store,*args,**kwargs)
-            store.claim("completed",{**claim,"execution_id":result["execution_id"],"leads":len(result["prospects"]),"usage":{k:result["trace"].get(k) for k in ("prompt_tokens","output_tokens","total_tokens","web_search_calls")}})
+            store.claim("completed",{**claim,"execution_id":result["execution_id"],"leads":len(result["prospects"]),
+                "finished_at":datetime.now(timezone.utc).isoformat(),
+                "usage":{k:result["trace"].get(k) for k in ("prompt_tokens","output_tokens","total_tokens","web_search_calls")}})
             return result
         except Exception:
             store.claim("review_required",claim)
