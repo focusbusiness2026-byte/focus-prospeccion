@@ -3,7 +3,7 @@ from uuid import UUID
 from typing import Literal
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.auth import validate_csrf
@@ -98,7 +98,8 @@ def intake_value(field, value):
 
 
 def guide_router(service, identity_dependency, template, source_for, save_for, feedback_for=None,
-    intake_for=None, update_intake_for=None, run_for=None, schedule_for=None, schedule_status=None, pause_schedule=None):
+    intake_for=None, update_intake_for=None, run_for=None, schedule_for=None, schedule_status=None, pause_schedule=None,
+    job_for=None, leads_for=None):
     router = APIRouter()
 
     def scope(tenant, identity):
@@ -129,7 +130,21 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
             'saved': run(service.saved, tenant, identity.email),
             'research_available': bool(run_for and service.engine.real), 'schedule_available': bool(schedule_for),
             'schedule': run(schedule_status, tenant, identity) if schedule_status else None,
+            'job': run(job_for, tenant, identity) if job_for else None,
             'mode': 'real_isolated' if service.engine.real else 'local_demo'}
+
+    @router.get('/api/intelligence/{tenant}/guide/job')
+    def current_job(tenant: str, identity=Depends(identity_dependency)):
+        scope(tenant, identity)
+        return run(job_for, tenant, identity) if job_for else None
+
+    @router.get('/api/intelligence/{tenant}/guide/leads')
+    def saved_leads(tenant: str, ids: str = Query(max_length=500), identity=Depends(identity_dependency)):
+        scope(tenant, identity)
+        lead_ids = list(dict.fromkeys(ids.split(',')))
+        if len(lead_ids) > 5:
+            raise HTTPException(422, 'Consulta hasta cinco leads por solicitud.')
+        return run(leads_for, tenant, identity, lead_ids) if leads_for else []
 
     @router.patch('/api/intelligence/{tenant}/guide/intake')
     def update_intake(tenant: str, payload: UpdateField, request: Request, identity=Depends(identity_dependency)):

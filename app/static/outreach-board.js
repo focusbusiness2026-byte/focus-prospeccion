@@ -27,7 +27,7 @@
           const result=await response.json();
           if(!response.ok||!result.ok)throw Error(result.detail||'No se pudo preparar la selección.');
           sessionStorage.setItem('focus-campaign-selection',JSON.stringify({ids}));
-          window.location.assign('/campaigns/outreach');
+          window.top.location.assign('/campaigns/outreach');
         } catch(error) {
           controls.querySelector('[data-campaign-count]').textContent=error.message||'No se pudo preparar la selección.';
           button.disabled=false;

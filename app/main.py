@@ -213,6 +213,17 @@ def _cleanup_research_jobs_locked() -> None:
         _RESEARCH_JOBS.pop(job["job_id"], None)
 
 
+def latest_manual_research_job(source_id: str, actor_email: str) -> dict | None:
+    with _RESEARCH_JOBS_LOCK:
+        job = max(
+            (item for item in _RESEARCH_JOBS.values()
+             if item["source_id"] == source_id and item["owner_email"] == actor_email.strip().lower()),
+            key=lambda item: item["created_at"],
+            default=None,
+        )
+        return _public_research_job(job) if job else None
+
+
 def _update_research_job(job_id: str, **changes) -> dict | None:
     with _RESEARCH_JOBS_LOCK:
         job = _RESEARCH_JOBS.get(job_id)
@@ -415,6 +426,8 @@ def _run_onboarding_research(
     execution_origin: str = "manual",
     bypass_user_limit: bool = False,
     progress_callback: Callable[[dict], None] | None = None,
+    execution_id: str | None = None,
+    stream_results: bool = False,
 ) -> dict:
     def report(**update) -> None:
         if progress_callback:
@@ -425,7 +438,44 @@ def _run_onboarding_research(
         raise ValueError("; ".join(source.blockers))
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY_REQUIRED")
-    execution_id = str(uuid.uuid4())
+    execution_id = execution_id or str(uuid.uuid4())
+    saved_count = 0
+
+    def save_prospect(prospect: dict, progress: int, total: int | None = None) -> None:
+        nonlocal saved_count
+        prospect_execution_id = f"{execution_id}-{saved_count + 1:03d}"
+        store.append_prospect(
+            {
+                **prospect,
+                "execution_id": prospect_execution_id,
+                "email": source.email,
+                "onboarding_id": source.record_id,
+                "productora": source.company,
+            }
+        )
+        saved_count += 1
+        lead_label = f"Lead {saved_count}" if total is None else f"Lead {saved_count} de {total}"
+        report(
+            phase="saving",
+            progress=progress,
+            message=f"{lead_label} guardado en Nuevo.",
+            leads_found=saved_count,
+            latest_lead={
+                "company": str(prospect.get("company") or "Empresa verificada")[:120],
+                "execution_id": prospect_execution_id,
+            },
+        )
+
+    verification_progress = 45
+
+    def verify_candidate(index: int, total: int) -> None:
+        nonlocal verification_progress
+        verification_progress = 45 + round((index - 1) / total * 45)
+        report(
+            phase="validating", progress=verification_progress,
+            message=f"Analizando la empresa {index} de {total}: actividad, decisores y señales públicas…",
+        )
+
     try:
         report(
             phase="preparing",
@@ -452,20 +502,25 @@ def _run_onboarding_research(
             if company_dedupe_key({"commercial_name": prospect.get("company", ""), "website": prospect.get("website", ""), "city": prospect.get("city", "")}) not in existing_keys
         ]
         existing_duplicates = discovered_count - len(prospects)
-        if settings.openai_deep_research_enabled and prospects:
+        detailed = settings.openai_deep_research_enabled and bool(prospects)
+        if detailed:
             report(
                 phase="validating",
                 progress=45,
                 message="Verificando cada empresa, decisores y señales en fuentes públicas…",
             )
+            callbacks = {
+                "on_candidate": verify_candidate,
+                "on_verified": lambda prospect: save_prospect(prospect, verification_progress),
+            } if stream_results else {}
             prospects, trace = enrich_discovered_prospects(
-                prospects, trace, profile, cycle_adjustments, settings=settings
+                prospects, trace, profile, cycle_adjustments, settings=settings, **callbacks
             )
-        report(
-            phase="validating",
-            progress=65,
-            message="Validando la evidencia pública de cada empresa investigada…",
-        )
+        if not (detailed and stream_results):
+            report(
+                phase="validating", progress=65,
+                message="Validando la evidencia pública de cada empresa investigada…",
+            )
         duplicates_discarded = discovered_count - len(prospects)
         target_leads = 5
         missing_leads = max(0, target_leads - len(prospects))
@@ -480,27 +535,9 @@ def _run_onboarding_research(
                 "Puedes ampliar o ajustar los criterios únicamente mediante una acción explícita en el portal."
             )
         total_to_save = len(prospects)
-        for index, prospect in enumerate(prospects, start=1):
-            prospect_execution_id = f"{execution_id}-{index:03d}"
-            store.append_prospect(
-                {
-                    **prospect,
-                    "execution_id": prospect_execution_id,
-                    "email": source.email,
-                    "onboarding_id": source.record_id,
-                    "productora": source.company,
-                }
-            )
-            report(
-                phase="saving",
-                progress=65 + round((index / max(total_to_save, 1)) * 25),
-                message=f"Lead {index} de {total_to_save} guardado en Leads y CRM.",
-                leads_found=index,
-                latest_lead={
-                    "company": str(prospect.get("company") or "Empresa verificada")[:120],
-                    "execution_id": prospect_execution_id,
-                },
-            )
+        if not (detailed and stream_results):
+            for index, prospect in enumerate(prospects, start=1):
+                save_prospect(prospect, 65 + round(index / total_to_save * 25), total_to_save)
         report(
             phase="finalizing",
             progress=95,
@@ -611,6 +648,7 @@ def _execute_research_job(
             execution_origin="manual",
             bypass_user_limit=bypass_user_limit,
             progress_callback=on_progress,
+            execution_id=job_id,
         )
         _update_research_job(
             job_id,
@@ -626,7 +664,6 @@ def _execute_research_job(
             job_id,
             status="failed",
             phase="failed",
-            progress=100,
             message=_safe_research_failure(exc),
         )
     finally:

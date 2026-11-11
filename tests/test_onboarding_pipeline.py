@@ -135,6 +135,46 @@ def test_pipeline_investigates_every_discovered_company_before_saving(monkeypatc
     assert store.prospects[0]["dossier"]["identification"][0]["certainty"] == "confirmed"
 
 
+@pytest.mark.parametrize("fails_after_first", [False, True])
+def test_private_manual_research_saves_before_analysing_the_next_company(monkeypatch, fails_after_first):
+    class TwoCandidates(FixtureDiscovery):
+        def discover(self, profile, adjustments):
+            leads, trace = super().discover(profile, adjustments)
+            return [*leads, {"company": "Segundo lead", "website": "https://segundo.example"}], trace
+
+    monkeypatch.setattr("app.main.get_settings", lambda: Settings(openai_api_key="fixture-only", google_sheets_enabled=True))
+    monkeypatch.setattr("app.main.OpenAIProspectDiscovery", TwoCandidates)
+    store, progress = PipelineStore(), []
+
+    def detailed(leads, trace, profile, adjustments, *, settings, on_candidate, on_verified):
+        on_candidate(1, 2)
+        on_verified(leads[0])
+        on_candidate(2, 2)
+        assert [lead["company"] for lead in store.prospects] == ["Prospecto Nuevo"]
+        assert store.successful_scrapes == 0
+        if fails_after_first:
+            raise RuntimeError("Test provider failure")
+        on_verified(leads[1])
+        return leads, trace
+
+    monkeypatch.setattr("app.main.enrich_discovered_prospects", detailed)
+    options = {"stream_results": True, "progress_callback": progress.append, "execution_id": "private-job"}
+    if fails_after_first:
+        with pytest.raises(RuntimeError, match="Test provider failure"):
+            _run_onboarding_research(source(), store, **options)
+        assert store.execution["status"] == "Fallido"
+        assert store.successful_scrapes == 0
+        assert [lead["execution_id"] for lead in store.prospects] == ["private-job-001"]
+    else:
+        result = _run_onboarding_research(source(), store, **options)
+        assert result["execution_id"] == "private-job"
+        assert store.successful_scrapes == 1
+        assert [lead["execution_id"] for lead in store.prospects] == ["private-job-001", "private-job-002"]
+    percentages = [event["progress"] for event in progress]
+    assert percentages == sorted(percentages)
+    assert next(event for event in progress if "latest_lead" in event)["latest_lead"]["execution_id"] == "private-job-001"
+
+
 def test_administrator_execution_charges_the_source_account_and_records_actor(monkeypatch):
     settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True, openai_deep_research_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)

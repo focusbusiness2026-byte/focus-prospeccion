@@ -1,0 +1,16 @@
+.guide-crm-embedded .site-header,
+.guide-crm-embedded .portal-app footer,
+.guide-crm-embedded #open-custom-scrape,
+.guide-crm-embedded .crm-column-add {
+  display: none;
+}
+
+.guide-crm-embedded .portal-app > .content {
+  padding: 14px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .guide-crm-embedded .crm-board-card.guide-lead-arrived {
+    animation: kanban-card-arrive 280ms ease-out both;
+  }
+}

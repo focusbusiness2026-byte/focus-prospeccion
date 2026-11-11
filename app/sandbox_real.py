@@ -91,6 +91,9 @@ def configure(app):
                 db.execute("CREATE TABLE sandbox(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)")
                 db.execute("INSERT INTO sandbox VALUES(1,'{}')")
             db.execute("CREATE TABLE IF NOT EXISTS research_claims(account TEXT PRIMARY KEY,state TEXT,payload TEXT)")
+            # The worker of the restored process no longer exists. Release its
+            # reservation without rerunning the search or changing its results.
+            db.execute("UPDATE research_claims SET state='review_required' WHERE state='started'")
             cells_remote.save("\n".join(db.iterdump()))
 
     class RealStore(sb.SandboxStore):
@@ -118,14 +121,52 @@ def configure(app):
                 if config["onboarding_id"] != SOURCE_ID or not sb.is_guided_schedule(config):
                     return None
                 return super().claim_bounded_automation_run(config)
-        def claim(self,state,payload=None):
+        def claim(self,state,payload):
             with sb.LOCK,sqlite3.connect(path) as db:
                 db.execute("BEGIN IMMEDIATE")
                 prior=db.execute("SELECT state FROM research_claims WHERE account=?",(SOURCE_ID,)).fetchone()
-                if state=="started" and prior and prior[0] in {"started","review_required"}:
-                    raise RuntimeError("Hay una investigación pendiente de revisión; no se repetirá el consumo")
-                db.execute("INSERT INTO research_claims VALUES(?,?,?) ON CONFLICT(account) DO UPDATE SET state=excluded.state,payload=excluded.payload",(SOURCE_ID,state,json.dumps(payload or {})))
+                if state=="started" and prior and prior[0]=="started":
+                    raise ValueError("Ya hay un raspado en curso para esta cuenta.")
+                if state=="started" and prior and prior[0]=="review_required" and payload["origin"]!="manual":
+                    raise RuntimeError("Hay una investigación pendiente de revisión")
+                db.execute("INSERT INTO research_claims VALUES(?,?,?) ON CONFLICT(account) DO UPDATE SET state=excluded.state,payload=excluded.payload",(SOURCE_ID,state,json.dumps(payload)))
                 cells_remote.save("\n".join(db.iterdump()))
+
+        def restore_manual_job(self, source):
+            if source.record_id != SOURCE_ID:
+                return None
+            with sb.LOCK, sqlite3.connect(path) as db:
+                row = db.execute("SELECT state,payload FROM research_claims WHERE account=?", (SOURCE_ID,)).fetchone()
+            if not row:
+                return None
+            state, payload_json = row
+            payload = json.loads(payload_json)
+            execution_id = payload.get("execution_id", "")
+            if payload.get("origin", "manual") != "manual" or state == "started":
+                return None
+            cells = self._load()
+            executions = cells.get("Ejecuciones", [])
+            execution = next((dict(zip(executions[0], item)) for item in reversed(executions[1:])
+                              if item and item[0] == execution_id), {})
+            prospects = cells.get("Prospeccion", [])
+            saved = [
+                {"execution_id": lead["execution_id"], "company": lead.get("company") or "Empresa verificada"}
+                for item in prospects[1:] if item and execution_id and str(item[0]).startswith(execution_id + "-")
+                for lead in [dict(zip(prospects[0], item))]
+                if lead.get("onboarding_id") == source.record_id
+            ]
+            completed = state == "completed" or execution.get("status") in {"Completado", "Completado sin prospectos"}
+            count = payload.get("leads", len(saved)) if completed else len(saved)
+            if completed:
+                message = f"Raspado completado. {count} {'lead guardado' if count == 1 else 'leads guardados'}." if count else "Raspado completado sin nuevos leads verificables."
+            else:
+                message = "El raspado anterior se interrumpió o falló. Los leads ya guardados siguen en el CRM."
+            status = "completed" if completed else "failed"
+            return {"job_id": execution_id, "source_id": source.record_id, "status": status, "phase": status,
+                    "progress": 100 if completed else 0, "message": message, "leads_found": count,
+                    "saved_leads": saved, "execution_id": execution_id,
+                    "created_at": payload.get("at") or execution.get("created_at"),
+                    "updated_at": execution.get("created_at") or payload.get("at")}
 
     if RealStore()._load():RealStore()._save(RealStore()._load())
     main.SheetStore=RealStore
@@ -158,13 +199,18 @@ def configure(app):
         controls["exclusions"]=(str(controls.get("exclusions") or "")+"\nNo devolver las empresas de already_in_crm ni sus variantes de marca o dominio: ya existen en el CRM de esta cuenta. Busca candidatas nuevas sin relajar los demás criterios.").strip()
         if args:args=(controls,*args[1:])
         else:kwargs["adjustments"]=controls
-        store.claim("started",{"at":datetime.now(timezone.utc).isoformat()})
+        origin = kwargs.get("execution_origin", "manual")
+        claim = {"at":datetime.now(timezone.utc).isoformat(), "origin":origin,
+                 "execution_id":kwargs.get("execution_id", "")}
+        store.claim("started",claim)
         try:
+            if origin == "manual" and kwargs.get("progress_callback"):
+                kwargs["stream_results"] = True
             result=original(source,store,*args,**kwargs)
-            store.claim("completed",{"execution_id":result["execution_id"],"leads":len(result["prospects"]),"usage":{k:result["trace"].get(k) for k in ("prompt_tokens","output_tokens","total_tokens","web_search_calls")}})
+            store.claim("completed",{**claim,"execution_id":result["execution_id"],"leads":len(result["prospects"]),"usage":{k:result["trace"].get(k) for k in ("prompt_tokens","output_tokens","total_tokens","web_search_calls")}})
             return result
         except Exception:
-            store.claim("review_required")
+            store.claim("review_required",claim)
             raise
     main._run_onboarding_research=isolated_research
 

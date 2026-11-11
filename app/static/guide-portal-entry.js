@@ -12,7 +12,7 @@
   const intro = document.querySelector('#sources .intro');
   if (intro) intro.textContent = 'Define tu cliente ideal con la guía o vuelve a usar una búsqueda guardada.';
   const info = document.querySelector('#sources [data-info-title="Prospección"]');
-  if (info) info.dataset.infoCopy = 'Selecciona tu empresa y abre Prospección guiada para configurar una búsqueda. Las búsquedas guardadas siguen disponibles para investigar.';
+  if (info) info.dataset.infoCopy = 'Selecciona tu empresa y abre Prospección para configurar una búsqueda. Las búsquedas guardadas siguen disponibles para investigar.';
 
   function refresh() {
     list.querySelectorAll('.research-workspace:not([data-guide-entry])').forEach((workspace) => {
@@ -30,7 +30,7 @@
       const link = document.createElement('a');
       link.className = 'primary button';
       link.href = '/prospecting-guide?source=' + encodeURIComponent(workspace.dataset.source);
-      link.textContent = 'Configurar con Prospección guiada →';
+      link.textContent = 'Abrir Prospección →';
       entry.append(link);
       workspace.prepend(entry);
     });

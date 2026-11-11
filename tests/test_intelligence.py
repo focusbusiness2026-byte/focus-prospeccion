@@ -256,6 +256,17 @@ with TestClient(app) as c:
     real.main._run_onboarding_research(source,store,adjustments={'exclusions':'Conservar exclusión del cliente'})
     assert captured[0]['already_in_crm']==[{'company':'Empresa real de prueba','website':''}]
     assert captured[0]['exclusions'].startswith('Conservar exclusión del cliente')
+    recovered = c.get('/api/intelligence/three-dots/guide/job')
+    assert recovered.status_code == 200 and recovered.json()['status'] == 'completed'
+    assert c.get('/api/intelligence/control/guide/job').status_code == 403
+    rows = c.get('/api/intelligence/three-dots/guide/leads', params={'ids':'real-id-preserved'}).json()
+    assert [lead['execution_id'] for lead in rows] == ['real-id-preserved']
+    assert c.get('/api/intelligence/control/guide/leads', params={'ids':'real-id-preserved'}).status_code == 403
+    assert c.get('/api/intelligence/three-dots/guide/leads', params={'ids':'a,b,c,d,e,f'}).status_code == 422
+    store.claim('review_required',{'origin':'manual','execution_id':'interrupted-test'})
+    assert c.get('/api/intelligence/three-dots/guide/job').json()['status'] == 'failed'
+    real.main._run_onboarding_research(source,store,adjustments={})
+    assert c.get('/api/intelligence/three-dots/guide/job').json()['status'] == 'completed'
     assert c.post('/api/intelligence/three-dots/sync-approved',headers=csrf).status_code==200
 '''
     env={k:v for k,v in os.environ.items() if k not in {'GOOGLE_SERVICE_ACCOUNT_JSON','GOOGLE_SHEET_ID','OPENAI_API_KEY','GEMINI_API_KEY'}}

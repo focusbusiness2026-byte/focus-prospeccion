@@ -264,9 +264,19 @@ async def sandbox_boundary(request, call_next):
         banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
         response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
         if path == "/portal":
-            body = body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1)
-            body = body.replace('</nav>', '<a href="/prospecting-guide">Prospección guiada</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav>', 1)
-            response = HTMLResponse(body.replace('</body>', '<script src="/static/outreach-board.js" defer></script><script src="/static/guide-portal-entry.js" defer></script></body>'), headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
+            scripts = '<script src="/static/outreach-board.js" defer></script>'
+            if request.query_params.get("crm_embed") == "1":
+                body = body.replace('<body class="portal-booting">', '<body class="portal-booting guide-crm-embedded">', 1)
+                body = body.replace('</head>', '<link rel="stylesheet" href="/static/guide-crm.css"></head>', 1)
+                scripts += '<script src="/static/guide-crm.js" defer></script>'
+            else:
+                body = body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1)
+                body = body.replace('href="#sources" data-view="sources">Prospección', 'href="/prospecting-guide">Prospección', 1)
+                body = body.replace('<a class="top-link" href="#results" data-view="results">Leads y CRM</a>', '', 1)
+                body = body.replace('</nav>', '<a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav>', 1)
+                scripts += '<script src="/static/guide-portal-entry.js" defer></script>'
+            response = HTMLResponse(body.replace('</body>', scripts + '</body>'), status_code=response.status_code,
+                                    headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
     if not request.cookies.get(auth.CSRF_COOKIE):
         response.set_cookie(auth.CSRF_COOKIE, secrets.token_urlsafe(24), samesite="lax", secure=request.url.scheme=="https")
     return response
@@ -341,6 +351,24 @@ def guide_run(record_id, criteria, request, background_tasks, identity):
         request, background_tasks, identity)
 
 
+def guide_job(tenant, identity):
+    source = guide_source(tenant, identity)
+    live = main.latest_manual_research_job(source.record_id, identity.email)
+    if live or not REAL_MODE:
+        return live
+    return main.SheetStore(SETTINGS).restore_manual_job(source)
+
+
+def guide_leads(tenant, identity, ids):
+    source = guide_source(tenant, identity)
+    store = main.SheetStore(SETTINGS)
+    selected = set(ids)
+    matches = [item for item in store.recent_prospects(source.email, limit=1000)
+               if item["execution_id"] in selected and item["onboarding_id"] == source.record_id]
+    return main.decorate_prospects(matches, store.review_events(source.email),
+                                   require_admin_review=SETTINGS.lead_admin_review_required)
+
+
 def public_guide_schedule(config):
     if not is_guided_schedule(config):
         return None
@@ -384,4 +412,4 @@ guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campa
 targeting_guide = TargetingGuide(campaign_engine, guide_generator)
 app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile,
     guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run, guide_schedule,
-    guide_schedule_status, guide_pause_schedule))
+    guide_schedule_status, guide_pause_schedule, guide_job, guide_leads))

@@ -7,6 +7,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -994,6 +995,8 @@ def enrich_discovered_prospects(
     settings: Settings | None = None,
     researcher: OpenAIWebResearcher | None = None,
     scraper: PublicWebScraper | None = None,
+    on_candidate: Callable[[int, int], None] | None = None,
+    on_verified: Callable[[dict], None] | None = None,
 ) -> tuple[list[dict], dict]:
     """Verify each candidate as an operating company before it enters the CRM.
 
@@ -1009,7 +1012,10 @@ def enrich_discovered_prospects(
     public_scraper = scraper or PublicWebScraper(config)
     enriched: list[dict] = []
     discarded = 0
-    for lead in prospects[:5]:
+    candidates = prospects[:5]
+    for index, lead in enumerate(candidates, start=1):
+        if on_candidate:
+            on_candidate(index, len(candidates))
         website = str(lead.get("website") or "").strip()
         try:
             evidence = public_scraper.scrape(website)
@@ -1074,6 +1080,8 @@ def enrich_discovered_prospects(
         merged["web_search_calls"] = lead.get("web_search_calls", 0) + analysis["web_search_calls"]
         merged["web_search_call_limit"] = lead.get("web_search_call_limit", 0) + analysis["web_search_call_limit"]
         enriched.append(merged)
+        if on_verified:
+            on_verified(merged)
 
     trace["research_summary"] = (
         f"{trace.get('research_summary', '').strip()} Verificación individual: "

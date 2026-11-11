@@ -2,14 +2,14 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Prospección guiada · Focus Business</title><link rel="icon" href="/static/favicon.svg">
+<title>Prospección · Focus Business</title><link rel="icon" href="/static/favicon.svg">
 <link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css">
 </head>
 <body>
 <header id="guide-header"><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
-<nav><a class="active" href="/prospecting-guide">Prospección guiada</a><a href="/portal#results">Leads y CRM</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
+<nav><a class="active" href="/prospecting-guide">Prospección</a><a href="#crm">Ir al tablero</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
 <main class="guide-main">
-  <div class="guide-title"><div><p class="eyebrow">PROSPECCIÓN GUIADA</p><h1>Define tu cliente ideal</h1></div><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
+  <div class="guide-title"><h1>Prospección</h1><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
   <section class="guide-learning" aria-labelledby="guide-learning-label">
     <div><strong id="guide-learning-label">Aprendizaje de tu búsqueda</strong><span id="guide-progress-label"></span></div>
     <progress id="guide-progress" max="10" value="0" aria-labelledby="guide-learning-label" aria-describedby="guide-learning-note"></progress>
@@ -36,9 +36,13 @@
         <details><summary>Ver criterios y supuestos</summary><dl id="guide-criteria"></dl><div id="guide-assumptions"></div></details>
         <p id="guide-missing" class="muted" hidden>Falta concretar el sector o el país antes de guardar.</p>
         <label class="guide-check" id="guide-confirm-label"><input type="checkbox" id="guide-confirm"> He revisado los criterios.</label>
-        <div class="actions"><button class="primary" id="guide-apply">Guardar búsqueda</button><button id="guide-more-review" hidden>Responder 5 más</button><a id="guide-research" class="button" href="/portal#sources" hidden>Abrir búsqueda guardada →</a></div>
+        <div class="actions"><button class="primary" id="guide-apply">Guardar búsqueda</button><button id="guide-more-review" hidden>Responder 5 más</button></div>
       </div>
       <section id="guide-execution" aria-label="Raspado y programación" hidden>
+        <h3>Buscar nuevos leads</h3>
+        <p id="guide-job-status" role="status" hidden></p>
+        <progress id="guide-job-progress" max="100" aria-label="Progreso del raspado" hidden></progress>
+        <button id="guide-reconnect-job" type="button" hidden>Consultar raspado</button>
         <div class="actions" id="guide-run-actions" hidden>
           <button id="guide-launch" class="primary" type="button">Iniciar raspado</button>
           <button id="guide-program" type="button" aria-controls="guide-schedule-form">Programar raspado</button>
@@ -53,14 +57,12 @@
           </div>
           <button type="submit" class="primary" id="guide-confirm-schedule">Guardar programación</button>
         </form>
-        <p id="guide-job-status" role="status" hidden></p>
-        <progress id="guide-job-progress" max="100" aria-label="Progreso del raspado" hidden></progress>
         <p id="guide-schedule-status" role="status" hidden></p>
         <div class="actions">
           <button id="guide-refresh-schedule" type="button" hidden>Actualizar estado</button>
           <button id="guide-pause-schedule" type="button" hidden>Pausar programación</button>
         </div>
-        <a href="/portal#results" id="guide-view-leads" hidden>Ver resultados en el portal</a>
+        <a href="#crm" id="guide-view-leads" hidden>Ver leads en el tablero ↓</a>
       </section>
       <div class="actions guide-actions">
         <button class="primary" id="guide-start" disabled>Analizar mi empresa</button>
@@ -98,11 +100,21 @@
       <details id="guide-source-details" hidden><summary>Fuentes consultadas</summary><p id="guide-web-status" class="muted small"></p><ul id="guide-sources"></ul></details>
     </aside>
   </div>
+  <section id="crm" class="guide-crm" aria-labelledby="guide-crm-title">
+    <h2 id="guide-crm-title" tabindex="-1">Leads y CRM</h2>
+    <p id="guide-crm-status" role="status">Cargando tu tablero…</p>
+    <iframe id="guide-crm-frame" title="Tablero de leads de la empresa" hidden></iframe>
+  </section>
 </main>
 <dialog id="guide-busy" class="guide-busy" aria-labelledby="guide-busy-title" aria-describedby="guide-busy-detail">
   <span class="guide-brand-spinner" aria-hidden="true"><img src="/static/favicon.svg" alt=""></span>
   <h2 id="guide-busy-title" tabindex="-1" autofocus></h2>
   <p id="guide-busy-detail" aria-live="polite"></p>
+  <div id="guide-busy-job" hidden>
+    <progress id="guide-busy-progress" max="100" aria-label="Progreso del raspado"></progress>
+    <p class="muted small" id="guide-busy-elapsed"></p>
+    <ol id="guide-busy-leads" aria-label="Leads guardados en Nuevo" aria-live="polite"></ol>
+  </div>
 </dialog>
 <script src="/static/prospecting-guide.js" defer></script>
 </body></html>
