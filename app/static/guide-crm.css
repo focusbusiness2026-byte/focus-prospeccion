@@ -36,6 +36,23 @@ html:has(.guide-crm-embedded), .guide-crm-embedded {
   min-width: 0;
 }
 
+.guide-crm-embedded .crm-card-heading {
+  align-items: flex-start;
+}
+
+.guide-crm-embedded .crm-card-heading b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.crm-scrape-age {
+  flex: none;
+  margin-left: auto;
+  color: #b1bfce;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .guide-crm-embedded dialog[open] {
   position: fixed;
   inset: auto 0;

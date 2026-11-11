@@ -20,14 +20,55 @@
   });
   sizing.observe(content);
   const view = new AbortController();
+  const board = document.querySelector('#crm-preview-board');
+  const relativeTime = new Intl.RelativeTimeFormat('es-ES', {numeric:'always'});
+  const fullDate = new Intl.DateTimeFormat('es-ES', {dateStyle:'full', timeStyle:'short'});
+
+  function refreshScrapeAges() {
+    const now = Date.now();
+    for (const label of board.querySelectorAll('.crm-scrape-age')) {
+      const minutes = Math.floor((now - Date.parse(label.dateTime)) / 60000);
+      const age = minutes < 1 ? 'Ahora mismo' : minutes < 60 ? relativeTime.format(-minutes, 'minute') :
+        minutes < 1440 ? relativeTime.format(-Math.floor(minutes / 60), 'hour') :
+          relativeTime.format(-Math.floor(minutes / 1440), 'day');
+      if (label.textContent !== age) label.textContent = age;
+    }
+  }
+
+  function labelScrapeDates() {
+    const dates = new Map(dashboardData.prospects.map(lead => [lead.execution_id, lead.created_at]));
+    for (const card of board.querySelectorAll('[data-drag-prospect]')) {
+      const heading = card.querySelector('.crm-card-heading');
+      if (!heading || heading.querySelector('.crm-scrape-age')) continue;
+      const stamp = Date.parse(dates.get(card.dataset.dragProspect));
+      if (!Number.isFinite(stamp)) continue;
+      const date = new Date(stamp);
+      const label = document.createElement('time');
+      label.className = 'crm-scrape-age';
+      label.dateTime = date.toISOString();
+      label.title = 'Raspado: ' + fullDate.format(date);
+      heading.append(label);
+    }
+    refreshScrapeAges();
+  }
+
+  const cardObserver = new MutationObserver(labelScrapeDates);
+  cardObserver.observe(board, {childList:true});
+  labelScrapeDates();
+  const ageTimer = window.setInterval(refreshScrapeAges, 15000);
   window.parent.addEventListener('scroll', setViewport, {passive:true, signal:view.signal});
   window.parent.addEventListener('resize', setViewport, {passive:true, signal:view.signal});
-  window.addEventListener('pagehide', () => { view.abort(); sizing.disconnect(); }, {once:true});
+  window.addEventListener('pagehide', () => {
+    view.abort();
+    sizing.disconnect();
+    cardObserver.disconnect();
+    window.clearInterval(ageTimer);
+  }, {once:true});
   const synced = new Set(), pending = new Set();
   const status = document.createElement('p');
   status.hidden = true;
   status.setAttribute('role', 'status');
-  document.querySelector('#crm-preview-board').before(status);
+  board.before(status);
   let loading = false;
 
   async function sync() {
