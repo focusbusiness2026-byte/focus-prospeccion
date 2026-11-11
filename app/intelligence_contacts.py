@@ -18,7 +18,8 @@ def prospect_contact(p):
         "name":current.get("name",""),"role":current.get("role",""),"person_source_url":current.get("source_url",""),
         "name_status":"current_with_source" if current else "not_publicly_verified","email":email,"phone":phone,
         "email_options":[{"email":str(x.get("email") or x.get("value")),"source_url":str(x.get("source_url") or "")} for x in people if (x.get("type")=="email" or x.get("email")) and "@" in str(x.get("email") or x.get("value") or "")],
-        "linkedin":linkedin,"sector":p.get("sector",""),"city":p.get("city",""),"summary":p.get("summary",""),
+        "linkedin":linkedin,"social_links":{k:p.get(k,"") for k in ("linkedin","instagram","facebook")},
+        "sector":p.get("sector",""),"city":p.get("city",""),"summary":p.get("summary",""),
         "research_dossier_json":p.get("research_dossier_json",""),"approved":p.get("lead_status")=="Aprobado para descarga",
         "source":"Copia privada de investigación aprobada de Three Dots Studio; cargos actuales solo con fuente"}
 
@@ -32,5 +33,19 @@ def import_approved_selection(engine, rows, source_id, ids):
     if any(id not in prospects or prospects[id].get("lead_status") != "Aprobado para descarga" for id in wanted):
         raise CampaignError("La selección contiene leads no aprobados o de otra cuenta")
     with engine.db() as db:
-        added = sum(db.execute("INSERT OR IGNORE INTO contacts(tenant,id,payload) VALUES('three-dots',?,?)", (id, json.dumps(prospect_contact(prospects[id])))).rowcount for id in sorted(wanted))
+        added = 0
+        for id in sorted(wanted):
+            contact = prospect_contact(prospects[id])
+            existing = db.execute("SELECT payload FROM contacts WHERE tenant='three-dots' AND id=?", (id,)).fetchone()
+            if not existing:
+                db.execute("INSERT INTO contacts(tenant,id,payload) VALUES('three-dots',?,?)", (id, json.dumps(contact)))
+                added += 1
+                continue
+            current = json.loads(existing[0])
+            known = current.get("social_links") or {}
+            links = {**{key:value for key,value in contact["social_links"].items() if value}, **known}
+            if links != known or not current.get("approved"):
+                current["social_links"] = links
+                current["approved"] = True
+                db.execute("UPDATE contacts SET payload=? WHERE tenant='three-dots' AND id=?", (json.dumps(current), id))
     return added

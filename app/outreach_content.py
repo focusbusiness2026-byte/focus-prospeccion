@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 from app.intelligence import CampaignError
 
 STEPS = 15
+QUICK_STEPS = 5
+SOCIAL_NETWORKS = ("linkedin", "instagram", "facebook")
 ZONE = ZoneInfo("Europe/Madrid")
 STOP_EVENTS = {"response", "positive_response", "opt_out", "bounce", "meeting", "not_interested"}
 
@@ -57,12 +59,26 @@ def valid_email(value):
     return bool(re.fullmatch(r"[^\s<>@\x00-\x1f]+@[^\s<>@.]+(?:\.[^\s<>@.]+)+", str(value or "")))
 
 
-def dates(now):
+def social_profiles(contact):
+    profiles = {}
+    for network in SOCIAL_NETWORKS:
+        url = contact.get(network) or (contact.get("social_links") or {}).get(network) or ""
+        try:
+            parsed = urlsplit(public_url(url))
+            host = parsed.hostname.removeprefix("www.").removeprefix("m.")
+            if host == network + ".com" and parsed.path.strip("/") and parsed.port in (None, 443):
+                profiles[network] = url
+        except (ValueError, CampaignError):
+            pass
+    return profiles
+
+
+def dates(now, steps=STEPS):
     local = datetime.fromtimestamp(now, timezone.utc).astimezone(ZONE)
     first = datetime.combine(local.date(), time(10), ZONE)
     if local >= first:
         first += timedelta(days=1)
-    return [datetime.combine(first.date() + timedelta(days=n), time(10), ZONE).isoformat() for n in range(STEPS)]
+    return [datetime.combine(first.date() + timedelta(days=n), time(10), ZONE).isoformat() for n in range(steps)]
 
 
 def evidence(profile, contact=None):
@@ -78,15 +94,15 @@ def evidence(profile, contact=None):
     return result
 
 
-def validate_emails(payload, allowed_sources):
+def validate_emails(payload, allowed_sources, steps=STEPS):
     rows = payload.get("emails") if isinstance(payload, dict) else None
-    if not isinstance(rows, list) or len(rows) != STEPS:
-        raise CampaignError("La secuencia debe contener exactamente 15 correos")
+    if not isinstance(rows, list) or len(rows) != steps:
+        raise CampaignError(f"La secuencia debe contener exactamente {steps} correos")
     seen = set()
     clean = []
     for n, row in enumerate(rows, 1):
         if not isinstance(row, dict) or type(row.get("step")) is not int or row.get("step") != n:
-            raise CampaignError("Los 15 pasos deben estar completos y ordenados")
+            raise CampaignError(f"Los {steps} pasos deben estar completos y ordenados")
         item = {"step": n}
         for key, limit in (("subject", 180), ("preheader", 250), ("objective", 300), ("body", 3500)):
             value = str(row.get(key, "")).strip()
@@ -94,7 +110,7 @@ def validate_emails(payload, allowed_sources):
                 raise CampaignError("Revisa el texto: hay campos vacíos, demasiado largos o contenido no permitido")
             item[key] = value
         if item["subject"].casefold() in seen:
-            raise CampaignError("Los 15 asuntos deben ser diferentes")
+            raise CampaignError(f"Los {steps} asuntos deben ser diferentes")
         seen.add(item["subject"].casefold())
         sources = row.get("source_ids", [])
         if not isinstance(sources, list) or not sources or any(s not in allowed_sources for s in sources):
@@ -123,8 +139,8 @@ def validate_brand(data):
     for k in ("domain_verified", "workflow_verified", "unsubscribe_verified"):
         if k in result and type(result[k]) is not bool:
             raise CampaignError("La comprobación administrativa debe ser explícita")
-    if "template_ids" in result and (not isinstance(result["template_ids"], list) or any(not isinstance(x,str) or not x.strip() for x in result["template_ids"]) or len(result["template_ids"]) not in (0, STEPS) or len(set(result["template_ids"])) != len(result["template_ids"])):
-        raise CampaignError("Se requieren los 15 IDs de plantilla, sin duplicados")
+    if "template_ids" in result and (not isinstance(result["template_ids"], list) or any(not isinstance(x,str) or not x.strip() for x in result["template_ids"]) or len(result["template_ids"]) not in (0, QUICK_STEPS, STEPS) or len(set(result["template_ids"])) != len(result["template_ids"])):
+        raise CampaignError("Se requieren los IDs de cada plantilla, sin duplicados")
     return result
 
 
@@ -153,7 +169,17 @@ class DemoSequenceGenerator:
     def __call__(self, context, library=None):
         sender = context["sender"]
         recipient = context.get("recipient", {})
+        if context.get("networks"):
+            company = recipient.get("company") or "vuestro equipo"
+            offer = sender.get("offer") or "nuestros servicios"
+            greetings = {"linkedin":"¿Os encajaría conectar y hablar sobre una colaboración?",
+                         "instagram":"¿Os puedo compartir una idea en un mensaje?",
+                         "facebook":"¿Con quién podría comentar una posible colaboración?"}
+            return {"name": f"{offer} · {company}", "social": {
+                channel:f"Hola, equipo de {company}. En {sender.get('name')} ofrecemos {offer}. {greetings[channel]}"
+                for channel in context["networks"]}, "model":"fixture-local-no-openai", "simulated":True}
         topics = ["Presentación", "Cómo trabajamos", "Explorar un formato", "Preparar el contenido", "Dar voz al equipo", "Compartir conocimiento", "Organizar la producción", "Conversaciones útiles", "Elegir un enfoque", "Revisar el formato", "Preparar una sesión", "Valorar una colaboración", "Resolver dudas", "Proponer una conversación", "Cerrar el seguimiento"]
-        return {"emails": [{"step": n, "subject": f"{topic} · {sender.get('offer', 'Servicios')}", "preheader": f"Una propuesta de {sender.get('name', 'nuestro equipo')}", "objective": topic,
+        return {"name": f"{sender.get('offer') or 'Colaboración'} · {recipient.get('company') or sender.get('name')}",
+            "emails": [{"step": n, "subject": f"{topic} · {sender.get('offer', 'Servicios')}", "preheader": f"Una propuesta de {sender.get('name', 'nuestro equipo')}", "objective": topic,
             "body": f"Hola, equipo de {recipient.get('company', 'vuestra empresa')}.\n\nEn {sender.get('name')} ofrecemos {sender.get('offer')}. ¿Os encajaría conversar para valorar una posible colaboración?\n\nEste es el paso {n}: {topic.lower()}. Sin asumir necesidades ni resultados.",
-            "source_ids": [s["id"] for s in context["sources"]]} for n, topic in enumerate(topics, 1)], "model": "fixture-local-no-openai", "usage": {"input_tokens": 0, "output_tokens": 0}, "simulated": True}
+            "source_ids": [s["id"] for s in context["sources"]]} for n, topic in enumerate(topics[:context.get("steps", STEPS)], 1)], "model": "fixture-local-no-openai", "usage": {"input_tokens": 0, "output_tokens": 0}, "simulated": True}

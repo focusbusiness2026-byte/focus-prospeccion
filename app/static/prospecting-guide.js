@@ -22,8 +22,10 @@
   dialog.addEventListener('cancel', (event) => event.preventDefault());
 
   function notifyCrm() {
-    if (liveLeadIds.size) crmFrame.contentWindow?.postMessage({
+    if (crmFrame.hidden) return;
+    crmFrame.contentWindow?.postMessage({
       type:'focus-guide-leads', ids:[...liveLeadIds],
+      completed:job?.status === 'completed' ? (job.saved_leads || []).map(lead => lead.execution_id) : [],
     }, location.origin);
   }
 
@@ -37,6 +39,9 @@
     if (event.data?.type === 'focus-guide-crm-height' && Number.isSafeInteger(event.data.height) && event.data.height > 0) {
       crmFrame.style.height = event.data.height + 'px';
     }
+  });
+  $('#guide-view-leads').addEventListener('click', () => {
+    if (!crmFrame.hidden) crmFrame.contentWindow.postMessage({type:'focus-guide-show-leads'}, location.origin);
   });
 
   function reveal(selector, block = 'start') {
@@ -179,8 +184,30 @@
     jobDisconnected = false;
     if (animate) {
       for (const lead of job?.saved_leads || []) liveLeadIds.add(lead.execution_id);
-      notifyCrm();
     }
+    notifyCrm();
+    const result = $('#guide-result');
+    result.hidden = job?.status !== 'completed' || !job.leads_found;
+    $('#guide-result-leads').replaceChildren(...(result.hidden ? [] : (job.highlights || []).map(lead => {
+      const item = document.createElement('li'), name = document.createElement('strong');
+      name.textContent = lead.company;
+      item.append(name);
+      if (lead.facts.length) {
+        const facts = document.createElement('p');
+        facts.className = 'muted';
+        facts.textContent = lead.facts.join(' · ');
+        item.append(facts);
+      }
+      if (lead.finding) {
+        const finding = document.createElement('p');
+        finding.textContent = lead.finding;
+        item.append(finding);
+      }
+      const potential = document.createElement('p');
+      potential.textContent = 'Potencial: ' + lead.potential;
+      item.append(potential);
+      return item;
+    })));
   }
 
   function duration(seconds) {
@@ -254,7 +281,6 @@
         (job.leads_found === 1 ? ' lead guardado.' : ' leads guardados.') : 'Raspado completado.') : job?.message || '');
     $('#guide-reconnect-job').hidden = !jobDisconnected;
     $('#guide-reconnect-job').disabled = busy;
-    $('#guide-view-leads').hidden = !job?.leads_found || jobActive();
     $('#guide-schedule-status').hidden = !scheduleState;
     $('#guide-refresh-schedule').hidden = !scheduleState;
     $('#guide-pause-schedule').hidden = !scheduleState?.enabled && !scheduleState?.in_flight;
@@ -281,6 +307,11 @@
       try {
         const updated = await api('/schedule');
         if (tenant !== account || scheduleState !== scheduled) return;
+        if (updated?.completed_runs > scheduled.completed_runs && !jobActive()) {
+          const latest = await api('/job');
+          if (tenant !== account || scheduleState !== scheduled) return;
+          if (latest?.status === 'completed' && !jobActive()) acceptJob(latest);
+        }
         scheduleState = updated;
         render();
       } catch {
@@ -307,6 +338,7 @@
         jobDisconnected = jobFailures >= 5;
       }
       render();
+      if (!$('#guide-result').hidden && job?.status === 'completed') reveal('#guide-result-title');
       pollJob();
     }, jobFailures ? Math.min(3000 * (2 ** jobFailures), 18000) : 3000);
   }
@@ -625,9 +657,11 @@
     tenant = account.id; $('#guide-account').value = tenant;
     $('#guide-account').onchange = () => work(async () => {
       tenant = $('#guide-account').value; session = null; startId = answerRequest = null; aiReady = intakeLoaded = false;
+      crmFrame.hidden = true;
       historyOpen = resetOpen = false; editIndex = null; saved.clear();
       clearTimeout(jobTimer); clearTimeout(scheduleTimer); job = scheduleState = timing = null; scheduleOpen = false;
       liveLeadIds.clear(); jobFailures = 0; jobDisconnected = false;
+      acceptJob(null, false);
       $('#guide-busy-leads').replaceChildren();
       $('#guide-intake-status').hidden = true;
       $('#guide-company').textContent = 'Tu empresa'; showIntake([]);

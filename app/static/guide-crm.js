@@ -23,6 +23,17 @@
   const board = document.querySelector('#crm-preview-board');
   const relativeTime = new Intl.RelativeTimeFormat('es-ES', {numeric:'always'});
   const fullDate = new Intl.DateTimeFormat('es-ES', {dateStyle:'full', timeStyle:'short'});
+  let completedIds = new Set();
+  const pulsedIds = new Set();
+  const pulseObserver = new IntersectionObserver(entries => {
+    for (const {target, isIntersecting} of entries) {
+      const id = target.dataset.dragProspect;
+      if (!isIntersecting || !target.isConnected || !completedIds.has(id) || pulsedIds.has(id)) continue;
+      pulsedIds.add(id);
+      target.classList.add('guide-lead-pulse');
+      pulseObserver.unobserve(target);
+    }
+  });
 
   function refreshScrapeAges() {
     const now = Date.now();
@@ -52,7 +63,20 @@
     refreshScrapeAges();
   }
 
-  const cardObserver = new MutationObserver(labelScrapeDates);
+  function highlightNewLeads() {
+    pulseObserver.disconnect();
+    for (const card of board.querySelectorAll('[data-drag-prospect]')) {
+      const id = card.dataset.dragProspect;
+      const isNew = completedIds.has(id) && card.dataset.currentColumn === 'Nuevo';
+      card.classList.toggle('guide-lead-highlight', isNew);
+      if (isNew && !pulsedIds.has(id)) pulseObserver.observe(card);
+    }
+  }
+
+  const cardObserver = new MutationObserver(() => {
+    labelScrapeDates();
+    highlightNewLeads();
+  });
   cardObserver.observe(board, {childList:true});
   labelScrapeDates();
   const ageTimer = window.setInterval(refreshScrapeAges, 15000);
@@ -62,6 +86,7 @@
     view.abort();
     sizing.disconnect();
     cardObserver.disconnect();
+    pulseObserver.disconnect();
     window.clearInterval(ageTimer);
   }, {once:true});
   const synced = new Set(), pending = new Set();
@@ -106,9 +131,20 @@
   }
 
   window.addEventListener('message', async (event) => {
-    if (event.source !== window.parent || event.origin !== location.origin ||
-        event.data?.type !== 'focus-guide-leads' || !Array.isArray(event.data.ids)) return;
+    if (event.source !== window.parent || event.origin !== location.origin) return;
+    if (event.data?.type === 'focus-guide-show-leads') {
+      board.querySelector('.guide-lead-highlight')?.scrollIntoView({block:'center'});
+      return;
+    }
+    if (event.data?.type !== 'focus-guide-leads' || !Array.isArray(event.data.ids)) return;
     await portalInitialLoad;
+    const completed = Array.isArray(event.data.completed) ? event.data.completed : [];
+    const ids = new Set(completed.slice(0, 5).filter(id => typeof id === 'string' && id.length <= 80));
+    if (ids.size !== completedIds.size || [...ids].some(id => !completedIds.has(id))) {
+      completedIds = ids;
+      pulsedIds.clear();
+      highlightNewLeads();
+    }
     for (const id of event.data.ids.slice(0, 5)) {
       if (typeof id === 'string' && id.length <= 80 && !synced.has(id)) pending.add(id);
     }

@@ -1,0 +1,18 @@
+.crm-campaign-controls {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px 20px;
+  margin:16px 0;
+  padding:16px;
+  border:1px solid #d9af3c80;
+  border-inline-start:3px solid var(--gold);
+  border-radius:12px;
+  background:#1b211f;
+}
+.crm-campaign-controls label {display:block;margin-top:4px}
+.crm-campaign-controls label input {accent-color:var(--gold)}
+.crm-campaign-controls small {color:#b1bfce}
+.crm-campaign-channels {display:flex;flex-wrap:wrap;gap:8px}
+.crm-campaign-controls p {flex-basis:100%;margin:0}

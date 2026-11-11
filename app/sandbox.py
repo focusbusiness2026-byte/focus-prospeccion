@@ -264,6 +264,7 @@ async def sandbox_boundary(request, call_next):
         banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
         response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
         if path == "/portal":
+            body = body.replace('</head>', '<link rel="stylesheet" href="/static/outreach-board.css"></head>', 1)
             scripts = '<script src="/static/outreach-board.js" defer></script>'
             if request.query_params.get("crm_embed") == "1":
                 body = body.replace('<body class="portal-booting">', '<body class="portal-booting guide-crm-embedded">', 1)
@@ -354,11 +355,50 @@ def guide_run(record_id, criteria, request, background_tasks, identity):
 def guide_job(tenant, identity):
     source = guide_source(tenant, identity)
     live = main.latest_manual_research_job(source.record_id, identity.email)
-    if REAL_MODE and live and live["status"] == "completed":
-        live["timing"] = main.SheetStore(SETTINGS).research_timing(source)
-    if live or not REAL_MODE:
+    if not REAL_MODE or (live and live["status"] in {"running", "queued"}):
         return live
-    return main.SheetStore(SETTINGS).restore_manual_job(source)
+    store = main.SheetStore(SETTINGS)
+    restored = store.restore_research_job(source)
+    job = live
+    if restored and (not live or (restored["job_id"] != live["job_id"] and
+                                 (restored.get("updated_at") or "") > (live.get("updated_at") or ""))):
+        job = restored
+    if job and job["status"] == "completed":
+        job["timing"] = store.research_timing(source)
+        saved = [item["execution_id"] for item in job.get("saved_leads") or []]
+        leads = guide_result_rows(store, source, saved) if saved else []
+        by_id = {item["execution_id"]: item for item in leads}
+        job["highlights"] = [guide_result_highlight(by_id[lead_id], source) for lead_id in saved if lead_id in by_id]
+    return job
+
+
+def guide_result_highlight(lead, source):
+    missing = re.compile(
+        r"^(?:no|falta|descartar)\b|\b(?:no (?:se|hay|consta|disponible|encontrad[oa]|identificad[oa]|calificad[oa])|"
+        r"sin (?:evidencia|datos|contactos|decisores|informaci[oó]n|confirmar)|"
+        r"pendiente|descartad[oa]|(?:encaje|potencial|prioridad|oportunidad) baj[oa])\b", re.IGNORECASE,
+    )
+    def excerpt(field, limit):
+        text = " ".join(str(lead.get(field) or "").split())
+        sentence = next((part for part in re.split(r"(?<=[.!?])\s+", text) if part and not missing.search(part)), "")
+        return sentence if len(sentence) <= limit else sentence[:limit].rsplit(" ", 1)[0] + "…"
+
+    sector = str(lead.get("sector") or "").strip()
+    place = str(lead.get("city") or lead.get("country") or "").strip()
+    facts = list(dict.fromkeys(value for value in (sector, place) if value and not missing.search(value)))
+    for field, single, plural in (
+        ("decision_makers", "decisor identificado", "decisores identificados"),
+        ("public_contacts", "contacto público", "contactos públicos"),
+        ("public_signals", "señal pública", "señales públicas"),
+    ):
+        count = len(lead.get(field) or [])
+        if count:
+            facts.append(f"{count} {single if count == 1 else plural}")
+    potential = excerpt("entry_angle", 320)
+    if not potential:
+        offer = source.main_service
+        potential = f"Explorar una propuesta de {offer}." if offer else "Explorar un primer contacto para presentar tu oferta."
+    return {"company": lead["company"], "facts": facts, "finding": excerpt("summary", 220), "potential": potential}
 
 
 def guide_timing(tenant, identity):
@@ -366,12 +406,16 @@ def guide_timing(tenant, identity):
     return main.SheetStore(SETTINGS).research_timing(source) if REAL_MODE else None
 
 
+def guide_result_rows(store, source, ids):
+    selected = set(ids)
+    return [item for item in store.recent_prospects(source.email, limit=1000)
+            if item["execution_id"] in selected and item["onboarding_id"] == source.record_id]
+
+
 def guide_leads(tenant, identity, ids):
     source = guide_source(tenant, identity)
     store = main.SheetStore(SETTINGS)
-    selected = set(ids)
-    matches = [item for item in store.recent_prospects(source.email, limit=1000)
-               if item["execution_id"] in selected and item["onboarding_id"] == source.record_id]
+    matches = guide_result_rows(store, source, ids)
     return main.decorate_prospects(matches, store.review_events(source.email),
                                    require_admin_review=SETTINGS.lead_admin_review_required)
 

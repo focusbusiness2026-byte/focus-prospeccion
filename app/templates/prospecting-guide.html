@@ -42,6 +42,11 @@
         <h3>Buscar nuevos leads</h3>
         <p class="muted small" id="guide-research-average"></p>
         <p id="guide-job-status" role="status" hidden></p>
+        <section id="guide-result" class="guide-result" aria-labelledby="guide-result-title" hidden>
+          <h4 id="guide-result-title" tabindex="-1">Leads encontrados</h4>
+          <ul id="guide-result-leads" class="guide-result-leads"></ul>
+          <a href="#crm" id="guide-view-leads">Ver los leads nuevos en el tablero ↓</a>
+        </section>
         <progress id="guide-job-progress" max="100" aria-label="Progreso del raspado" hidden></progress>
         <button id="guide-reconnect-job" type="button" hidden>Consultar raspado</button>
         <div class="actions" id="guide-run-actions" hidden>
@@ -66,7 +71,6 @@
           <button id="guide-refresh-schedule" type="button" hidden>Actualizar estado</button>
           <button id="guide-pause-schedule" type="button" hidden>Pausar programación</button>
         </div>
-        <a href="#crm" id="guide-view-leads" hidden>Ver leads en el tablero ↓</a>
       </section>
       <div class="actions guide-actions">
         <button class="primary" id="guide-start" disabled>Analizar mi empresa</button>

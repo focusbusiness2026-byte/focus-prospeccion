@@ -61,8 +61,21 @@ html:has(.guide-crm-embedded), .guide-crm-embedded {
   max-height: var(--guide-dialog-height, calc(100vh - 24px));
 }
 
+.guide-crm-embedded .crm-board-card.guide-lead-highlight {
+  border-color: var(--gold);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .guide-crm-embedded .crm-board-card.guide-lead-arrived {
     animation: kanban-card-arrive 280ms ease-out both;
+  }
+  .guide-crm-embedded .crm-board-card.guide-lead-highlight.guide-lead-pulse {
+    animation: guide-new-lead-pulse 950ms ease-in-out 2;
+  }
+  @keyframes guide-new-lead-pulse {
+    50% {
+      background-color: #22241f;
+      box-shadow: inset 0 0 0 2px #d9af3c90, 0 0 14px #d9af3c66;
+    }
   }
 }

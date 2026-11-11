@@ -23,8 +23,9 @@ class Recipient(Payload):
 
 
 class Create(Payload):
-    name: str = Field(min_length=1, max_length=120)
-    channels: list[Literal["email", "linkedin"]] = Field(min_length=1, max_length=2)
+    name: str = Field(default="", max_length=120)
+    channels: list[Literal["email", "linkedin", "social"]] = Field(min_length=1, max_length=2)
+    steps: Literal[5, 15] = 15
     recipients: list[Recipient] = Field(min_length=1, max_length=100)
 
 
@@ -38,11 +39,11 @@ class Action(Payload):
 
 class Edit(Payload):
     recipient: str = Field(max_length=500)
-    emails: list[dict] = Field(min_length=15, max_length=15)
+    emails: list[dict] = Field(min_length=5, max_length=15)
 
 
 class LibraryEdit(Payload):
-    emails: list[dict] = Field(min_length=15, max_length=15)
+    emails: list[dict] = Field(min_length=5, max_length=15)
 
 
 class LinkedInEdit(Payload):
@@ -144,9 +145,9 @@ def outreach_router(service, identity_dependency, template, *, oauth=None, webho
         return run(service.configure_brand, scope(tenant, identity), payload)
 
     @router.post("/api/intelligence/{tenant}/outreach/library")
-    def library(tenant: str, request: Request, identity=Depends(identity_dependency)):
+    def library(tenant: str, request: Request, steps: Literal[5, 15] = 15, identity=Depends(identity_dependency)):
         validate_csrf(request)
-        return run(service.library, scope(tenant, identity))
+        return run(service.library, scope(tenant, identity), steps)
 
     @router.post("/api/intelligence/{tenant}/outreach/campaigns")
     def create(tenant: str, payload: Create, request: Request, identity=Depends(identity_dependency)):

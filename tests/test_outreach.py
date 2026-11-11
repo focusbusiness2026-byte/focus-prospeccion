@@ -79,6 +79,39 @@ def test_fifteen_library_and_recipient_calls_cached_no_quota_or_contacts_changed
     assert after==before
 
 
+def test_five_email_draft_names_and_renders_each_step(service):
+    lead = next(lead for lead in service.eligibility(T) if lead['id'] == 'td-01')
+    campaign = service.create(T, {'channels':['email'], 'steps':5,
+        'recipients':[{'lead_id':lead['id'], 'email':lead['email']}]})
+    result = service.prepare(T, campaign['id'])
+    draft = result['campaign']
+    assert draft['name'] != campaign['name'] and lead['company'] in draft['name']
+    assert len(draft['schedule']) == result['metrics']['prepared'] == 5
+    for step in range(1, 6):
+        assert service.preview(T, draft['id'], lead['email'], step)['html']
+    with pytest.raises(CampaignError):
+        service.preview(T, draft['id'], lead['email'], 6)
+    assert result['metrics']['sent_confirmed'] == 0
+
+
+def test_social_prepares_only_verified_profiles_without_email_or_activation(service):
+    with service.engine.db() as db:
+        row = db.execute('SELECT payload FROM contacts WHERE tenant=? AND id=?', (T, 'td-01')).fetchone()
+        lead = json.loads(row[0])
+        lead.update(email='', email_options=[], linkedin='', social_links={
+            'instagram':'https://www.instagram.com/focus_fixture/',
+            'facebook':'https://www.facebook.com/focus-fixture/',
+            'linkedin':'https://linkedin.com.example.test/fake'})
+        db.execute('UPDATE contacts SET payload=? WHERE tenant=? AND id=?', (json.dumps(lead), T, 'td-01'))
+    campaign = service.create(T, {'channels':['social'], 'steps':5, 'recipients':[{'lead_id':'td-01'}]})
+    result = service.prepare(T, campaign['id'])
+    messages = result['campaign']['messages']['lead:td-01']
+    assert not messages['emails'] and set(messages['social']) == {'instagram', 'facebook'}
+    assert result['campaign']['name'] != campaign['name']
+    with pytest.raises(CampaignError, match='desde la red'):
+        service.action(T, campaign['id'], 'activate')
+
+
 def test_approval_required_stale_digest_and_frozen_active_content(service):
     s=service;c=create(s);cid=c['id']
     with pytest.raises(CampaignError):s.action(T,cid,'activate')

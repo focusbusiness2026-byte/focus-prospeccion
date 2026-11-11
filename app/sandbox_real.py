@@ -190,7 +190,7 @@ def configure(app):
                 count, average = db.execute("SELECT count(*), avg(seconds) FROM research_timings").fetchone()
             return {"sample_count": count, "average_seconds": round(average)} if count else None
 
-        def restore_manual_job(self, source):
+        def restore_research_job(self, source):
             if source.record_id != SOURCE_ID:
                 return None
             with sb.LOCK, sqlite3.connect(path) as db:
@@ -200,7 +200,7 @@ def configure(app):
             state, payload_json = row
             payload = json.loads(payload_json)
             execution_id = payload.get("execution_id", "")
-            if payload.get("origin", "manual") != "manual" or state == "started":
+            if state == "started" or (state != "completed" and payload.get("origin") == "automation"):
                 return None
             cells = self._load()
             executions = cells.get("Ejecuciones", [])
@@ -224,7 +224,7 @@ def configure(app):
                     "progress": 100 if completed else 0, "message": message, "leads_found": count,
                     "saved_leads": saved, "execution_id": execution_id,
                     "created_at": payload.get("at") or execution.get("created_at"),
-                    "updated_at": execution.get("created_at") or payload.get("at")}
+                    "updated_at": payload.get("finished_at") or execution.get("created_at") or payload.get("at")}
 
     if RealStore()._load():RealStore()._save(RealStore()._load())
     main.SheetStore=RealStore
