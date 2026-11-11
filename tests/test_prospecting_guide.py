@@ -253,7 +253,7 @@ def test_apply_explicit_version_and_profile_fingerprint_idempotent_no_research(s
         writes.append((name, criteria))
         return {'saved_search_id': 'SEARCH-NEW'}
     changed = profile(); changed['description'] = 'Actualizado'
-    with pytest.raises(CampaignError, match='onboarding cambió'): service.apply(T, session['id'], ACTOR, session['version'], changed, save)
+    with pytest.raises(CampaignError, match='ficha cambió'): service.apply(T, session['id'], ACTOR, session['version'], changed, save)
     result = service.apply(T, session['id'], ACTOR, session['version'], profile(), save)
     assert result['state'] == 'applied'
     assert service.apply(T, session['id'], ACTOR, session['version'], profile(), save) == result
@@ -346,16 +346,26 @@ def test_api_scoping_csrf_validation_and_live_ghl_disabled(setup):
     source = OnboardingSource.from_sheet_record({'Empresa':'Estudio de prueba', 'Responsable':'Contacto de prueba',
         'Email responsable':'responsable@example.test', 'Ciclo de venta':'Dos semanas', 'Notas internas':'interno',
         'ID fiscal empresarial':'privado', 'Clave API':'secret-value', 'Config. técnica URL':'https://private.example.test'})
-    app.include_router(guide_router(service,lambda:actor[0],template,lambda *a:profile(),lambda *a:None,
-        intake_for=lambda *a:(profile(), guide_intake(source))))
+    launches = []
+    schedules = []
+    active_profile = [profile()]
+    app.include_router(guide_router(service,lambda:actor[0],template,lambda *a:active_profile[0],lambda *a:None,
+        intake_for=lambda *a:(profile(), guide_intake(source)),
+        run_for=lambda record, criteria, *a: launches.append((record, criteria)) or {'status':'queued'},
+        schedule_for=lambda record, sid, criteria, interval, total, *a:
+            schedules.append((record, sid, criteria, interval, total)) or {'enabled':True}))
     app.include_router(outreach_router(OutreachService(engine),lambda:actor[0],template))
     with TestClient(app) as client:
         sid = str(uuid4()); headers={'x-csrf-token':'test-csrf'};client.cookies.set('focus_csrf','test-csrf')
         assert client.get('/api/intelligence/accounts').json()['accounts'][0]['source_id'] == 'ONB-TEST'
         info = client.get(f'/api/intelligence/{T}/guide').json()
-        fields = {row['label']:row['value'] for group in info['intake'] for row in group['fields']}
-        assert fields == {'Responsable':'Contacto de prueba','Email responsable':'responsable@example.test',
+        fields = {row['label']:row for group in info['intake'] for row in group['fields']}
+        assert {key: row['value'] for key, row in fields.items() if row['value']} == {
+            'Empresa':'Estudio de prueba','Responsable':'Contacto de prueba','Email responsable':'responsable@example.test',
             'Ciclo de venta':'Dos semanas'}
+        assert fields['Objetivos']['editable'] and fields['Objetivos']['value'] == ''
+        assert not fields['Email responsable']['editable']
+        assert 'Notas internas' not in fields and 'Clave API' not in fields
         assert client.post(f'/api/intelligence/{T}/guide/sessions',json={'request_id':sid}).status_code == 403
         assert client.post('/api/intelligence/control/guide/sessions',json={'request_id':sid},headers=headers).status_code == 403
         r = client.post(f'/api/intelligence/{T}/guide/sessions',json={'request_id':sid},headers=headers)
@@ -369,6 +379,25 @@ def test_api_scoping_csrf_validation_and_live_ghl_disabled(setup):
             assert r.status_code == 200
             session = r.json()
         assert session['state'] == 'checkpoint'
+        base = f'/api/intelligence/{T}/guide/sessions/{sid}'
+        launch_payload = {'version':session['version']}
+        assert client.post(base+'/launch',json=launch_payload,headers=headers).status_code == 409
+        response = client.post(base+'/reanalysis',headers=headers,json={**launch_payload,
+            'request_id':str(uuid4()), 'choice':'review', 'additional_context':'Priorizar centros culturales'})
+        assert response.status_code == 200, response.text
+        proposal = response.json()
+        assert proposal['history'] == session['history']
+        assert proposal['state'] == 'ready'
+        assert reasoner.calls[-1]['additional_context'] == 'Priorizar centros culturales'
+        assert reasoner.calls[-1]['reanalyse'] is True
+        final_base = f"/api/intelligence/{T}/guide/sessions/{proposal['id']}"
+        launch_payload = {'version':proposal['version']}
+        assert client.post(final_base+'/launch',json=launch_payload).status_code == 403
+        assert client.post(final_base+'/launch',json=launch_payload,headers=headers).status_code == 202
+        schedule = {**launch_payload,'interval_minutes':1440,'max_total_runs':3}
+        assert client.post(final_base+'/schedule',json=schedule,headers=headers).status_code == 200
+        assert launches == [('ONB-TEST', proposal['criteria'])]
+        assert schedules == [('ONB-TEST', proposal['id'], proposal['criteria'], 1440, 3)]
         decision = {'version':session['version'],'choice':'review'}
         url = f'/api/intelligence/{T}/guide/sessions/{sid}/checkpoint'
         assert client.post(url, json=decision).status_code == 403
@@ -380,6 +409,14 @@ def test_api_scoping_csrf_validation_and_live_ghl_disabled(setup):
         response = client.post(revisions,json=revision,headers=headers)
         assert response.status_code == 200 and response.json()['history'][0]['answer'] == revision['answer']
         assert client.post(f'/api/intelligence/{T}/guide/sessions/{sid}/apply',json={'version':1,'confirmed':False},headers=headers).status_code == 422
+        active_profile[0] = {**profile(), 'description':'Ficha actualizada'}
+        assert client.post(final_base+'/launch',json=launch_payload,headers=headers).status_code == 409
+        response = client.post(final_base+'/reanalysis',headers=headers,
+            json={**launch_payload,'request_id':str(uuid4())})
+        assert response.status_code == 200, response.text
+        assert reasoner.calls[-1]['profile']['description'] == 'Ficha actualizada'
+        assert reasoner.calls[-1]['additional_context'] == 'Priorizar centros culturales'
+        assert len(launches) == 1 and len(schedules) == 1
         r = client.get(f'/api/intelligence/{T}/outreach/ghl/status')
         assert r.json()['state'] == 'setup_pending'
         assert not r.json()['sending_enabled'] and not r.json()['automatic_import']
@@ -387,6 +424,8 @@ def test_api_scoping_csrf_validation_and_live_ghl_disabled(setup):
         assert 'test-only-key' not in r.text
         actor[0] = Identity('outside@example.test','Cliente','outside',True,False)
         assert client.get(f'/api/intelligence/{T}/guide').status_code == 403
+        assert client.patch(f'/api/intelligence/{T}/guide/intake',headers=headers,
+            json={'field':'Objetivos','before':'','value':'Otro objetivo'}).status_code == 403
         assert client.get(f'/api/intelligence/{T}/outreach/ghl/status').status_code == 403
 
 

@@ -15,6 +15,16 @@
 .guide-context-card .eyebrow{margin:0}
 .guide-context-card details{border-top:1px solid var(--line);padding-top:10px}
 .guide-context-card dd{white-space:pre-wrap}
+.guide-field{border-bottom:1px solid var(--line);padding:8px 0}
+.guide-field>dt{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.guide-field button{padding:4px 11px;font-size:13px}
+.guide-field form{margin-top:10px}
+.guide-field form label{margin-bottom:8px}
+.guide-field textarea,#guide-additional{min-height:65px}
+#guide-additional{margin-bottom:10px}
+#guide-execution{border-top:1px solid var(--line);margin-top:20px;padding-top:16px}
+#guide-schedule-form{margin:12px 0}
+#guide-job-progress{width:100%;accent-color:var(--gold)}
 .guide-busy{position:fixed;inset:0;margin:auto;width:min(calc(100% - 32px),440px);padding:26px 24px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:20px;text-align:center;box-shadow:0 20px 80px #0008}
 .guide-busy::backdrop{background:#07111eaa;backdrop-filter:blur(5px)}
 html:has(#guide-busy){scrollbar-gutter:stable}

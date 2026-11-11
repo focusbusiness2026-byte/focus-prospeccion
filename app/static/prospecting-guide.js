@@ -8,6 +8,10 @@
   let answerRequest = null, operation = null, waitTimer = null, intakeLoaded = false;
   let stateTimer = null, stateChecks = 0;
   let historyOpen = false, resetOpen = false, editIndex = null, revisionRequest = null;
+  let profileHash = '', legacyProfileHash = '', intakeFields = new Map();
+  let reanalysisRequest = null, shownCheckpoint = '';
+  let researchAvailable = false, scheduleAvailable = false, scheduleOpen = false;
+  let scheduleState = null, job = null, jobTimer = null;
   let saved = new Map();
   const isWaiting = () => ['generating', 'applying'].includes(session?.state);
   const dialog = $('#guide-busy');
@@ -35,9 +39,9 @@
       state:session.state, revision:Boolean(session.revision_of)});
   }
 
-  async function api(path = '', method = 'GET', data) {
+  async function requestJSON(path, method = 'GET', data) {
     const csrf = decodeURIComponent(document.cookie.split('; ').find((x) => x.startsWith('focus_csrf='))?.split('=').slice(1).join('=') || '');
-    const response = await fetch('/api/intelligence/' + encodeURIComponent(tenant) + '/guide' + path, {
+    const response = await fetch(path, {
       method, credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
       body: data === undefined ? undefined : JSON.stringify(data),
     });
@@ -47,7 +51,11 @@
     return body;
   }
 
-  async function work(action, title = 'Cargando tu empresa…') {
+  function api(path = '', method = 'GET', data) {
+    return requestJSON('/api/intelligence/' + encodeURIComponent(tenant) + '/guide' + path, method, data);
+  }
+
+  async function work(action, title = 'Cargando tu empresa…', returnToHeader = false) {
     if (busy) return;
     const before = stage(), scrollOnChange = intakeLoaded;
     let failed = false;
@@ -59,7 +67,12 @@
     finally {
       clearTimeout(waitTimer); operation = null; busy = false; remember(); render(); followSavedState();
       if (failed && !dialog.open) reveal('#guide-error', 'nearest');
-      else if (scrollOnChange && before !== stage() && !dialog.open) revealStep();
+      else if (scrollOnChange && before !== stage() && !dialog.open) {
+        if (returnToHeader) {
+          if (!$('#guide-answer').hidden) $('#guide-question').focus({preventScroll:true});
+          $('#guide-header').scrollIntoView({block:'start', behavior:'instant'});
+        } else revealStep();
+      }
     }
   }
 
@@ -70,7 +83,8 @@
       stateChecks += 1;
       try { session = await api('/sessions/' + session.id); }
       catch (error) { stateChecks = 16; throw error; }
-    }, session.state === 'applying' ? 'Comprobando si se guardó tu búsqueda…' : 'Comprobando si tu pregunta está lista…'), 6000);
+    }, session.state === 'applying' ? 'Comprobando si se guardó tu búsqueda…' : 'Comprobando si tu pregunta está lista…',
+    session.state === 'generating'), 6000);
   }
 
   function learning(s, n, limit) {
@@ -102,21 +116,92 @@
   }
 
   function showIntake(intake) {
+    const opened = new Set([...$('#guide-intake').querySelectorAll('details[open]')].map((group) => group.dataset.group));
+    const initial = !intakeFields.size;
+    intakeFields = new Map(intake.flatMap((group) => group.fields.map((field) => [field.label, field])));
     $('#guide-intake').innerHTML = intake.map((section, index) =>
-      '<details' + (index === 0 ? ' open' : '') + '><summary>' + esc(section.title) +
-      '</summary><dl>' + section.fields.map(({label, value}) =>
-        '<div><dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></details>').join('');
+      '<details data-group="' + esc(section.title) + '"' + ((initial && index === 0) || opened.has(section.title) ? ' open' : '') +
+      '><summary>' + esc(section.title) + '</summary><dl>' + section.fields.map(({label, value, editable}) =>
+        '<div class="guide-field"><dt><span>' + esc(label) + '</span>' + (editable ?
+          '<button type="button" data-intake-field="' + esc(label) + '" aria-label="Editar ' + esc(label) + '">Editar</button>' : '') +
+          '</dt><dd class="' + (value ? '' : 'muted') + '">' + esc(value || 'Sin responder') + '</dd></div>'
+      ).join('') + '</dl></details>').join('');
+  }
+
+  function updateIntakeView(result) {
+    profileHash = result.profile_hash;
+    legacyProfileHash = result.legacy_profile_hash;
+    $('#guide-company').textContent = result.profile.productora;
+    showIntake(result.intake || []);
+  }
+
+  function currentProfile(s) {
+    if (!s) return true;
+    const expected = Object.hasOwn(s.profile, 'business_context') ? profileHash : legacyProfileHash;
+    return s.profile_hash === expected;
+  }
+
+  function jobActive() {
+    return ['queued', 'running'].includes(job?.status);
+  }
+
+  function renderExecution(reviewed) {
+    $('#guide-execution').hidden = !reviewed && !scheduleState && !job;
+    $('#guide-run-actions').hidden = !reviewed;
+    $('#guide-launch').disabled = busy || !researchAvailable || jobActive();
+    $('#guide-program').disabled = busy || !scheduleAvailable || Boolean(scheduleState?.enabled || scheduleState?.in_flight);
+    $('#guide-program').setAttribute('aria-expanded', String(scheduleOpen));
+    $('#guide-schedule-form').hidden = !reviewed || !scheduleOpen;
+    $('#guide-confirm-schedule').disabled = busy;
+    $('#guide-job-status').hidden = !job;
+    $('#guide-job-progress').hidden = !jobActive();
+    $('#guide-job-progress').value = job?.progress || 0;
+    liveText('#guide-job-status', job?.message || '');
+    $('#guide-view-leads').hidden = job?.status !== 'completed';
+    $('#guide-schedule-status').hidden = !scheduleState;
+    $('#guide-refresh-schedule').hidden = !scheduleState;
+    $('#guide-pause-schedule').hidden = !scheduleState?.enabled && !scheduleState?.in_flight;
+    $('#guide-pause-schedule').disabled = busy || Boolean(scheduleState?.in_flight);
+    if (scheduleState) {
+      const next = scheduleState.next_run_at && new Date(scheduleState.next_run_at).toLocaleString('es-ES', {
+        dateStyle:'medium', timeStyle:'short', timeZone:'Europe/Madrid',
+      });
+      const label = scheduleState.in_flight ? 'Raspado programado en curso.' : scheduleState.enabled && next ?
+        'Próximo raspado el ' + next + '.' : scheduleState.last_status || 'Programación guardada.';
+      liveText('#guide-schedule-status', label + ' ' + scheduleState.completed_runs + ' de ' + scheduleState.max_total_runs + ' realizados.');
+    }
+  }
+
+  function pollJob() {
+    if (!jobActive()) return;
+    const jobId = job.job_id;
+    jobTimer = setTimeout(async () => {
+      try {
+        const updated = await requestJSON('/api/research-jobs/' + encodeURIComponent(jobId));
+        if (job?.job_id !== jobId) return;
+        job = updated;
+        render();
+        pollJob();
+      } catch (error) {
+        if (job?.job_id !== jobId) return;
+        job = {...job, status:'unknown', message:'No se pudo consultar este raspado. ' + error.message};
+        render();
+      }
+    }, 3500);
   }
 
   function render() {
     const s = session, n = s?.history.length || 0, limit = s?.round_limit || 10;
     const legacy = Boolean(s && !s.round_limit), isApplied = s?.state === 'applied';
     const showFlow = !historyOpen && !resetOpen;
+    const matches = currentProfile(s);
     const canAsk = showFlow && s?.state === 'draft' && !legacy && Boolean(s.turn);
     const waiting = isWaiting();
     const ready = s?.state === 'ready', checkpoint = s?.state === 'checkpoint';
     const canExtend = !legacy && limit < 20;
     const criteriaComplete = ['sectors','target_countries'].every((key) => s?.criteria[key]?.some((value) => value.trim()));
+    $('#guide-reanalyse').hidden = !s || !aiReady;
+    $('#guide-reanalyse').disabled = busy || waiting || s?.version < 1;
     $('#guide-account').disabled = busy;
     $('#guide-start').hidden = Boolean(s) || !intakeLoaded || !showFlow; $('#guide-start').disabled = busy || !aiReady;
     $('#guide-new').hidden = !s || !showFlow;
@@ -140,10 +225,11 @@
     }
     liveText('#guide-status', !showFlow ? '' : waiting && !showWait ? 'Aún no se confirmó el resultado. Usa «Consultar estado» para comprobarlo.' : statuses[s?.state] ||
       (!s ? (intakeLoaded && !aiReady ? 'La administración debe habilitar el asistente para esta cuenta.' : '') :
+        !matches ? 'La ficha cambió. Vuelve a analizar el perfil para actualizar la propuesta.' :
         legacy && s.state === 'draft' ? 'Tu conversación anterior se conserva.' : canAsk ? 'Pregunta ' + (n + 1) + ' de ' + limit : ''));
     $('#guide-answer').hidden = !canAsk;
     $('#guide-question-fieldset').disabled = busy;
-    $('#guide-next').disabled = busy;
+    $('#guide-next').disabled = busy || !matches;
     if (canAsk && shownQuestion !== s.id + ':' + s.version) {
       shownQuestion = s.id + ':' + s.version;
       $('#guide-question').textContent = s.turn.question;
@@ -157,6 +243,10 @@
     $('#guide-checkpoint').hidden = !showFlow || !checkpoint;
     $('#guide-checkpoint-title').textContent = canExtend ? '¿Afinamos un poco más?' : 'Ya tienes tu enfoque';
     $('#guide-checkpoint-summary').textContent = s?.turn?.summary || '';
+    if (checkpoint && shownCheckpoint !== stage()) {
+      shownCheckpoint = stage();
+      $('#guide-additional').value = s.additional_context || '';
+    }
     $('#guide-review-choice').disabled = busy;
     $('#guide-more').hidden = !canExtend; $('#guide-more').disabled = busy;
     $('#guide-review').hidden = !showFlow || (!ready && !isApplied);
@@ -167,10 +257,11 @@
     $('#guide-confirm-label').hidden = !ready || !criteriaComplete;
     $('#guide-missing').hidden = !ready || criteriaComplete;
     $('#guide-confirm').disabled = busy;
-    $('#guide-apply').hidden = !ready || !criteriaComplete; $('#guide-apply').disabled = busy || !$('#guide-confirm').checked;
+    $('#guide-apply').hidden = !ready || !criteriaComplete; $('#guide-apply').disabled = busy || !matches || !$('#guide-confirm').checked;
     $('#guide-more-review').hidden = !ready || !canExtend; $('#guide-more-review').disabled = busy;
     $('#guide-research').hidden = !isApplied;
     if (s?.saved_search) $('#guide-research').href = '/portal?guided_source=' + encodeURIComponent(s.profile.onboarding_id) + '&guided_search=' + encodeURIComponent(s.saved_search.saved_search_id) + '#sources';
+    renderExecution(showFlow && (ready || isApplied) && criteriaComplete && matches);
     $('#guide-reset').hidden = !resetOpen;
     $('#guide-history').hidden = !historyOpen;
     if (historyOpen) {
@@ -203,11 +294,13 @@
     const result = await api();
     if (session?.id !== result.session?.id) editIndex = null;
     session = result.session; aiReady = result.ai_ready;
+    researchAvailable = result.research_available;
+    scheduleAvailable = result.schedule_available;
+    scheduleState = result.schedule;
     saved = new Map((result.saved || []).map((item) => [item.id, item]));
     intakeLoaded = true;
     $('#guide-environment').textContent = result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Guardar tu enfoque no inicia una búsqueda.';
-    $('#guide-company').textContent = result.profile.productora;
-    showIntake(result.intake || []);
+    updateIntakeView(result);
   }
   function newSession() {
     return work(async () => {
@@ -218,11 +311,54 @@
     }, 'Analizando tu empresa y preparando la primera pregunta…');
   }
   function decision(choice) {
+    const note = session.state === 'checkpoint' ? $('#guide-additional').value.trim() : null;
+    if (!currentProfile(session) || (note !== null && note !== (session.additional_context || ''))) {
+      return reanalyse(note, choice);
+    }
     return work(async () => {
       session = await api('/sessions/' + session.id + '/checkpoint', 'POST', {version:session.version, choice});
       $('#guide-confirm').checked = false;
     }, choice === 'review' ? 'Preparando el resumen de tu búsqueda…' : 'Abriendo la siguiente pregunta…');
   }
+  function reanalyse(note = null, choice = null) {
+    return work(async () => {
+      const {id, version} = session;
+      const key = JSON.stringify([id, version, profileHash, note, choice]);
+      if (reanalysisRequest?.key !== key) reanalysisRequest = {key, id:crypto.randomUUID()};
+      session = await api('/sessions/' + id + '/reanalysis', 'POST', {
+        request_id:reanalysisRequest.id, version, additional_context:note, choice,
+      });
+      reanalysisRequest = null; answerRequest = null;
+      historyOpen = resetOpen = false; editIndex = null;
+      $('#guide-intake-status').hidden = true;
+      $('#guide-confirm').checked = false;
+    }, 'Reanalizando el perfil y todas tus respuestas…', true);
+  }
+  $('#guide-reanalyse').onclick = () => reanalyse(session.state === 'checkpoint' ? $('#guide-additional').value.trim() : null);
+  $('#guide-intake').onclick = (event) => {
+    const button = event.target.closest('[data-intake-field]');
+    if (!button || busy) return;
+    const field = intakeFields.get(button.dataset.intakeField);
+    $('#guide-intake form')?.remove();
+    const form = document.createElement('form');
+    form.innerHTML = '<label>Editar ' + esc(field.label) + '<textarea maxlength="4000" rows="2"></textarea></label>' +
+      '<div class="actions"><button class="primary" type="submit">Guardar</button><button type="button">Cancelar</button></div>';
+    const input = form.querySelector('textarea');
+    input.value = field.value;
+    form.querySelector('[type="button"]').onclick = () => {form.remove(); button.focus();};
+    form.onsubmit = (submitEvent) => {
+      submitEvent.preventDefault();
+      if (input.value.trim() === field.value) { form.remove(); button.focus(); return; }
+      work(async () => {
+        const result = await api('/intake', 'PATCH', {field:field.label, before:field.value, value:input.value});
+        updateIntakeView(result);
+        liveText('#guide-intake-status', 'Campo guardado.' + (session ? ' Puedes volver a analizar el perfil.' : ''));
+        $('#guide-intake-status').hidden = false;
+      }, 'Guardando el campo de onboarding…');
+    };
+    button.closest('.guide-field').append(form);
+    input.focus();
+  };
   $('#guide-start').onclick = $('#guide-reset-confirm').onclick = newSession;
   $('#guide-new').onclick = () => {
     resetOpen = true; render(); reveal('#guide-reset-title');
@@ -295,12 +431,38 @@
       if (answerRequest?.key !== key) answerRequest = {key, id:crypto.randomUUID()};
       session = await api('/sessions/' + session.id + '/answers', 'POST', {request_id:answerRequest.id, version, answer, mode});
       answerRequest = null; $('#guide-confirm').checked = false;
-    }, 'Procesando tu respuesta y preparando el siguiente paso…');
+    }, 'Procesando tu respuesta y preparando el siguiente paso…', true);
   };
   $('#guide-apply').onclick = () => work(async () => {
     if (!$('#guide-confirm').checked) return;
     session = await api('/sessions/' + session.id + '/apply', 'POST', {version:session.version, confirmed:true});
   }, 'Guardando tu búsqueda…');
+  $('#guide-launch').onclick = () => work(async () => {
+    job = await api('/sessions/' + session.id + '/launch', 'POST', {version:session.version});
+    clearTimeout(jobTimer);
+    pollJob();
+  }, 'Iniciando el raspado…');
+  $('#guide-program').onclick = () => {
+    scheduleOpen = !scheduleOpen;
+    render();
+    if (scheduleOpen) $('#guide-interval').focus();
+  };
+  $('#guide-schedule-form').onsubmit = (event) => {
+    event.preventDefault();
+    work(async () => {
+      scheduleState = await api('/sessions/' + session.id + '/schedule', 'POST', {
+        version:session.version, interval_minutes:Number($('#guide-interval').value),
+        max_total_runs:Number($('#guide-run-count').value),
+      });
+      scheduleOpen = false;
+    }, 'Guardando la programación…');
+  };
+  $('#guide-refresh-schedule').onclick = () => work(async () => {
+    scheduleState = await api('/schedule');
+  }, 'Consultando la programación…');
+  $('#guide-pause-schedule').onclick = () => work(async () => {
+    scheduleState = await api('/schedule', 'DELETE');
+  }, 'Pausando la programación…');
   work(async () => {
     const response = await fetch('/api/intelligence/accounts', {credentials:'same-origin'}), data = await response.json();
     if (!response.ok || !data.accounts?.length) throw Error('No hay una empresa autorizada para esta sesión.');
@@ -313,6 +475,8 @@
     $('#guide-account').onchange = () => work(async () => {
       tenant = $('#guide-account').value; session = null; startId = answerRequest = null; aiReady = intakeLoaded = false;
       historyOpen = resetOpen = false; editIndex = null; saved.clear();
+      clearTimeout(jobTimer); job = scheduleState = null; scheduleOpen = false;
+      $('#guide-intake-status').hidden = true;
       $('#guide-company').textContent = 'Tu empresa'; showIntake([]);
       $('#guide-confirm').checked = false; await load();
     });

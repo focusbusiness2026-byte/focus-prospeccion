@@ -19,13 +19,12 @@ EXTRA_ROUND = 5
 MAX_ANSWERS = 20
 
 
-def guide_intake(source):
-    """Display client-entered data separately from the model's targeting context."""
-    sections = (
-        ('Empresa y contacto', ('Razón social', 'Web', 'Actividad', 'Ciudad / país', 'Tamaño equipo',
+INTAKE_SECTIONS = (
+        ('Empresa y contacto', ('Empresa', 'Razón social', 'Web', 'Actividad', 'Ciudad / país', 'Tamaño equipo',
             'Descripción', 'Responsable', 'Cargo', 'Email responsable', 'Teléfono / WhatsApp',
             'Propietario / representante', 'Email corporativo', 'Idioma principal', 'Zona horaria',
-            'Redes oficiales', 'Dominio/subdominio deseado', 'Equipo y roles iniciales')),
+            'Redes oficiales', 'Dominio/subdominio deseado', 'Equipo y roles iniciales',
+            'Ciudad legal', 'País legal')),
         ('Oferta y cliente ideal', ('Servicio prioritario', 'Servicios', 'Ticket medio', 'Modelo de precio',
             'Público', 'Sectores', 'Mercados', 'Ciudad objetivo', 'Región objetivo', 'Regiones objetivo',
             'Países objetivo', 'Tipos de cliente objetivo', 'Tamaño empresa ideal', 'Perfil ideal detallado',
@@ -36,15 +35,32 @@ def guide_intake(source):
             'Tiempo de respuesta', 'Asignación de leads', 'Ciclo de venta', 'Nombre reunión',
             'Duración reunión', 'Disponibilidad', 'Horario', 'Tratamiento', 'Tono marca',
             'Tono comunicación', 'Herramientas actuales', 'Herramientas a conectar',
+            'Automatizaciones', 'Integraciones', 'Excepciones', 'Responsable aprobación',
             'Automatizaciones workflow', 'Automatizaciones WhatsApp', 'Automatizaciones email',
             'Plataformas anuncios', 'Fecha lanzamiento', 'Objetivo campaña', 'Conversión campaña',
             'Público campaña', 'Destino campaña', 'Objetivo landing', 'Contenido landing', 'Uso VSL',
             'Enlace VSL', 'Indicaciones VSL', 'Responsable copy landing', 'Copy / referencias / CTA landing',
             'Color marca', 'Color corporativo primario', 'Color corporativo secundario',
-            'Logo URL', 'Tipografía títulos', 'Tipografía textos')),
-    )
-    return [{'title': title, 'fields': [{'label': key, 'value': source.raw_form[key]} for key in keys
-        if source.raw_form.get(key)]} for title, keys in sections if any(source.raw_form.get(k) for k in keys)]
+            'Tercer color corporativo', 'Logo URL', 'Tipografía títulos', 'Tipografía textos')),
+)
+INTAKE_EDITABLE = {key for _, keys in INTAKE_SECTIONS for key in keys} - {'Email responsable', 'Email corporativo'}
+BUSINESS_CONTEXT_FIELDS = (
+    'Objetivo campaña', 'Conversión campaña', 'Público campaña', 'Destino campaña',
+    'Criterio de cualificación', 'Regiones objetivo', 'Ticket medio', 'Modelo de precio',
+    'Canales', 'Ciclo de venta', 'Objetivo landing', 'Excepciones',
+)
+
+
+def guide_intake(source):
+    return [{'title': title, 'fields': [
+        {'label': key, 'value': source.raw_form.get(key, ''), 'editable': key in INTAKE_EDITABLE}
+        for key in keys]} for title, keys in INTAKE_SECTIONS]
+
+
+def uses_profile(session, profile):
+    if 'business_context' not in session['profile']:
+        profile = {key: value for key, value in profile.items() if key != 'business_context'}
+    return session['profile_hash'] == fingerprint(profile)
 
 
 def review_feedback(prospects, source_id, owner):
@@ -134,6 +150,8 @@ class OpenAITargetingGuide:
                     'El perfil anterior aprobado orienta, pero prevalecen los datos nuevos y la respuesta actual. '
                     'Si revised_answer_number está presente, reconstruye los criterios con el historial corregido. '
                     'Conserva las demás respuestas y señala o pregunta por incompatibilidades con la corrección. '
+                    'Si reanalyse está presente, replantea la propuesta con el onboarding actualizado y todas las '
+                    'respuestas. Incluye additional_context si existe y señala contradicciones que deban confirmarse. '
                     'El historial de CRM contiene muestras agregadas, no motivos: compara aprobados con descartados, '
                     'pregunta si hay un patrón útil y nunca conviertas una correlación en exclusión automática. No inventes '
                     'clientes, personas, ingresos, presupuestos o necesidades. Si falta evidencia, pregunta. '
@@ -147,7 +165,7 @@ class OpenAITargetingGuide:
         website = context['profile'].get('website', '')
         web_status = 'not_requested'
         host = ''
-        if not context['history'] and website:
+        if (not context['history'] or context.get('reanalyse')) and website:
             try:
                 safe = self.website_validator(website)
                 parsed = urlparse(safe)
@@ -254,7 +272,7 @@ class TargetingGuide:
             self._save(db, tenant, actor, value)
         return self.answer(tenant, sid, actor, 'initial', 0, '')
 
-    def answer(self, tenant, sid, actor, rid, version, answer, mode='custom'):
+    def answer(self, tenant, sid, actor, rid, version, answer, mode='custom', profile=None):
         if self.generator is None:
             raise CampaignError('Asistente no configurado; no se ha consumido IA.')
         digest = fingerprint({'version': version, 'answer': answer, 'mode': mode})
@@ -274,6 +292,8 @@ class TargetingGuide:
                 raise CampaignError('Respuesta pendiente de revisión; no repetiremos la llamada automáticamente.')
             if value['version'] != version or value['state'] not in {'draft', 'ready'}:
                 raise CampaignError('La conversación cambió o tiene una operación pendiente. Actualiza su estado.')
+            if profile is not None and not uses_profile(value, profile):
+                raise CampaignError('La ficha cambió. Vuelve a analizar el perfil para continuar.')
             limit = value.get('round_limit', FIRST_ROUND)
             if len(value['history']) >= limit:
                 raise CampaignError('Revisa el resumen o inicia una conversación nueva para cambiar el enfoque.')
@@ -293,14 +313,19 @@ class TargetingGuide:
             db.execute('INSERT INTO targeting_requests VALUES(?,?,?,?,?,?)', (tenant, sid, rid, digest, 'started', None))
         return self._generate(tenant, actor, rid, version, limit, value)
 
-    def revise(self, tenant, sid, actor, revision_id, version, index, answer, profile):
+    def revise(self, tenant, sid, actor, revision_id, version, index, answer, profile, *,
+        feedback=None, additional_context=None, choice=None):
         if self.generator is None:
             raise CampaignError('Asistente no configurado; no se ha consumido IA.')
         answer = answer.strip()
-        if not answer:
+        reanalyse = index is None
+        if not reanalyse and not answer:
             raise CampaignError('Escribe tu respuesta para guardarla.')
-        digest = fingerprint({'source': sid, 'version': version, 'index': index, 'answer': answer})
-        rid = 'revision'
+        request = {'source': sid, 'version': version, 'index': index, 'answer': answer}
+        if reanalyse:
+            request.update(additional_context=additional_context, choice=choice)
+        digest = fingerprint(request)
+        rid = 'reanalysis' if reanalyse else 'revision'
         with self.engine.db() as db:
             original = self._read(db, tenant, sid, actor)
             prior = db.execute('SELECT hash FROM targeting_requests WHERE tenant=? AND session=? AND id=?',
@@ -311,15 +336,22 @@ class TargetingGuide:
                 return self._read(db, tenant, revision_id, actor)
             if db.execute('SELECT 1 FROM targeting_sessions WHERE tenant=? AND id=?', (tenant, revision_id)).fetchone():
                 raise CampaignError('La solicitud ya corresponde a otra conversación.')
-            if original['version'] != version or original['state'] not in {'draft', 'checkpoint', 'ready', 'applied'}:
+            allowed_states = {'draft', 'checkpoint', 'ready', 'applied'}
+            if reanalyse:
+                allowed_states.add('review_required')
+            if original['version'] != version or original['state'] not in allowed_states:
                 raise CampaignError('La conversación cambió o tiene una operación pendiente. Actualiza su estado.')
-            if original['profile_hash'] != fingerprint(profile):
-                raise CampaignError('El onboarding cambió. Empieza de cero para usar la ficha actual.')
+            if original['profile']['onboarding_id'] != profile['onboarding_id']:
+                raise CampaignError('La conversación pertenece a otra ficha de onboarding.')
+            if not reanalyse and not uses_profile(original, profile):
+                raise CampaignError('La ficha cambió. Vuelve a analizar el perfil antes de corregir respuestas.')
             history = original['history']
-            if not 0 <= index < len(history):
-                raise CampaignError('Esa respuesta no está guardada.')
-            if answer == history[index]['answer'].strip():
-                raise CampaignError('Modifica la respuesta antes de guardar.')
+            if not reanalyse:
+                if not 0 <= index < len(history):
+                    raise CampaignError('Esa respuesta no está guardada.')
+                if answer == history[index]['answer'].strip():
+                    raise CampaignError('Modifica la respuesta antes de guardar.')
+                history = [{**h, 'answer': answer, 'mode': 'custom'} if i == index else h for i, h in enumerate(history)]
             now = time.time()
             recent_revisions = [json.loads(row[0]) for row in db.execute(
                 'SELECT payload FROM targeting_sessions WHERE tenant=? AND actor=? ORDER BY rowid DESC LIMIT 30',
@@ -329,19 +361,29 @@ class TargetingGuide:
             if sum(bool(v.get('revision_of')) and v['created_at'] > now - 3600 for v in recent_revisions) >= 10:
                 raise CampaignError('Ya hay varias correcciones recientes. Continúa con la última revisión.')
             limit = original.get('round_limit', FIRST_ROUND)
-            revised = [{**h, 'answer': answer, 'mode': 'custom'} if i == index else h for i, h in enumerate(history)]
-            value = {'id': revision_id, 'created_at': now, 'profile': profile, 'profile_hash': original['profile_hash'],
-                'version': 0, 'state': 'generating', 'history': revised, 'turn': None, 'criteria': base_criteria(profile),
-                'sources': original['sources'], 'web_status': original['web_status'], 'round_limit': limit,
-                'analysis_summary': original.get('analysis_summary') or (original['turn'] or {}).get('summary', '')[:450],
-                'feedback': original.get('feedback', {}), 'prior_approved': original.get('prior_approved'),
+            if choice and len(history) < limit:
+                raise CampaignError('Completa esta ronda de preguntas antes de revisar tu búsqueda.')
+            if choice == 'more':
+                if limit >= MAX_ANSWERS:
+                    raise CampaignError('Has completado el máximo de preguntas de esta conversación.')
+                limit = min(MAX_ANSWERS, limit + EXTRA_ROUND)
+            ready = reanalyse and (choice == 'review' or (not choice and original['state'] in {'ready', 'applied'}))
+            value = {'id': revision_id, 'created_at': now, 'profile': profile, 'profile_hash': fingerprint(profile),
+                'version': 0, 'state': 'generating', 'history': history, 'turn': None, 'criteria': base_criteria(profile),
+                'sources': [] if reanalyse else original['sources'],
+                'web_status': 'not_requested' if reanalyse else original['web_status'], 'round_limit': limit,
+                'analysis_summary': '' if reanalyse else (original.get('analysis_summary') or (original['turn'] or {}).get('summary', '')[:450]),
+                'feedback': feedback if feedback is not None else original.get('feedback', {}),
+                'prior_approved': None if reanalyse else original.get('prior_approved'),
+                'additional_context': original.get('additional_context', '') if additional_context is None else additional_context.strip(),
                 'revision_of': sid}
             self._save(db, tenant, actor, value)
             db.execute('INSERT INTO targeting_requests VALUES(?,?,?,?,?,?)',
                 (tenant, revision_id, rid, digest, 'started', None))
-        return self._generate(tenant, actor, rid, 0, limit, value, revised_answer_number=index + 1)
+        return self._generate(tenant, actor, rid, 0, limit, value,
+            revised_answer_number=None if reanalyse else index + 1, reanalyse=reanalyse, ready=ready)
 
-    def _generate(self, tenant, actor, rid, version, limit, value, revised_answer_number=None):
+    def _generate(self, tenant, actor, rid, version, limit, value, revised_answer_number=None, reanalyse=False, ready=False):
         sid = value['id']
         try:
             count = len(value['history'])
@@ -351,6 +393,10 @@ class TargetingGuide:
                 'prior_approved': value['prior_approved'], 'question_number': count + 1 if count < MAX_ANSWERS else None}
             if revised_answer_number is not None:
                 context['revised_answer_number'] = revised_answer_number
+            if reanalyse:
+                context['reanalyse'] = True
+            if value.get('additional_context'):
+                context['additional_context'] = value['additional_context']
             result = self.generator(context)
             result['turn'] = Turn.model_validate(result['turn']).model_dump()
             # Bound every free-text array member as well as the number of members.
@@ -364,9 +410,10 @@ class TargetingGuide:
             turn['options'] = options if count < MAX_ANSWERS else []
             if count >= MAX_ANSWERS:
                 turn['question'] = ''
-            value.update(state='checkpoint' if count >= limit else 'draft', version=version + 1,
+            next_state = 'ready' if ready else 'checkpoint' if count >= limit else 'draft'
+            value.update(state=next_state, version=version + 1,
                 criteria=turn['criteria'], turn=turn)
-            if count == 0:
+            if count == 0 or reanalyse:
                 value.update(sources=result['sources'], web_status=result['web_status'], analysis_summary=turn['summary'])
             value['last_usage'] = {k: result.get(k) for k in ('model', 'usage', 'provider_response_id')}
             with self.engine.db() as db:
@@ -408,8 +455,8 @@ class TargetingGuide:
                 raise CampaignError('Revisa y completa el perfil antes de guardarlo.')
             if not all(any(x.strip() for x in value['criteria'][k]) for k in ('sectors','target_countries')):
                 raise CampaignError('Falta definir sectores o países. Completa los criterios antes de guardar.')
-            if value['profile_hash'] != fingerprint(profile):
-                raise CampaignError('El onboarding cambió durante la conversación. Inicia una nueva para revisarlo.')
+            if not uses_profile(value, profile):
+                raise CampaignError('La ficha cambió. Vuelve a analizar el perfil antes de guardar.')
             value['state'] = 'applying'
             self._save(db, tenant, actor, value)
         try:

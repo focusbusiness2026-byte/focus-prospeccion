@@ -21,6 +21,8 @@ from app.config import Settings
 from app.sheet_store import (SheetStore as OriginalStore, PROSPECT_HEADERS, EXECUTION_HEADERS,
                              AUTOMATION_HEADERS, LEAD_REVIEW_HEADERS, SAVED_SEARCH_HEADERS)
 from app.auth import Identity
+from app.intelligence import CampaignError
+from app.onboarding import OnboardingSource
 from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import main, auth
@@ -34,6 +36,12 @@ SETTINGS = Settings(_env_file=None, app_env="sandbox", google_sheets_enabled=Tru
     radar_portal_url=os.environ.get("SANDBOX_RADAR_URL", "http://127.0.0.1:8019"),
     central_auth_url=os.environ.get("SANDBOX_PORTAL_URL", "http://127.0.0.1:8020"))
 IDENTITY = Identity("admin@sandbox.example.test", "Administrador", "sandbox", True, True)
+GUIDED_SCHEDULE_PREFIX = "Prospección guiada · "
+
+
+def is_guided_schedule(config):
+    return bool(config and config.get("batch") and re.fullmatch(
+        r"Prospección guiada · [0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", config.get("name", "")))
 
 
 def seed() -> dict:
@@ -127,6 +135,35 @@ class SandboxStore(OriginalStore):
             data.setdefault(tab, []).extend(values)
             self._save(data)
 
+    def update_guide_field(self, source, field, before, value):
+        with LOCK:
+            data = self._load()
+            rows = data.get(self.settings.google_onboarding_tab, [])
+            if not rows:
+                raise CampaignError('La ficha de onboarding ya no está disponible.')
+            headers = rows[0]
+            matches = [row for row in rows[1:] if str(dict(zip(headers, row)).get('ID registro', '')).strip() == source.record_id]
+            if len(matches) != 1:
+                raise CampaignError('No se encontró una ficha única para esta empresa.')
+            if headers.count(field) > 1:
+                raise CampaignError('El campo está duplicado en la ficha. Actualiza los encabezados antes de editarlo.')
+            row = matches[0]
+            current = OnboardingSource.from_sheet_record(dict(zip(headers, row)))
+            if current.email != source.email:
+                raise CampaignError('La cuenta de la ficha cambió. Actualiza antes de guardar.')
+            existing = current.raw_form.get(field, '')
+            if existing == value:
+                return current
+            if existing != before:
+                raise CampaignError('Este campo cambió en otra sesión. Actualiza la ficha antes de editarlo.')
+            if field not in headers:
+                headers.append(field)
+            index = headers.index(field)
+            row.extend([''] * max(0, index + 1 - len(row)))
+            row[index] = value
+            self._save(data)
+            return OnboardingSource.from_sheet_record(dict(zip(headers, row)))
+
     def _sheet_properties(self):
         return [{"sheetId": i, "title": title, "gridProperties": {"columnCount": 200, "rowCount": 10000}}
                 for i, title in enumerate(self._load())]
@@ -157,7 +194,7 @@ auth.verify_central_session = identity
 main.app.dependency_overrides[auth.require_identity] = lambda: IDENTITY
 
 @asynccontextmanager
-async def no_workers(_):
+async def sandbox_lifespan(_):
     async def run_campaigns():
         while True:
             await asyncio.sleep(15)
@@ -165,14 +202,17 @@ async def no_workers(_):
             except Exception:
                 # Durable errors stop the loop rather than replaying side effects.
                 break
-    task=asyncio.create_task(run_campaigns())
+    tasks = [asyncio.create_task(run_campaigns())]
+    if REAL_MODE and SETTINGS.auto_research_enabled:
+        tasks.append(asyncio.create_task(main._automation_loop(60)))
     try:yield
     finally:
-        task.cancel()
-        await asyncio.gather(task,return_exceptions=True)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 app = main.app
-app.router.lifespan_context = no_workers
+app.router.lifespan_context = sandbox_lifespan
 
 @app.post("/sandbox/onboarding")
 def sandbox_onboarding(payload: dict):
@@ -217,7 +257,7 @@ async def sandbox_boundary(request, call_next):
     response.headers["X-Focus-Environment"] = "sandbox"
     if REAL_MODE:response.headers["Cache-Control"]="no-store"
     if path == "/health":
-        return JSONResponse({"status":"ok", "environment":"sandbox", "storage":"isolated-durable-private-portal" if REAL_MODE else "isolated-sqlite", "external_services":REAL_MODE, "schedulers":False})
+        return JSONResponse({"status":"ok", "environment":"sandbox", "storage":"isolated-durable-private-portal" if REAL_MODE else "isolated-sqlite", "external_services":REAL_MODE, "schedulers":REAL_MODE and SETTINGS.auto_research_enabled})
     if "text/html" in response.headers.get("content-type", ""):
         body = b"".join([chunk async for chunk in response.body_iterator]).decode()
         label="COPIA PRIVADA · Datos y OpenAI reales · Producción separada · Sin envíos" if REAL_MODE else "COPIA DE PRUEBAS · Datos ficticios · Sin raspados ni envíos reales"
@@ -245,7 +285,7 @@ from app.outreach_setup import mount_outreach
 outreach_service = mount_outreach(app, campaign_engine, auth.require_identity, main._template, getattr(campaign_engine, "outreach_settings", SETTINGS))
 
 # New guided flow is mounted only in this isolated entry point.
-from app.prospecting_guide import TargetingGuide, OpenAITargetingGuide, guide_intake, review_feedback
+from app.prospecting_guide import BUSINESS_CONTEXT_FIELDS, TargetingGuide, OpenAITargetingGuide, guide_intake, review_feedback
 from app.prospecting_guide_api import guide_router
 from app.outreach_setup import outreach_ai_authorized
 from app.outreach_api import authorize
@@ -267,12 +307,22 @@ def guide_source(tenant, identity):
         raise HTTPException(403, 'No se encontró el onboarding de esta cuenta')
     return source
 
+def profile_from_source(source):
+    profile = main._questionnaire_source_profile(source)
+    profile['business_context'] = {key: source.raw_form[key] for key in BUSINESS_CONTEXT_FIELDS if source.raw_form.get(key)}
+    return profile
+
 def guide_profile(tenant, identity):
-    return main._questionnaire_source_profile(guide_source(tenant, identity))
+    return profile_from_source(guide_source(tenant, identity))
 
 def guide_intake_view(tenant, identity):
     source = guide_source(tenant, identity)
-    return main._questionnaire_source_profile(source), guide_intake(source)
+    return profile_from_source(source), guide_intake(source)
+
+def guide_update_intake(tenant, identity, field, before, value):
+    source = guide_source(tenant, identity)
+    updated = main.SheetStore(SETTINGS).update_guide_field(source, field, before, value)
+    return profile_from_source(updated), guide_intake(updated)
 
 def guide_feedback(tenant, identity):
     source = guide_source(tenant, identity)
@@ -285,7 +335,53 @@ def guide_save(tenant, identity, name, criteria):
     return main.SheetStore(SETTINGS).upsert_saved_search(source.record_id, source.email, name=name,
         adjustments=adjustments, favorite=False, created_by_email=identity.email, created_by_role=identity.role)
 
+
+def guide_run(record_id, criteria, request, background_tasks, identity):
+    return main.start_research_job(record_id, main.ResearchAdjustments.model_validate(criteria),
+        request, background_tasks, identity)
+
+
+def public_guide_schedule(config):
+    if not is_guided_schedule(config):
+        return None
+    batch = config['batch']
+    return {**{key: config.get(key) for key in ('enabled', 'interval_minutes', 'next_run_at', 'last_status')},
+        'max_total_runs': batch['max_total_runs'], 'completed_runs': batch['completed_runs'],
+        'in_flight': batch['in_flight']}
+
+
+def guide_schedule_status(tenant, identity):
+    source = guide_source(tenant, identity)
+    return public_guide_schedule(main.SheetStore(SETTINGS).get_automation_config(source.record_id))
+
+
+def guide_schedule(record_id, sid, criteria, interval, total, request, identity):
+    with LOCK:
+        current = main.SheetStore(SETTINGS).get_automation_config(record_id)
+        if current and (current['enabled'] or (current.get('batch') or {}).get('in_flight')):
+            raise HTTPException(409, 'Pausa la programación en curso antes de crear otra.')
+        payload = main.AutomationRequest(name=GUIDED_SCHEDULE_PREFIX + sid,
+            enabled=REAL_MODE and SETTINGS.auto_research_enabled,
+            interval_minutes=interval, max_total_runs=total,
+            adjustments=main.ResearchAdjustments.model_validate(criteria))
+        result = main.save_onboarding_automation(record_id, payload, request, identity)
+        return public_guide_schedule(result['automation'])
+
+
+def guide_pause_schedule(tenant, identity):
+    source = guide_source(tenant, identity)
+    with LOCK:
+        store = main.SheetStore(SETTINGS)
+        current = store.get_automation_config(source.record_id)
+        if not is_guided_schedule(current):
+            raise CampaignError('No hay una programación de la guía para esta empresa.')
+        if current['batch']['in_flight']:
+            raise CampaignError('El raspado está en curso. Podrás pausar los siguientes cuando termine.')
+        return public_guide_schedule(store.pause_bounded_automation(current))
+
+
 guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campaign_engine) and SETTINGS.openai_api_key else None
 targeting_guide = TargetingGuide(campaign_engine, guide_generator)
 app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile,
-    guide_save, guide_feedback, guide_intake_view))
+    guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run, guide_schedule,
+    guide_schedule_status, guide_pause_schedule))

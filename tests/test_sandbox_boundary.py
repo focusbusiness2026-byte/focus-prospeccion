@@ -24,6 +24,16 @@ with TestClient(app) as c:
     assert c.get('/api/intelligence/three-dots/guide').json()['profile']['onboarding_id']=='SANDBOX-1'
     assert c.get('/api/intelligence/control/guide').json()['profile']['onboarding_id']=='SANDBOX-2'
     assert c.get('/api/intelligence/three-dots/guide').json()['ai_ready'] is False
+    path='/api/intelligence/three-dots/guide/intake'
+    data={'field':'Objetivos','before':'','value':'Conseguir tres reuniones'}
+    assert c.patch(path,json=data).status_code == 403
+    updated = c.patch(path,headers=headers,json=data)
+    assert updated.status_code == 200, updated.text
+    assert updated.json()['profile']['targeting']['objectives']==['Conseguir tres reuniones']
+    assert SandboxStore().get_onboarding_source('SANDBOX-1').objectives==('Conseguir tres reuniones',)
+    assert SandboxStore().get_onboarding_source('SANDBOX-2').objectives==()
+    assert c.patch(path,headers=headers,json={**data,'value':'Sobrescritura'}).status_code==409
+    assert c.patch(path,headers=headers,json={**data,'field':'Email responsable'}).status_code==422
     portal=c.get('/portal').text
     assert 'href="/prospecting-guide"' in portal and 'href="/integrations/ghl"' in portal
     try: SandboxStore()._session()

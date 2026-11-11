@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css">
 </head>
 <body>
-<header><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
+<header id="guide-header"><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
 <nav><a class="active" href="/prospecting-guide">Prospección guiada</a><a href="/portal#results">Leads y CRM</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
 <main class="guide-main">
   <div class="guide-title"><div><p class="eyebrow">PROSPECCIÓN GUIADA</p><h1>Define tu cliente ideal</h1></div><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
@@ -27,6 +27,8 @@
       <div id="guide-checkpoint" hidden>
         <h2 id="guide-checkpoint-title" tabindex="-1">¿Afinamos un poco más?</h2>
         <p id="guide-checkpoint-summary"></p>
+        <label for="guide-additional">¿Quieres añadir algo más? <span class="muted">Opcional</span></label>
+        <textarea id="guide-additional" maxlength="2000" rows="3" placeholder="Un objetivo, una preferencia o algo que no te hayamos preguntado"></textarea>
         <div class="actions"><button class="primary" id="guide-review-choice">Revisar mi búsqueda</button><button id="guide-more">Responder 5 más</button></div>
       </div>
       <div id="guide-review" hidden>
@@ -36,6 +38,30 @@
         <label class="guide-check" id="guide-confirm-label"><input type="checkbox" id="guide-confirm"> He revisado los criterios.</label>
         <div class="actions"><button class="primary" id="guide-apply">Guardar búsqueda</button><button id="guide-more-review" hidden>Responder 5 más</button><a id="guide-research" class="button" href="/portal#sources" hidden>Abrir búsqueda guardada →</a></div>
       </div>
+      <section id="guide-execution" aria-label="Raspado y programación" hidden>
+        <div class="actions" id="guide-run-actions" hidden>
+          <button id="guide-launch" class="primary" type="button">Iniciar raspado</button>
+          <button id="guide-program" type="button" aria-controls="guide-schedule-form">Programar raspado</button>
+        </div>
+        <form id="guide-schedule-form" hidden>
+          <div class="row">
+            <label>Frecuencia<select id="guide-interval">
+              <option value="60">Cada hora</option><option value="360">Cada 6 horas</option>
+              <option value="1440" selected>Cada día</option><option value="10080">Cada semana</option>
+            </select></label>
+            <label>Número de raspados<input id="guide-run-count" type="number" min="1" max="50" required value="1"></label>
+          </div>
+          <button type="submit" class="primary" id="guide-confirm-schedule">Guardar programación</button>
+        </form>
+        <p id="guide-job-status" role="status" hidden></p>
+        <progress id="guide-job-progress" max="100" aria-label="Progreso del raspado" hidden></progress>
+        <p id="guide-schedule-status" role="status" hidden></p>
+        <div class="actions">
+          <button id="guide-refresh-schedule" type="button" hidden>Actualizar estado</button>
+          <button id="guide-pause-schedule" type="button" hidden>Pausar programación</button>
+        </div>
+        <a href="/portal#results" id="guide-view-leads" hidden>Ver resultados en el portal</a>
+      </section>
       <div class="actions guide-actions">
         <button class="primary" id="guide-start" disabled>Analizar mi empresa</button>
         <button id="guide-history-open" type="button" aria-controls="guide-history" hidden>Respuestas guardadas</button>
@@ -66,6 +92,8 @@
       <p class="eyebrow">FICHA DEL CLIENTE</p><h2 id="guide-company">Tu empresa</h2>
       <p id="guide-analysis">Primero analizo tu onboarding y tu web.</p>
       <p id="guide-feedback" class="muted small" hidden></p>
+      <div class="actions"><button id="guide-reanalyse" type="button" hidden>Volver a analizar el perfil</button></div>
+      <p id="guide-intake-status" role="status" hidden></p>
       <div id="guide-intake"></div>
       <details id="guide-source-details" hidden><summary>Fuentes consultadas</summary><p id="guide-web-status" class="muted small"></p><ul id="guide-sources"></ul></details>
     </aside>

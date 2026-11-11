@@ -72,7 +72,7 @@ def configure(app):
     book=os.environ.get("SANDBOX_STORAGE_SHEET_ID","private-portal-d1")
     if book==PRODUCTION_BOOK:raise RuntimeError("El destino de producción está prohibido")
     settings=Settings(_env_file=None,app_env="sandbox-real",google_sheets_enabled=True,central_auth_enabled=False,
-        auto_research_enabled=False,allow_external_sources=True,app_secret=secret,google_sheet_id=book,
+        auto_research_enabled=True,allow_external_sources=True,app_secret=secret,google_sheet_id=book,
         google_service_account_json=os.environ.get("SANDBOX_GOOGLE_SERVICE_ACCOUNT_JSON",""),
         openai_api_key=os.environ["SANDBOX_OPENAI_API_KEY"],openai_model=os.environ.get("SANDBOX_OPENAI_MODEL","gpt-5.5"),
         public_base_url=os.environ.get("RENDER_EXTERNAL_URL","http://127.0.0.1:8018"),central_auth_url=PORTAL,
@@ -110,6 +110,14 @@ def configure(app):
                 db.execute("BEGIN IMMEDIATE")
                 db.execute("UPDATE sandbox SET payload=? WHERE id=1",(json.dumps(data),))
                 cells_remote.save("\n".join(db.iterdump()))
+        def due_automation_configs(self):
+            return [config for config in super().due_automation_configs()
+                    if config["onboarding_id"] == SOURCE_ID and sb.is_guided_schedule(config)]
+        def claim_bounded_automation_run(self, config):
+            with sb.LOCK:
+                if config["onboarding_id"] != SOURCE_ID or not sb.is_guided_schedule(config):
+                    return None
+                return super().claim_bounded_automation_run(config)
         def claim(self,state,payload=None):
             with sb.LOCK,sqlite3.connect(path) as db:
                 db.execute("BEGIN IMMEDIATE")
