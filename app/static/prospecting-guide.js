@@ -19,6 +19,7 @@
   const isWaiting = () => ['generating', 'applying'].includes(session?.state);
   const dialog = $('#guide-busy');
   const crmFrame = $('#guide-crm-frame');
+  const leadsDemo = document.body.hasAttribute('data-leads-demo');
   dialog.addEventListener('cancel', (event) => event.preventDefault());
 
   function notifyCrm() {
@@ -277,6 +278,7 @@
     liveText('#guide-research-average', timing ? reference + ': ' + duration(timing.average_seconds) : 'Tiempo promedio pendiente de medir.');
     liveText('#guide-job-status', jobDisconnected ?
       'Se perdió la conexión. Consulta el estado del raspado antes de iniciar otro.' :
+      job?.simulated ? 'Resultado de ejemplo · ' + job.leads_found + (job.leads_found === 1 ? ' lead nuevo' : ' leads nuevos') :
       job?.status === 'completed' ? (job.leads_found ? 'Raspado completado. ' + job.leads_found +
         (job.leads_found === 1 ? ' lead guardado.' : ' leads guardados.') : 'Raspado completado.') : job?.message || '');
     $('#guide-reconnect-job').hidden = !jobDisconnected;
@@ -437,7 +439,8 @@
           (index + 1) + '">Editar</button>' : '') + '</li>').join('');
     }
     $('#guide-edit').hidden = !historyOpen || editIndex === null;
-    $('#guide-analysis').textContent = s?.analysis_summary || (s ? 'Se conserva el contexto de tu empresa.' : 'El asistente usa estos datos y tu web para preparar las preguntas.');
+    $('#guide-analysis').textContent = leadsDemo ? 'Ficha de ejemplo utilizada para definir la búsqueda.' :
+      s?.analysis_summary || (s ? 'Se conserva el contexto de tu empresa.' : 'El asistente usa estos datos y tu web para preparar las preguntas.');
     const discarded = s?.feedback?.discarded?.count || 0, approved = s?.feedback?.approved?.count || 0;
     $('#guide-feedback').hidden = !discarded && !approved;
     $('#guide-feedback').textContent = 'Tu tablero orienta las propuestas: ' + approved + ' aprobados y ' + discarded + ' descartados revisados.';
@@ -467,7 +470,8 @@
     }
     saved = new Map((result.saved || []).map((item) => [item.id, item]));
     intakeLoaded = true;
-    $('#guide-environment').textContent = result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Guardar tu enfoque no inicia una búsqueda.';
+    $('#guide-environment').textContent = leadsDemo ? 'Los leads del ejemplo aparecen en el tablero de esta página.' :
+      result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Guardar tu enfoque no inicia una búsqueda.';
     updateIntakeView(result);
   }
   function newSession() {

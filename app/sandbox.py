@@ -18,6 +18,9 @@ if any(os.environ.get(key) for key in ("GOOGLE_SERVICE_ACCOUNT_JSON", "GOOGLE_SH
     raise RuntimeError("Sandbox refuses external credentials and production storage")
 
 PUBLIC_DEMO = os.getenv("SANDBOX_PUBLIC_DEMO") == "1"
+LEADS_DEMO = os.getenv("SANDBOX_LEADS_DEMO") == "1"
+if LEADS_DEMO and not PUBLIC_DEMO:
+    raise RuntimeError("The leads demo requires public demo mode")
 if PUBLIC_DEMO and any(os.getenv(key) == "1" for key in (
     "SANDBOX_REAL_MODE", "OUTREACH_AI_ENABLED", "OUTREACH_LIVE_EMAIL_ENABLED",
     "GHL_OAUTH_ENABLED", "GHL_CAMPAIGN_SETUP_ENABLED", "GHL_ASSET_CHECK_ENABLED",
@@ -245,6 +248,15 @@ def sandbox_onboarding(payload: dict):
 @app.middleware("http")
 async def sandbox_boundary(request, call_next):
     path = request.url.path
+    if LEADS_DEMO:
+        if path == "/" and request.method in {"GET", "HEAD"}:
+            return RedirectResponse("/prospecting-guide", status_code=303)
+        if path.startswith(("/campaigns", "/integrations/ghl", "/webhooks/ghl")):
+            return JSONResponse({"detail": "No disponible en esta demo"}, status_code=404)
+        if path.startswith("/api/intelligence/") and any(
+            part in {"outreach", "campaigns", "catalog", "tick"} for part in path.split("/")
+        ):
+            return JSONResponse({"detail": "No disponible en esta demo"}, status_code=404)
     if PUBLIC_DEMO:
         if path == "/campaigns" and request.method in {"GET", "HEAD"}:
             return RedirectResponse("/campaigns/outreach", status_code=303)
@@ -278,14 +290,21 @@ async def sandbox_boundary(request, call_next):
         if PUBLIC_DEMO:
             label = "DEMO PÚBLICA · Datos ficticios · Solo lectura"
             body = body.replace("</head>", '<link rel="stylesheet" href="/static/public-demo.css"></head>', 1)
+            if LEADS_DEMO:
+                body = body.replace("</head>", '<link rel="stylesheet" href="/static/leads-demo.css"></head>', 1)
             if path in {"/prospecting-guide", "/campaigns", "/campaigns/outreach", "/integrations/ghl"}:
                 notice = f'<p class="public-demo-notice">{label}</p>'
                 body = re.sub(r"(<body\b[^>]*>)", lambda match: match[0] + notice, body, count=1)
-        banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
+        banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a>'
+        if not LEADS_DEMO:
+            banner += ' · <a href="/campaigns">Focus Intelligence</a>'
+        banner += '</div>'
         response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
         if path == "/portal":
-            body = body.replace('</head>', '<link rel="stylesheet" href="/static/outreach-board.css"></head>', 1)
-            scripts = '<script src="/static/outreach-board.js" defer></script>'
+            scripts = ""
+            if not LEADS_DEMO:
+                body = body.replace('</head>', '<link rel="stylesheet" href="/static/outreach-board.css"></head>', 1)
+                scripts = '<script src="/static/outreach-board.js" defer></script>'
             if request.query_params.get("crm_embed") == "1":
                 body = body.replace('<body class="portal-booting">', '<body class="portal-booting guide-crm-embedded">', 1)
                 body = body.replace('</head>', '<link rel="stylesheet" href="/static/guide-crm.css"></head>', 1)
@@ -294,7 +313,10 @@ async def sandbox_boundary(request, call_next):
                 body = body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1)
                 body = body.replace('href="#sources" data-view="sources">Prospección', 'href="/prospecting-guide">Prospección', 1)
                 body = body.replace('<a class="top-link" href="#results" data-view="results">Leads y CRM</a>', '', 1)
-                body = body.replace('</nav>', '<a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav>', 1)
+                if LEADS_DEMO:
+                    body = body.replace('</nav>', '<a href="/prospecting-guide#crm">Leads y CRM</a></nav>', 1)
+                else:
+                    body = body.replace('</nav>', '<a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav>', 1)
                 scripts += '<script src="/static/guide-portal-entry.js" defer></script>'
             response = HTMLResponse(body.replace('</body>', scripts + '</body>'), status_code=response.status_code,
                                     headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
@@ -311,11 +333,12 @@ else:
     from app.intelligence_api import campaign_router
     seed_name = "public_demo_seed.json" if PUBLIC_DEMO else "intelligence_seed.json"
     campaign_engine=CampaignEngine(ROOT/"campaigns.sqlite3",Path(__file__).with_name(seed_name))
-    app.include_router(campaign_router(campaign_engine,auth.require_identity,main._template))
+    if not LEADS_DEMO:
+        app.include_router(campaign_router(campaign_engine,auth.require_identity,main._template))
 
 from app.outreach_setup import mount_outreach
 outreach_service = mount_outreach(app, campaign_engine, auth.require_identity, main._template, getattr(campaign_engine, "outreach_settings", SETTINGS))
-if PUBLIC_DEMO and not outreach_service.catalog("demo")["campaigns"]:
+if PUBLIC_DEMO and not LEADS_DEMO and not outreach_service.catalog("demo")["campaigns"]:
     outreach_service.configure_brand("demo", {
         "company": "Estudio ficticio 1", "sender_name": "Equipo del estudio",
         "sender_email": "equipo@estudio1.example.test", "color": "#d9af3c",
@@ -386,6 +409,19 @@ def guide_run(record_id, criteria, request, background_tasks, identity):
 
 def guide_job(tenant, identity):
     source = guide_source(tenant, identity)
+    if LEADS_DEMO:
+        store = main.SheetStore(SETTINGS)
+        leads = [lead for lead in store.recent_prospects(source.email, limit=20)
+                 if lead["onboarding_id"] == source.record_id and lead["lead_status"] == "Nuevo"]
+        return {
+            "job_id": f"demo-{source.record_id}",
+            "status": "completed",
+            "progress": 100,
+            "leads_found": len(leads),
+            "saved_leads": [{"execution_id": lead["execution_id"], "company": lead["company"]} for lead in leads],
+            "highlights": [guide_result_highlight(lead, source) for lead in leads],
+            "simulated": True,
+        }
     live = main.latest_manual_research_job(source.record_id, identity.email)
     if not REAL_MODE or (live and live["status"] in {"running", "queued"}):
         return live
@@ -493,6 +529,12 @@ def guide_pause_schedule(tenant, identity):
 
 guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campaign_engine) and SETTINGS.openai_api_key else None
 targeting_guide = TargetingGuide(campaign_engine, guide_generator)
-app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile,
+
+
+def guide_template(request, name, **context):
+    return main._template(request, name, leads_demo=LEADS_DEMO, **context)
+
+
+app.include_router(guide_router(targeting_guide, auth.require_identity, guide_template, guide_profile,
     guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run, guide_schedule,
     guide_schedule_status, guide_pause_schedule, guide_job, guide_leads, guide_timing))

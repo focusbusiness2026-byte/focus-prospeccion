@@ -5,12 +5,12 @@
 <title>Prospección · Focus Business</title><link rel="icon" href="/static/favicon.svg">
 <link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css">
 </head>
-<body>
+<body{% if leads_demo %} data-leads-demo{% endif %}>
 <header id="guide-header"><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
-<nav><a class="active" href="/prospecting-guide">Prospección</a><a href="#crm">Ir al tablero</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
+<nav><a class="active" href="/prospecting-guide">Prospección</a><a href="#crm">Leads y CRM</a><a href="/portal#activity">Ejecuciones</a>{% if not leads_demo %}<a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a>{% endif %}</nav></header>
 <main class="guide-page"><div class="guide-main">
   <div class="guide-title"><h1>Prospección</h1><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
-  <section class="guide-learning" aria-labelledby="guide-learning-label">
+  <section class="guide-learning" aria-labelledby="guide-learning-label"{% if leads_demo %} hidden{% endif %}>
     <div><strong id="guide-learning-label">Aprendizaje de tu búsqueda</strong><span id="guide-progress-label"></span></div>
     <progress id="guide-progress" max="10" value="0" aria-labelledby="guide-learning-label" aria-describedby="guide-learning-note"></progress>
     <p id="guide-learning-note" class="muted small">Más contexto ayuda a afinar el perfil de tus leads.</p>

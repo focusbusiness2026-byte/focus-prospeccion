@@ -1,0 +1,8 @@
+body[data-leads-demo] #guide-status,
+body[data-leads-demo] #guide-research-average,
+.guide-crm-embedded .crm-board-safety,
+.guide-crm-embedded [data-move-prospect],
+.guide-crm-embedded .crm-drag-handle,
+.guide-crm-embedded .crm-board-card label:has([data-move-prospect]) {
+  display: none !important;
+}
