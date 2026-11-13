@@ -19,6 +19,14 @@
   const isWaiting = () => ['generating', 'applying'].includes(session?.state);
   const dialog = $('#guide-busy');
   const crmFrame = $('#guide-crm-frame');
+  const previewButton = $('#guide-preview-run');
+  let previewJob = null;
+  previewButton?.addEventListener('click', () => {
+    if (!previewJob) return;
+    acceptJob(previewJob, false);
+    render();
+    reveal('#guide-result-title');
+  });
   dialog.addEventListener('cancel', (event) => event.preventDefault());
 
   function notifyCrm() {
@@ -274,9 +282,11 @@
     $('#guide-job-progress').hidden = !jobActive();
     $('#guide-job-progress').value = job?.progress || 0;
     const reference = timing?.sample_count === 1 ? 'Referencia de 1 raspado' : 'Promedio de ' + timing?.sample_count + ' raspados';
+    $('#guide-research-average').hidden = Boolean(previewButton);
     liveText('#guide-research-average', timing ? reference + ': ' + duration(timing.average_seconds) : 'Tiempo promedio pendiente de medir.');
     liveText('#guide-job-status', jobDisconnected ?
       'Se perdió la conexión. Consulta el estado del raspado antes de iniciar otro.' :
+      job?.simulated ? 'Resultado de ejemplo · ' + job.leads_found + (job.leads_found === 1 ? ' lead nuevo' : ' leads nuevos') :
       job?.status === 'completed' ? (job.leads_found ? 'Raspado completado. ' + job.leads_found +
         (job.leads_found === 1 ? ' lead guardado.' : ' leads guardados.') : 'Raspado completado.') : job?.message || '');
     $('#guide-reconnect-job').hidden = !jobDisconnected;
@@ -437,7 +447,8 @@
           (index + 1) + '">Editar</button>' : '') + '</li>').join('');
     }
     $('#guide-edit').hidden = !historyOpen || editIndex === null;
-    $('#guide-analysis').textContent = s?.analysis_summary || (s ? 'Se conserva el contexto de tu empresa.' : 'El asistente usa estos datos y tu web para preparar las preguntas.');
+    $('#guide-analysis').textContent = previewButton ? 'Ficha de la empresa utilizada en la búsqueda de ejemplo.' :
+      s?.analysis_summary || (s ? 'Se conserva el contexto de tu empresa.' : 'El asistente usa estos datos y tu web para preparar las preguntas.');
     const discarded = s?.feedback?.discarded?.count || 0, approved = s?.feedback?.approved?.count || 0;
     $('#guide-feedback').hidden = !discarded && !approved;
     $('#guide-feedback').textContent = 'Tu tablero orienta las propuestas: ' + approved + ' aprobados y ' + discarded + ' descartados revisados.';
@@ -455,7 +466,16 @@
     scheduleState = result.schedule;
     timing = result.timing;
     pollSchedule();
-    acceptJob(result.job, false);
+    if (previewButton) {
+      previewJob = result.job;
+      previewButton.disabled = !previewJob?.leads_found;
+      $('#guide-preview-criteria').textContent = (result.intake || [])
+        .flatMap(group => group.fields || [])
+        .filter(field => /sector|mercado|pa[ií]s/i.test(field.label || '') && field.value)
+        .map(field => field.label + ': ' + field.value).join(' · ');
+    } else {
+      acceptJob(result.job, false);
+    }
     pollJob();
     const params = new URLSearchParams({crm_embed:'1', source:result.profile.onboarding_id, tenant});
     const frameUrl = '/portal?' + params + '#results';
@@ -467,7 +487,8 @@
     }
     saved = new Map((result.saved || []).map((item) => [item.id, item]));
     intakeLoaded = true;
-    $('#guide-environment').textContent = result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Guardar tu enfoque no inicia una búsqueda.';
+    $('#guide-environment').textContent = previewButton ? 'Datos ficticios · El resultado aparece en el tablero de esta página.' :
+      result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Guardar tu enfoque no inicia una búsqueda.';
     updateIntakeView(result);
   }
   function newSession() {
@@ -657,6 +678,7 @@
     tenant = account.id; $('#guide-account').value = tenant;
     $('#guide-account').onchange = () => work(async () => {
       tenant = $('#guide-account').value; session = null; startId = answerRequest = null; aiReady = intakeLoaded = false;
+      if (previewButton) { previewJob = null; $('#guide-preview-criteria').textContent = ''; }
       crmFrame.hidden = true;
       historyOpen = resetOpen = false; editIndex = null; saved.clear();
       clearTimeout(jobTimer); clearTimeout(scheduleTimer); job = scheduleState = timing = null; scheduleOpen = false;

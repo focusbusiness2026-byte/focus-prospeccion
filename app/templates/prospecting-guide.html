@@ -5,12 +5,12 @@
 <title>Prospección · Focus Business</title><link rel="icon" href="/static/favicon.svg">
 <link rel="stylesheet" href="/static/intelligence.css"><link rel="stylesheet" href="/static/prospecting-guide.css">
 </head>
-<body>
+<body{% if prospecting_preview %} data-prospecting-preview{% endif %}>
 <header id="guide-header"><a class="brand" href="/portal">ⓕ <span>FOCUS <small>BUSINESS</small></span></a>
 <nav><a class="active" href="/prospecting-guide">Prospección</a><a href="#crm">Ir al tablero</a><a href="/portal#activity">Ejecuciones</a><a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav></header>
 <main class="guide-page"><div class="guide-main">
-  <div class="guide-title"><h1>Prospección</h1><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
-  <section class="guide-learning" aria-labelledby="guide-learning-label">
+  <div class="guide-title"><h1>Prospección{% if prospecting_preview %} 1.1{% endif %}</h1><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
+  <section class="guide-learning" aria-labelledby="guide-learning-label"{% if prospecting_preview %} hidden{% endif %}>
     <div><strong id="guide-learning-label">Aprendizaje de tu búsqueda</strong><span id="guide-progress-label"></span></div>
     <progress id="guide-progress" max="10" value="0" aria-labelledby="guide-learning-label" aria-describedby="guide-learning-note"></progress>
     <p id="guide-learning-note" class="muted small">Más contexto ayuda a afinar el perfil de tus leads.</p>
@@ -18,7 +18,12 @@
   <p id="guide-error" role="alert" tabindex="-1" hidden></p>
   <div class="guide-layout">
     <section class="guide-card" aria-label="Configura tu búsqueda">
-      <p id="guide-status" role="status" aria-live="polite">Cargando tu cuenta…</p>
+      <p id="guide-status" role="status" aria-live="polite"{% if prospecting_preview %} hidden{% endif %}>Cargando tu cuenta…</p>
+      {% if prospecting_preview %}
+      <h2>Elige una empresa para ver su búsqueda</h2>
+      <p id="guide-preview-criteria" class="muted"></p>
+      <button id="guide-preview-run" type="button" class="primary" disabled>Probar búsqueda de ejemplo</button>
+      {% endif %}
       <form id="guide-answer" hidden>
         <fieldset id="guide-question-fieldset"><legend id="guide-question" tabindex="-1"></legend><div id="guide-options"></div></fieldset>
         <div id="guide-custom" hidden><label for="answer">Escribe tu respuesta</label><textarea id="answer" maxlength="2000" rows="2" placeholder="Con tus palabras…"></textarea></div>

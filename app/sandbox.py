@@ -18,6 +18,7 @@ if any(os.environ.get(key) for key in ("GOOGLE_SERVICE_ACCOUNT_JSON", "GOOGLE_SH
     raise RuntimeError("Sandbox refuses external credentials and production storage")
 
 PUBLIC_DEMO = os.getenv("SANDBOX_PUBLIC_DEMO") == "1"
+PROSPECTING_PREVIEW = PUBLIC_DEMO and os.getenv("SANDBOX_PROSPECTING_V11") == "1"
 if PUBLIC_DEMO and any(os.getenv(key) == "1" for key in (
     "SANDBOX_REAL_MODE", "OUTREACH_AI_ENABLED", "OUTREACH_LIVE_EMAIL_ENABLED",
     "GHL_OAUTH_ENABLED", "GHL_CAMPAIGN_SETUP_ENABLED", "GHL_ASSET_CHECK_ENABLED",
@@ -386,6 +387,21 @@ def guide_run(record_id, criteria, request, background_tasks, identity):
 
 def guide_job(tenant, identity):
     source = guide_source(tenant, identity)
+    if PROSPECTING_PREVIEW:
+        store = main.SheetStore(SETTINGS)
+        leads = [
+            lead for lead in store.recent_prospects(source.email, limit=20)
+            if lead["onboarding_id"] == source.record_id and lead["lead_status"] == "Nuevo"
+        ][:5]
+        return {
+            "job_id": f"demo-{source.record_id}",
+            "status": "completed",
+            "progress": 100,
+            "simulated": True,
+            "leads_found": len(leads),
+            "saved_leads": [{"execution_id": lead["execution_id"], "company": lead["company"]} for lead in leads],
+            "highlights": [guide_result_highlight(lead, source) for lead in leads],
+        }
     live = main.latest_manual_research_job(source.record_id, identity.email)
     if not REAL_MODE or (live and live["status"] in {"running", "queued"}):
         return live
@@ -493,6 +509,10 @@ def guide_pause_schedule(tenant, identity):
 
 guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campaign_engine) and SETTINGS.openai_api_key else None
 targeting_guide = TargetingGuide(campaign_engine, guide_generator)
-app.include_router(guide_router(targeting_guide, auth.require_identity, main._template, guide_profile,
+def guide_template(request, name, **context):
+    return main._template(request, name, prospecting_preview=PROSPECTING_PREVIEW, **context)
+
+
+app.include_router(guide_router(targeting_guide, auth.require_identity, guide_template, guide_profile,
     guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run, guide_schedule,
     guide_schedule_status, guide_pause_schedule, guide_job, guide_leads, guide_timing))
