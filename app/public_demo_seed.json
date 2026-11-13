@@ -1,0 +1,25 @@
+{
+  "profile": {
+    "id": "demo",
+    "source_id": "SANDBOX-1",
+    "name": "Estudio ficticio 1",
+    "website": "https://estudio1.example.test",
+    "offer": "Producción de vídeo corporativo",
+    "audience": "B2B",
+    "market": "España",
+    "plan": "starter"
+  },
+  "contacts": [
+    {
+      "id": "demo-1",
+      "company": "Empresa ficticia 1.3",
+      "name": "Contacto de ejemplo",
+      "email": "contacto@empresa13.example.test",
+      "sector": "Tecnología",
+      "city": "Madrid",
+      "approved": true,
+      "linkedin": "",
+      "source": "Datos inventados para la demo pública"
+    }
+  ]
+}

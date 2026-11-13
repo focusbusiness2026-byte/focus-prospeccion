@@ -1,0 +1,14 @@
+#settings-toggle, #new-campaign, #show-library, #prepare-selected, #prepare,
+#reschedule, .approval-box, button[data-action="duplicate"],
+button[data-action="archive"], #guide-start, #logout {
+  display: none !important;
+}
+
+.public-demo-notice {
+  margin: 0;
+  padding: .5rem 1rem;
+  background: #d9af3c;
+  color: #07111e;
+  text-align: center;
+  font: 600 .85rem system-ui, sans-serif;
+}

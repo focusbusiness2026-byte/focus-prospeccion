@@ -17,6 +17,13 @@ if os.environ.get("FOCUS_SANDBOX") != "1":
 if any(os.environ.get(key) for key in ("GOOGLE_SERVICE_ACCOUNT_JSON", "GOOGLE_SHEET_ID", "OPENAI_API_KEY", "GEMINI_API_KEY")):
     raise RuntimeError("Sandbox refuses external credentials and production storage")
 
+PUBLIC_DEMO = os.getenv("SANDBOX_PUBLIC_DEMO") == "1"
+if PUBLIC_DEMO and any(os.getenv(key) == "1" for key in (
+    "SANDBOX_REAL_MODE", "OUTREACH_AI_ENABLED", "OUTREACH_LIVE_EMAIL_ENABLED",
+    "GHL_OAUTH_ENABLED", "GHL_CAMPAIGN_SETUP_ENABLED", "GHL_ASSET_CHECK_ENABLED",
+)):
+    raise RuntimeError("The public demo cannot enable real integrations")
+
 from app.config import Settings
 from app.sheet_store import (SheetStore as OriginalStore, PROSPECT_HEADERS, EXECUTION_HEADERS,
                              AUTOMATION_HEADERS, LEAD_REVIEW_HEADERS, SAVED_SEARCH_HEADERS)
@@ -34,8 +41,8 @@ SETTINGS = Settings(_env_file=None, app_env="sandbox", google_sheets_enabled=Tru
     auto_research_enabled=False, central_auth_enabled=False, allow_external_sources=False,
     app_secret=secrets.token_urlsafe(32), public_base_url=os.environ.get("RENDER_EXTERNAL_URL", "http://127.0.0.1:8018"),
     radar_portal_url=os.environ.get("SANDBOX_RADAR_URL", "http://127.0.0.1:8019"),
-    central_auth_url=os.environ.get("SANDBOX_PORTAL_URL", "http://127.0.0.1:8020"))
-IDENTITY = Identity("admin@sandbox.example.test", "Administrador", "sandbox", True, True)
+    central_auth_url="" if PUBLIC_DEMO else os.environ.get("SANDBOX_PORTAL_URL", "http://127.0.0.1:8020"))
+IDENTITY = Identity("admin@sandbox.example.test", "Administrador", "sandbox", True, not PUBLIC_DEMO)
 GUIDED_SCHEDULE_PREFIX = "Prospección guiada · "
 
 
@@ -238,6 +245,13 @@ def sandbox_onboarding(payload: dict):
 @app.middleware("http")
 async def sandbox_boundary(request, call_next):
     path = request.url.path
+    if PUBLIC_DEMO:
+        if path == "/campaigns" and request.method in {"GET", "HEAD"}:
+            return RedirectResponse("/campaigns/outreach", status_code=303)
+        if path in {"/static/three-dots-logo.svg", "/static/three-dots-logo-email.png"}:
+            return JSONResponse({"detail": "No disponible en la demo"}, status_code=404)
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            return JSONResponse({"detail": "La demo pública es de solo lectura."}, status_code=403)
     if REAL_MODE and path not in {"/health","/sandbox/session","/webhooks/ghl"} and not path.startswith("/static/"):
         identity=await auth.verify_central_session(request.cookies.get(auth.SESSION_COOKIE))
         if not identity:
@@ -261,6 +275,12 @@ async def sandbox_boundary(request, call_next):
     if "text/html" in response.headers.get("content-type", ""):
         body = b"".join([chunk async for chunk in response.body_iterator]).decode()
         label="COPIA PRIVADA · Datos y OpenAI reales · Producción separada · Sin envíos" if REAL_MODE else "COPIA DE PRUEBAS · Datos ficticios · Sin raspados ni envíos reales"
+        if PUBLIC_DEMO:
+            label = "DEMO PÚBLICA · Datos ficticios · Solo lectura"
+            body = body.replace("</head>", '<link rel="stylesheet" href="/static/public-demo.css"></head>', 1)
+            if path in {"/prospecting-guide", "/campaigns", "/campaigns/outreach", "/integrations/ghl"}:
+                notice = f'<p class="public-demo-notice">{label}</p>'
+                body = re.sub(r"(<body\b[^>]*>)", lambda match: match[0] + notice, body, count=1)
         banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
         response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
         if path == "/portal":
@@ -289,11 +309,23 @@ if REAL_MODE:
 else:
     from app.intelligence import CampaignEngine
     from app.intelligence_api import campaign_router
-    campaign_engine=CampaignEngine(ROOT/"campaigns.sqlite3",Path(__file__).with_name("intelligence_seed.json"))
+    seed_name = "public_demo_seed.json" if PUBLIC_DEMO else "intelligence_seed.json"
+    campaign_engine=CampaignEngine(ROOT/"campaigns.sqlite3",Path(__file__).with_name(seed_name))
     app.include_router(campaign_router(campaign_engine,auth.require_identity,main._template))
 
 from app.outreach_setup import mount_outreach
 outreach_service = mount_outreach(app, campaign_engine, auth.require_identity, main._template, getattr(campaign_engine, "outreach_settings", SETTINGS))
+if PUBLIC_DEMO and not outreach_service.catalog("demo")["campaigns"]:
+    outreach_service.configure_brand("demo", {
+        "company": "Estudio ficticio 1", "sender_name": "Equipo del estudio",
+        "sender_email": "equipo@estudio1.example.test", "color": "#d9af3c",
+        "signature": "Equipo de Estudio ficticio 1",
+    })
+    example = outreach_service.create("demo", {
+        "name": "Demo · Campaña de cinco correos", "channels": ["email"], "steps": 5,
+        "recipients": [{"lead_id": "demo-1", "email": "contacto@empresa13.example.test"}],
+    })
+    outreach_service.prepare("demo", example["id"])
 
 # New guided flow is mounted only in this isolated entry point.
 from app.prospecting_guide import BUSINESS_CONTEXT_FIELDS, TargetingGuide, OpenAITargetingGuide, guide_intake, review_feedback
