@@ -1,6 +1,6 @@
 #settings-toggle, #new-campaign, #show-library, #prepare-selected, #prepare,
 #reschedule, .approval-box, button[data-action="duplicate"],
-button[data-action="archive"], #guide-start, #logout {
+button[data-action="archive"], #guide-start:not([data-interactive-review] *), #logout {
   display: none !important;
 }
 

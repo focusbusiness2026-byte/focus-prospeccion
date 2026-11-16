@@ -45,13 +45,19 @@ class SheetsSnapshot:
     Only the single sandbox instance writes this store. An ambiguous write
     poisons the instance until it is restarted and reloads the remote state.
     """
-    def __init__(self,settings,tab):
+    def __init__(self,settings,tab,*,create_hidden=False):
         if not settings.google_sheet_id or settings.google_sheet_id==PRODUCTION_BOOK:
             raise RuntimeError("Se requiere un libro aislado; el libro de producción está prohibido")
-        if tab not in {"SandboxCells","FICampaigns"}:raise ValueError("Snapshot no admitido")
+        if tab not in {"SandboxCells","FICampaigns","Prospeccion Revision Estado"}:
+            raise ValueError("Snapshot no admitido")
         self.store=SheetStore(settings);self.tab=tab;self.uncertain=False
         props=self.store._sheet_properties()
         self.sheet_id=next((p["sheetId"] for p in props if p["title"]==tab),None)
+        if self.sheet_id is None and create_hidden and tab == "Prospeccion Revision Estado":
+            self.store._batch_update([{"addSheet":{"properties":{
+                "title":tab,"hidden":True,"gridProperties":{"rowCount":2000,"columnCount":1},
+            }}}])
+            self.sheet_id=next((p["sheetId"] for p in self.store._sheet_properties() if p["title"]==tab),None)
         if self.sheet_id is None:raise RuntimeError("Falta provisionar la pestaña privada de almacenamiento")
 
     def load(self):

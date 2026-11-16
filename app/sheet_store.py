@@ -196,11 +196,11 @@ class SheetStore:
             return rows
         raise RuntimeError("No se pudo leer Google Sheets")
 
-    def _update(self, a1_range: str, values: list[list]) -> None:
+    def _update(self, a1_range: str, values: list[list], *, raw: bool = False) -> None:
         session = self._session()
         response = session.put(
             f"{self._base}/{quote(a1_range, safe='')}",
-            params={"valueInputOption": "USER_ENTERED"},
+            params={"valueInputOption": "RAW" if raw else "USER_ENTERED"},
             json={"range": a1_range, "majorDimension": "ROWS", "values": values},
             timeout=30,
         )

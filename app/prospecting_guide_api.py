@@ -99,11 +99,16 @@ def intake_value(field, value):
 
 def guide_router(service, identity_dependency, template, source_for, save_for, feedback_for=None,
     intake_for=None, update_intake_for=None, run_for=None, schedule_for=None, schedule_status=None, pause_schedule=None,
-    job_for=None, leads_for=None, timing_for=None):
+    job_for=None, leads_for=None, timing_for=None, *, review_run_for=None, authorize_for=None):
     router = APIRouter()
+    def require_account(tenant, identity):
+        if authorize_for:
+            authorize_for(tenant, identity)
+        else:
+            authorize(service.engine, tenant, identity)
 
     def scope(tenant, identity):
-        authorize(service.engine, tenant, identity)
+        require_account(tenant, identity)
         return source_for(tenant, identity)
 
     def run(fn, *args, **kwargs):
@@ -121,14 +126,15 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
     @router.get('/api/intelligence/{tenant}/guide')
     def state(tenant: str, identity=Depends(identity_dependency)):
         if intake_for:
-            authorize(service.engine, tenant, identity)
+            require_account(tenant, identity)
             profile, intake = intake_for(tenant, identity)
         else:
             profile, intake = scope(tenant, identity), []
         return {**profile_view(profile, intake), 'ai_ready': service.generator is not None,
             'session': run(service.latest, tenant, identity.email), 'research_started': False,
             'saved': run(service.saved, tenant, identity.email),
-            'research_available': bool(run_for and service.engine.real), 'schedule_available': bool(schedule_for),
+            'research_available': bool(review_run_for or (run_for and service.engine.real)),
+            'schedule_available': bool(schedule_for),
             'schedule': run(schedule_status, tenant, identity) if schedule_status else None,
             'job': run(job_for, tenant, identity) if job_for else None,
             'timing': run(timing_for, tenant, identity) if timing_for else None,
@@ -150,7 +156,7 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
     @router.patch('/api/intelligence/{tenant}/guide/intake')
     def update_intake(tenant: str, payload: UpdateField, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
-        authorize(service.engine, tenant, identity)
+        require_account(tenant, identity)
         if not update_intake_for:
             raise HTTPException(503, 'La ficha de esta cuenta no se puede editar desde la guía.')
         value = intake_value(payload.field, payload.value)
@@ -220,6 +226,8 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
         identity=Depends(identity_dependency)):
         validate_csrf(request)
         record_id, criteria = reviewed(tenant, sid, identity, payload.version)
+        if review_run_for:
+            return run(review_run_for, tenant, identity, criteria)
         if not run_for or not service.engine.real:
             raise HTTPException(503, 'El raspado real no está disponible en este entorno.')
         return run_for(record_id, criteria, request, background_tasks, identity)

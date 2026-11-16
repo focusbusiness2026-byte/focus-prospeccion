@@ -19,6 +19,11 @@ if any(os.environ.get(key) for key in ("GOOGLE_SERVICE_ACCOUNT_JSON", "GOOGLE_SH
 
 PUBLIC_DEMO = os.getenv("SANDBOX_PUBLIC_DEMO") == "1"
 PROSPECTING_PREVIEW = PUBLIC_DEMO and os.getenv("SANDBOX_PROSPECTING_V11") == "1"
+INTERACTIVE_REVIEW = PROSPECTING_PREVIEW and os.getenv("SANDBOX_INTERACTIVE_REVIEW") == "1"
+REVIEW_WRITE_PATHS = {
+    "PATCH": re.compile(r"/api/intelligence/[^/]+/guide/intake"),
+    "POST": re.compile(r"/api/intelligence/[^/]+/guide/sessions(?:/[0-9a-f-]{36}/(?:answers|revisions|reanalysis|checkpoint|apply|launch))?"),
+}
 if PUBLIC_DEMO and any(os.getenv(key) == "1" for key in (
     "SANDBOX_REAL_MODE", "OUTREACH_AI_ENABLED", "OUTREACH_LIVE_EMAIL_ENABLED",
     "GHL_OAUTH_ENABLED", "GHL_CAMPAIGN_SETUP_ENABLED", "GHL_ASSET_CHECK_ENABLED",
@@ -246,12 +251,24 @@ def sandbox_onboarding(payload: dict):
 @app.middleware("http")
 async def sandbox_boundary(request, call_next):
     path = request.url.path
+    integrated_guide = INTERACTIVE_REVIEW and path == "/portal" and request.query_params.get("crm_embed") != "1"
+    if integrated_guide:
+        request.state.integrated_guide = True
+        request.state.interactive_review = True
     if PUBLIC_DEMO:
+        if INTERACTIVE_REVIEW and path == "/prospecting-guide" and request.method in {"GET", "HEAD"}:
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(f"/portal{query}#sources", status_code=303)
         if path == "/campaigns" and request.method in {"GET", "HEAD"}:
             return RedirectResponse("/campaigns/outreach", status_code=303)
         if path in {"/static/three-dots-logo.svg", "/static/three-dots-logo-email.png"}:
             return JSONResponse({"detail": "No disponible en la demo"}, status_code=404)
-        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        review_path = REVIEW_WRITE_PATHS.get(request.method)
+        local_review_write = (INTERACTIVE_REVIEW and request.client is not None
+            and request.client.host in {"127.0.0.1", "::1"}
+            and request.url.hostname in {"127.0.0.1", "::1", "localhost"}
+            and review_path is not None and review_path.fullmatch(path))
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and not local_review_write:
             return JSONResponse({"detail": "La demo pública es de solo lectura."}, status_code=403)
     if REAL_MODE and path not in {"/health","/sandbox/session","/webhooks/ghl"} and not path.startswith("/static/"):
         identity=await auth.verify_central_session(request.cookies.get(auth.SESSION_COOKIE))
@@ -277,12 +294,13 @@ async def sandbox_boundary(request, call_next):
         body = b"".join([chunk async for chunk in response.body_iterator]).decode()
         label="COPIA PRIVADA · Datos y OpenAI reales · Producción separada · Sin envíos" if REAL_MODE else "COPIA DE PRUEBAS · Datos ficticios · Sin raspados ni envíos reales"
         if PUBLIC_DEMO:
-            label = "DEMO PÚBLICA · Datos ficticios · Solo lectura"
-            body = body.replace("</head>", '<link rel="stylesheet" href="/static/public-demo.css"></head>', 1)
-            if path in {"/prospecting-guide", "/campaigns", "/campaigns/outreach", "/integrations/ghl"}:
+            label = "Vista de revisión · Datos ficticios" if INTERACTIVE_REVIEW else "DEMO PÚBLICA · Datos ficticios · Solo lectura"
+            body = body.replace("</head>", f'<link rel="stylesheet" href="/static/public-demo.css?v={main.portal_build_id()}"></head>', 1)
+            if path in {"/campaigns", "/campaigns/outreach", "/integrations/ghl"} or (path == "/prospecting-guide" and not INTERACTIVE_REVIEW):
                 notice = f'<p class="public-demo-notice">{label}</p>'
                 body = re.sub(r"(<body\b[^>]*>)", lambda match: match[0] + notice, body, count=1)
-        banner = '<div style="position:sticky;top:0;z-index:5000;padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
+        banner_position = '' if integrated_guide else 'position:sticky;top:0;z-index:5000;'
+        banner = '<div style="'+banner_position+'padding:8px;background:#d9af3c;color:#07111e;text-align:center;font:600 13px sans-serif">'+label+' · <a href="'+SETTINGS.central_auth_url+'/portal">Portal</a> · <a href="/campaigns">Focus Intelligence</a></div>'
         response = HTMLResponse(body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1),status_code=response.status_code, headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
         if path == "/portal":
             body = body.replace('</head>', '<link rel="stylesheet" href="/static/outreach-board.css"></head>', 1)
@@ -293,10 +311,12 @@ async def sandbox_boundary(request, call_next):
                 scripts += '<script src="/static/guide-crm.js" defer></script>'
             else:
                 body = body.replace('<div class="portal-app">', banner+'<div class="portal-app">', 1)
-                body = body.replace('href="#sources" data-view="sources">Prospección', 'href="/prospecting-guide">Prospección', 1)
+                if not integrated_guide:
+                    body = body.replace('href="#sources" data-view="sources">Prospección', 'href="/prospecting-guide">Prospección', 1)
                 body = body.replace('<a class="top-link" href="#results" data-view="results">Leads y CRM</a>', '', 1)
                 body = body.replace('</nav>', '<a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav>', 1)
-                scripts += '<script src="/static/guide-portal-entry.js" defer></script>'
+                if not integrated_guide:
+                    scripts += '<script src="/static/guide-portal-entry.js" defer></script>'
             response = HTMLResponse(body.replace('</body>', scripts + '</body>'), status_code=response.status_code,
                                     headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
     if not request.cookies.get(auth.CSRF_COOKIE):
@@ -387,21 +407,8 @@ def guide_run(record_id, criteria, request, background_tasks, identity):
 
 def guide_job(tenant, identity):
     source = guide_source(tenant, identity)
-    if PROSPECTING_PREVIEW:
-        store = main.SheetStore(SETTINGS)
-        leads = [
-            lead for lead in store.recent_prospects(source.email, limit=20)
-            if lead["onboarding_id"] == source.record_id and lead["lead_status"] == "Nuevo"
-        ][:5]
-        return {
-            "job_id": f"demo-{source.record_id}",
-            "status": "completed",
-            "progress": 100,
-            "simulated": True,
-            "leads_found": len(leads),
-            "saved_leads": [{"execution_id": lead["execution_id"], "company": lead["company"]} for lead in leads],
-            "highlights": [guide_result_highlight(lead, source) for lead in leads],
-        }
+    if PROSPECTING_PREVIEW and not INTERACTIVE_REVIEW:
+        return sample_job(source)
     live = main.latest_manual_research_job(source.record_id, identity.email)
     if not REAL_MODE or (live and live["status"] in {"running", "queued"}):
         return live
@@ -418,6 +425,35 @@ def guide_job(tenant, identity):
         by_id = {item["execution_id"]: item for item in leads}
         job["highlights"] = [guide_result_highlight(by_id[lead_id], source) for lead_id in saved if lead_id in by_id]
     return job
+
+
+def sample_job(source, criteria=None):
+    store = main.SheetStore(SETTINGS)
+    filters = {} if criteria is None else {
+        "sector": criteria["sectors"],
+        "country": criteria["target_countries"],
+        "client_type": criteria["client_types"],
+        "city": [criteria["target_city"]] if criteria["target_city"] else [],
+    }
+    accepted = {field: {value.casefold() for value in values} for field, values in filters.items() if values}
+    leads = [
+        lead for lead in store.recent_prospects(source.email, limit=20)
+        if lead["onboarding_id"] == source.record_id and lead["lead_status"] == "Nuevo"
+        and all(str(lead.get(field, "")).casefold() in values for field, values in accepted.items())
+    ][:5]
+    return {
+        "job_id": f"demo-{source.record_id}",
+        "status": "completed",
+        "progress": 100,
+        "simulated": True,
+        "leads_found": len(leads),
+        "saved_leads": [{"execution_id": lead["execution_id"], "company": lead["company"]} for lead in leads],
+        "highlights": [guide_result_highlight(lead, source) for lead in leads],
+    }
+
+
+def review_guide_run(tenant, identity, criteria):
+    return sample_job(guide_source(tenant, identity), criteria)
 
 
 def guide_result_highlight(lead, source):
@@ -508,11 +544,17 @@ def guide_pause_schedule(tenant, identity):
 
 
 guide_generator = OpenAITargetingGuide(SETTINGS) if outreach_ai_authorized(campaign_engine) and SETTINGS.openai_api_key else None
+if INTERACTIVE_REVIEW:
+    from app.review_targeting import review_turn
+
+    guide_generator = review_turn
 targeting_guide = TargetingGuide(campaign_engine, guide_generator)
 def guide_template(request, name, **context):
-    return main._template(request, name, prospecting_preview=PROSPECTING_PREVIEW, **context)
+    return main._template(request, name, prospecting_preview=PROSPECTING_PREVIEW and not INTERACTIVE_REVIEW,
+                          interactive_review=INTERACTIVE_REVIEW, **context)
 
 
 app.include_router(guide_router(targeting_guide, auth.require_identity, guide_template, guide_profile,
-    guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run, guide_schedule,
-    guide_schedule_status, guide_pause_schedule, guide_job, guide_leads, guide_timing))
+    guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run,
+    None if INTERACTIVE_REVIEW else guide_schedule, guide_schedule_status, guide_pause_schedule, guide_job, guide_leads, guide_timing,
+    review_run_for=review_guide_run if INTERACTIVE_REVIEW else None))

@@ -704,7 +704,7 @@ def _execute_research_job(
             _cleanup_research_jobs_locked()
 
 
-def _sync_automations_once() -> None:
+def _sync_automations_once(only_prefix: str = "") -> None:
     settings = get_settings()
     if not settings.auto_research_enabled or not settings.google_sheets_enabled:
         return
@@ -712,6 +712,8 @@ def _sync_automations_once() -> None:
     # Schema creation belongs to writes/startup, not the minute-by-minute poll.
     # Rechecking every sheet on each tick can exhaust the Sheets read quota.
     for config in store.due_automation_configs():
+        if only_prefix and not str(config.get("name", "")).startswith(only_prefix):
+            continue
         bounded = bool(config.get("batch"))
         if bounded:
             # Persist the claim before any provider call. A process crash leaves
@@ -787,10 +789,13 @@ def _sync_automations_once() -> None:
                             len(completed[-1]["prospects"]))
 
 
-async def _automation_loop(poll_seconds: int) -> None:
+async def _automation_loop(poll_seconds: int, only_prefix: str = "") -> None:
     while True:
         try:
-            await asyncio.to_thread(_sync_automations_once)
+            if only_prefix:
+                await asyncio.to_thread(_sync_automations_once, only_prefix)
+            else:
+                await asyncio.to_thread(_sync_automations_once)
         except Exception:
             # A transient Sheets 429 must not kill all future scheduled cycles.
             logger.exception("Falló una comprobación de automatizaciones; se reintentará en el próximo ciclo")
@@ -925,6 +930,10 @@ async def portal(request: Request):
         "portal.html",
         identity=identity,
         radar_portal_url=settings.radar_portal_url if identity.radar_access else "",
+        integrated_guide=getattr(request.state, "integrated_guide", False),
+        interactive_review=getattr(request.state, "interactive_review", False),
+        guide_accounts_url=getattr(request.state, "guide_accounts_url", ""),
+        review_crm_embed=getattr(request.state, "review_crm_embed", False),
     )
 
 

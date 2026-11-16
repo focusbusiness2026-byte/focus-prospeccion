@@ -20,6 +20,8 @@
   const dialog = $('#guide-busy');
   const crmFrame = $('#guide-crm-frame');
   const previewButton = $('#guide-preview-run');
+  const integratedGuide = $('#sources #guide-header');
+  const interactiveReview = (integratedGuide || document.body).hasAttribute('data-interactive-review');
   let previewJob = null;
   previewButton?.addEventListener('click', () => {
     if (!previewJob) return;
@@ -48,7 +50,11 @@
       crmFrame.style.height = event.data.height + 'px';
     }
   });
-  $('#guide-view-leads').addEventListener('click', () => {
+  $('#guide-view-leads').addEventListener('click', (event) => {
+    if (integratedGuide) {
+      event.preventDefault();
+      reveal('#guide-crm-title');
+    }
     if (!crmFrame.hidden) crmFrame.contentWindow.postMessage({type:'focus-guide-show-leads'}, location.origin);
   });
 
@@ -109,6 +115,7 @@
           $('#guide-header').scrollIntoView({block:'start', behavior:'instant'});
         } else revealStep();
       }
+      if (integratedGuide) applyPortalScope();
     }
   }
 
@@ -134,7 +141,8 @@
     const remaining = Math.max(0, limit - n);
     const legacy = Boolean(s && !s.round_limit);
     const label = legacy ? n + (n === 1 ? ' respuesta anterior' : ' respuestas anteriores') : n + ' de ' + limit + ' respuestas';
-    const note = s?.state === 'applied' ? 'Enfoque guardado. Ya puedes iniciar o programar el raspado.' :
+    const note = s?.state === 'applied' ? (interactiveReview ? 'Enfoque guardado. Ya puedes iniciar la búsqueda.' :
+      'Enfoque guardado. Ya puedes iniciar o programar el raspado.') :
       legacy ? 'Empieza con opciones para seguir afinando tu búsqueda.' :
       !remaining ? 'Ya puedes revisar el enfoque.' :
       remaining === 1 ? 'Falta 1 pregunta para revisar el enfoque.' : 'Faltan ' + remaining + ' preguntas para revisar el enfoque.';
@@ -286,7 +294,9 @@
     liveText('#guide-research-average', timing ? reference + ': ' + duration(timing.average_seconds) : 'Tiempo promedio pendiente de medir.');
     liveText('#guide-job-status', jobDisconnected ?
       'Se perdió la conexión. Consulta el estado del raspado antes de iniciar otro.' :
-      job?.simulated ? 'Resultado de ejemplo · ' + job.leads_found + (job.leads_found === 1 ? ' lead nuevo' : ' leads nuevos') :
+      job?.simulated ? (job.leads_found ? 'Búsqueda de revisión completada. ' + job.leads_found +
+        (job.leads_found === 1 ? ' lead encontrado.' : ' leads encontrados.') :
+        'Búsqueda de revisión completada. No hay coincidencias entre los datos disponibles.') :
       job?.status === 'completed' ? (job.leads_found ? 'Raspado completado. ' + job.leads_found +
         (job.leads_found === 1 ? ' lead guardado.' : ' leads guardados.') : 'Raspado completado.') : job?.message || '');
     $('#guide-reconnect-job').hidden = !jobDisconnected;
@@ -487,7 +497,8 @@
     }
     saved = new Map((result.saved || []).map((item) => [item.id, item]));
     intakeLoaded = true;
-    $('#guide-environment').textContent = previewButton ? 'Datos ficticios · El resultado aparece en el tablero de esta página.' :
+    $('#guide-environment').textContent = interactiveReview ? 'Vista de revisión con datos ficticios. La búsqueda comprueba los criterios sobre estos datos.' :
+      previewButton ? 'Datos ficticios · El resultado aparece en el tablero de esta página.' :
       result.mode === 'local_demo' ? 'Prueba local · Respuestas simuladas' : 'Guardar tu enfoque no inicia una búsqueda.';
     updateIntakeView(result);
   }
@@ -637,6 +648,7 @@
       else throw error;
     }
     pollJob();
+    if (interactiveReview && !$('#guide-result').hidden) reveal('#guide-result-title');
   }, 'Iniciando el raspado…');
   $('#guide-reconnect-job').onclick = () => work(async () => {
     acceptJob(await api('/job'));
@@ -667,28 +679,73 @@
     pollSchedule();
   }, 'Pausando la programación…');
   setInterval(renderElapsed, 1000);
-  work(async () => {
-    const response = await fetch('/api/intelligence/accounts', {credentials:'same-origin'}), data = await response.json();
+  const accountSelect = $('#guide-account');
+  let accounts = [];
+
+  async function selectAccount(account) {
+    tenant = account?.id || '';
+    accountSelect.value = tenant;
+    session = null; startId = answerRequest = null; aiReady = intakeLoaded = false;
+    if (previewButton) { previewJob = null; $('#guide-preview-criteria').textContent = ''; }
+    crmFrame.hidden = true;
+    if (!tenant) {
+      crmFrame.removeAttribute('src');
+      $('#guide-crm-status').hidden = true;
+    }
+    historyOpen = resetOpen = false; editIndex = null; saved.clear();
+    clearTimeout(jobTimer); clearTimeout(scheduleTimer); job = scheduleState = timing = null; scheduleOpen = false;
+    liveLeadIds.clear(); jobFailures = 0; jobDisconnected = false;
+    acceptJob(null, false);
+    $('#guide-busy-leads').replaceChildren();
+    $('#guide-intake-status').hidden = true;
+    $('#guide-company').textContent = 'Tu empresa'; showIntake([]);
+    $('#guide-confirm').checked = false;
+    if (tenant) await load();
+  }
+
+  async function loadAccounts({sourceIds, selectedSourceId} = {}) {
+    const url = integratedGuide?.dataset.accountsUrl || '/api/intelligence/accounts';
+    const response = await fetch(url, {credentials:'same-origin'}), data = await response.json();
     if (!response.ok || !data.accounts?.length) throw Error('No hay una empresa autorizada para esta sesión.');
-    $('#guide-account').innerHTML = data.accounts.map((x) => '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>').join('');
-    $('#guide-account-label').hidden = data.accounts.length < 2;
-    const source = new URLSearchParams(location.search).get('source');
-    const account = source ? data.accounts.find((item) => item.source_id === source) : data.accounts[0];
-    if (!account) throw Error('Esta productora no tiene la guía disponible. Vuelve a Prospección para elegir una cuenta.');
-    tenant = account.id; $('#guide-account').value = tenant;
-    $('#guide-account').onchange = () => work(async () => {
-      tenant = $('#guide-account').value; session = null; startId = answerRequest = null; aiReady = intakeLoaded = false;
-      if (previewButton) { previewJob = null; $('#guide-preview-criteria').textContent = ''; }
-      crmFrame.hidden = true;
-      historyOpen = resetOpen = false; editIndex = null; saved.clear();
-      clearTimeout(jobTimer); clearTimeout(scheduleTimer); job = scheduleState = timing = null; scheduleOpen = false;
-      liveLeadIds.clear(); jobFailures = 0; jobDisconnected = false;
-      acceptJob(null, false);
-      $('#guide-busy-leads').replaceChildren();
-      $('#guide-intake-status').hidden = true;
-      $('#guide-company').textContent = 'Tu empresa'; showIntake([]);
-      $('#guide-confirm').checked = false; await load();
+    accounts = sourceIds ? data.accounts.filter(item => sourceIds.includes(item.source_id)) : data.accounts;
+    accountSelect.innerHTML = accounts.map((x) => '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>').join('');
+    $('#guide-account-label').hidden = accounts.length < 2;
+    const source = selectedSourceId || new URLSearchParams(location.search).get('source');
+    const requested = accounts.find(item => item.source_id === source);
+    const account = source && !integratedGuide ? requested :
+      requested || accounts.find(item => item.id === tenant) || accounts[0];
+    if (!account) {
+      await selectAccount(null);
+      throw Error('La guía no está disponible para esta empresa.');
+    }
+    if (account.id !== tenant || !intakeLoaded) await selectAccount(account);
+    else accountSelect.value = tenant;
+  }
+
+  accountSelect.onchange = () => {
+    const account = accounts.find(item => item.id === accountSelect.value);
+    if (account) work(() => selectAccount(account));
+  };
+  let scopeKey, pendingScope;
+  function applyPortalScope() {
+    if (busy || !pendingScope) return;
+    const detail = pendingScope;
+    pendingScope = undefined;
+    const key = JSON.stringify(detail);
+    if (key === scopeKey) return;
+    scopeKey = key;
+    work(async () => {
+      try { await loadAccounts(detail); }
+      catch (error) { scopeKey = undefined; throw error; }
     });
-    await load();
-  });
+  }
+  if (integratedGuide) {
+    document.addEventListener('portal:prospecting', ({detail}) => {
+      pendingScope = detail;
+      applyPortalScope();
+    });
+    notifyProspectingGuide();
+  } else {
+    work(() => loadAccounts());
+  }
 })();

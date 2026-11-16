@@ -95,4 +95,21 @@ html.guide-locked{overflow:hidden;overscroll-behavior:none}
 .ghl-guide li h2{margin:2px 0;font-size:19px}
 .ghl-guide li p{margin:7px 0 12px}
 .ghl-guide li .button,.ghl-guide li button{margin:0 6px 4px 0}
-@media(max-width:780px){.guide-layout{grid-template-columns:1fr}.guide-main{padding:22px 14px}.guide-context-card{border-left:0;border-top:1px solid var(--line);padding:16px 0 0}header{gap:12px;padding:13px 14px}header nav{gap:11px;font-size:13px}}
+#sources:has(#guide-header) {
+  padding-inline: 0;
+}
+
+#sources #guide-header {
+  --text: var(--ink, #f3f1ec);
+  scroll-margin-top: 84px;
+}
+
+#sources .guide-main {
+  padding-inline: clamp(12px, 3vw, 36px);
+}
+
+#sources .guide-title label {
+  width: min(100%, 320px);
+}
+
+@media(max-width:780px){.guide-layout{grid-template-columns:1fr}.guide-main{padding:22px 14px}.guide-context-card{border-left:0;border-top:1px solid var(--line);padding:16px 0 0}body > header{gap:12px;padding:13px 14px}body > header nav{gap:11px;font-size:13px}}
