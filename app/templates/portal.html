@@ -88,15 +88,16 @@
         <div id="source-summary" class="source-summary">Cargando productoras...</div>
         <div id="source-list" class="source-list"><p class="empty">Cargando configuración...</p></div>
         <p id="scrape-message" class="form-message" role="status" aria-live="polite"></p>
-      </section>
 
-      <section id="results" class="results-section portal-view" data-title="Leads y CRM">
-        <div class="filters">
-          <label class="input search-input"><span>Buscar leads</span><input id="result-search" type="search" placeholder="Escribe empresa, sector, ciudad o país" /></label>
-        </div>
-        <div class="crm-preview-toolbar"><div><strong>Tablero Kanban</strong><small>Busca, revisa y mueve cada lead entre las columnas de trabajo.</small></div><div class="heading-actions"><button class="info-button" type="button" data-info-title="Leads y CRM">i<span>Información de Leads y CRM</span></button><button id="open-ghl-export" class="secondary small-button" type="button">Exportar para GoHighLevel</button><button id="open-audience-export" class="secondary small-button" type="button">Exportar para Meta</button><button id="open-custom-scrape" class="custom-scrape-button small-button" type="button">Raspado Personalizado</button></div></div>
-        <div id="results-list" hidden></div>
-        <div id="crm-preview-board" class="crm-preview-board" aria-label="Tablero Kanban de leads"></div>
+        <section id="results" class="results-section" aria-labelledby="crm-board-heading">
+          <h2 id="crm-board-heading">Leads y CRM</h2>
+          <div class="filters">
+            <label class="input search-input"><span>Buscar leads</span><input id="result-search" type="search" placeholder="Escribe empresa, sector, ciudad o país" /></label>
+          </div>
+          <div class="crm-preview-toolbar"><div><strong>Tablero Kanban</strong><small>Busca, revisa y mueve cada lead entre las columnas de trabajo.</small></div><div class="heading-actions"><button class="info-button" type="button" data-info-title="Leads y CRM">i<span>Información de Leads y CRM</span></button><button id="open-ghl-export" class="secondary small-button" type="button">Exportar para GoHighLevel</button><button id="open-audience-export" class="secondary small-button" type="button">Exportar para Meta</button><button id="open-custom-scrape" class="custom-scrape-button small-button" type="button">Raspado Personalizado</button></div></div>
+          <div id="results-list" hidden></div>
+          <div id="crm-preview-board" class="crm-preview-board" aria-label="Tablero Kanban de leads"></div>
+        </section>
       </section>
 
       <section id="activity" class="card activity-card portal-view" data-title="Ejecuciones">
@@ -592,7 +593,22 @@
     const loadDashboardWithoutCrmPreview=loadDashboard;
     loadDashboard=async function(){await loadDashboardWithoutCrmPreview();renderCrmBoard();renderWarmupPreview();};
 
-    function showView(id,updateHash=false){const candidate=document.getElementById(id),target=candidate?.matches('.portal-view')?candidate:document.querySelector('#dashboard');document.querySelectorAll('.portal-view').forEach(view=>view.classList.toggle('active',view===target));document.querySelectorAll('[data-view]').forEach(link=>link.classList.toggle('current',link.dataset.view===target.id));document.querySelector('#top-navigation').classList.remove('open');document.querySelector('#menu-toggle').setAttribute('aria-expanded','false');document.title=`${target.dataset.title||'Portal'} · Focus Business`;if(updateHash&&location.hash!==`#${target.id}`)history.pushState(null,'',`#${target.id}`);window.scrollTo({top:0,behavior:'auto'});}
+    function showView(id, updateHash = false) {
+      const board = document.getElementById('results');
+      const openBoard = id === board.id;
+      const candidate = document.getElementById(openBoard ? 'sources' : id);
+      const target = candidate?.matches('.portal-view') ? candidate : document.querySelector('#dashboard');
+      const destination = openBoard ? board.id : target.id;
+
+      document.querySelectorAll('.portal-view').forEach(view => view.classList.toggle('active', view === target));
+      document.querySelectorAll('[data-view]').forEach(link => link.classList.toggle('current', link.dataset.view === destination));
+      document.querySelector('#top-navigation').classList.remove('open');
+      document.querySelector('#menu-toggle').setAttribute('aria-expanded', 'false');
+      document.title = `${openBoard ? 'Leads y CRM' : target.dataset.title || 'Portal'} · Focus Business`;
+      if (updateHash && location.hash !== `#${destination}`) history.pushState(null, '', `#${destination}`);
+      if (openBoard) board.scrollIntoView({block:'start', behavior:'auto'});
+      else window.scrollTo({top:0, behavior:'auto'});
+    }
     function showBuilderStep(workspace,step){workspace.querySelectorAll('[data-builder-step]').forEach(card=>card.classList.toggle('active',card.dataset.builderStep===step));workspace.querySelectorAll('[data-builder-tab]').forEach(button=>button.classList.toggle('active',button.dataset.builderTab===step));}
 
     document.querySelector('#source-list').addEventListener('submit',e=>{if(e.target.id==='research-config-form'){e.preventDefault();runResearch(e.target.closest('[data-source]'));}});
@@ -691,7 +707,14 @@
     document.querySelector('#top-navigation').addEventListener('click',e=>{const link=e.target.closest('[data-view]');if(link){e.preventDefault();showView(link.dataset.view,true);}});
     document.querySelector('#menu-toggle').addEventListener('click',e=>{const nav=document.querySelector('#top-navigation'),open=nav.classList.toggle('open');e.currentTarget.setAttribute('aria-expanded',String(open));});
     window.addEventListener('popstate',()=>showView(location.hash.slice(1)||'dashboard'));setInterval(()=>{updatePreviewCountdown();updateDashboardCountdown();},1000);renderPreviewAutomations();renderDashboardAutomationQuick();
-    function finishPortalBoot(){const screen=document.querySelector('#portal-boot-screen');if(!screen)return;screen.classList.add('leaving');document.body.classList.remove('portal-booting');setTimeout(()=>screen.remove(),550);}
+    function finishPortalBoot() {
+      const screen = document.querySelector('#portal-boot-screen');
+      if (!screen) return;
+      screen.classList.add('leaving');
+      document.body.classList.remove('portal-booting');
+      if (location.hash === '#results') document.getElementById('results').scrollIntoView({block:'start', behavior:'auto'});
+      setTimeout(() => screen.remove(), 550);
+    }
     document.querySelector('#warmup-action-form [name="scheduled_date"]').value=new Date(Date.now()+86400000).toISOString().slice(0,10);document.querySelector('#refresh')?.addEventListener('click',loadDashboard);document.querySelector('#refresh-top').addEventListener('click',loadDashboard);document.querySelector('#close-dialog').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});document.querySelector('#logout').addEventListener('click',async()=>{const r=await fetch('/auth/logout',{method:'POST',headers:headers()}),d=await r.json();location.assign(d.redirect||'/');});showView(location.hash.slice(1)||'dashboard');loadDashboard().finally(()=>setTimeout(finishPortalBoot,280));
   </script>
 </body>
