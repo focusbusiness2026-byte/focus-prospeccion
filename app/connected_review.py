@@ -53,10 +53,11 @@ from app.prospecting_guide import (
     BUSINESS_CONTEXT_FIELDS, INTAKE_EDITABLE, OpenAITargetingGuide, TargetingGuide, guide_intake, review_feedback,
 )
 from app.prospecting_guide_api import guide_router
-from app.sheet_store import SheetStore
+from app.review_sheet_store import ReviewSheetStore as SheetStore
 
 
 app = main.app
+main.SheetStore = SheetStore
 snapshot = SheetsSnapshot(settings, "Prospeccion Revision Estado", create_hidden=True)
 guide_store = CampaignEngine(storage / "targeting.sqlite3", persistence=snapshot, real=True)
 guide = TargetingGuide(guide_store, OpenAITargetingGuide(settings) if settings.openai_api_key else None)

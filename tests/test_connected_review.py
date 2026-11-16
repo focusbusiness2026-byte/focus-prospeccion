@@ -1,6 +1,32 @@
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
+
+from app.review_sheet_store import ReviewSheetStore
+from app.sheet_store import SheetStore
+
+
+def test_review_crm_includes_linked_history_without_changing_owner(monkeypatch):
+    store = ReviewSheetStore()
+    owner, alias, other = ("primary@example.test", "linked@example.test", "other@example.test")
+    users = [
+        SimpleNamespace(email=email, account_email=account, role="Cliente", state="Activo")
+        for email, account in ((owner, ""), (alias, owner), (other, ""))
+    ]
+    monkeypatch.setattr(store, "access_records", lambda: users)
+    monkeypatch.setattr(store, "onboarding_sources", lambda _: [SimpleNamespace(record_id="OWN")])
+    rows = [
+        {"execution_id": "own", "email": owner, "onboarding_id": "OWN"},
+        {"execution_id": "linked", "email": alias, "onboarding_id": "OWN"},
+        {"execution_id": "other-source", "email": alias, "onboarding_id": "OTHER"},
+    ]
+    monkeypatch.setattr(SheetStore, "recent_prospects", lambda self, email, limit: rows[:limit])
+    monkeypatch.setattr(SheetStore, "update_prospect_status",
+                        lambda self, execution_id, email, status, **kw: {"email": email, "status": status})
+    assert [lead["execution_id"] for lead in store.recent_prospects(owner)] == ["own", "linked"]
+    assert store.get_prospect("other-source", owner) is None
+    assert store.update_prospect_status("linked", owner, "En revisión")["email"] == alias
 
 
 def test_connected_review_rejects_production_and_uses_existing_account_scope(tmp_path):
