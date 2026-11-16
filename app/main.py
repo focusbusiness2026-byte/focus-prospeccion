@@ -199,6 +199,17 @@ def _public_research_job(job: dict) -> dict:
     }
 
 
+def latest_manual_research_job(source_id: str, actor_email: str) -> dict | None:
+    with _RESEARCH_JOBS_LOCK:
+        job = max(
+            (item for item in _RESEARCH_JOBS.values()
+             if item["source_id"] == source_id and item["owner_email"] == actor_email.strip().lower()),
+            key=lambda item: item["created_at"],
+            default=None,
+        )
+        return _public_research_job(job) if job else None
+
+
 def _cleanup_research_jobs_locked() -> None:
     if len(_RESEARCH_JOBS) <= _RESEARCH_JOB_LIMIT:
         return
@@ -1740,3 +1751,8 @@ def export_prospects(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=focus-prospeccion-leads.csv"},
     )
+
+# Mount the guide after the existing authenticated portal adapters are defined.
+from app.portal_guide import router as prospecting_guide_router
+
+app.include_router(prospecting_guide_router)

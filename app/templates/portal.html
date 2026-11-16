@@ -6,6 +6,7 @@
   <title>Panel de prospección · Focus Business</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/static/app.css?v={{ portal_asset_version }}" />
+  <link rel="stylesheet" href="/static/prospecting-guide.css?v={{ portal_asset_version }}" />
 </head>
 <body class="portal-booting">
   <div id="portal-boot-screen" class="portal-boot-screen" role="status" aria-live="polite" aria-label="Focus Business está cargando">
@@ -81,16 +82,22 @@
       </section>
 
       <section id="sources" class="prospecting-studio portal-view" data-title="Prospección">
-        <div class="studio-toolbar">
-          <div><p class="eyebrow">CENTRO DE INVESTIGACIÓN</p><h2>Configuración profesional de prospección</h2><p class="intro">La configuración recomendada se construye automáticamente con el Onboarding. Puedes afinarla para una ejecución concreta sin modificar las respuestas originales.</p></div><button class="info-button" type="button" data-info-title="Prospección" data-info-copy="Permite revisar la configuración recomendada, definir filtros avanzados y preparar investigaciones. Las acciones reales dependen de permisos y disponibilidad del servicio.">i<span>Información de Prospección</span></button>
-          <div class="studio-toolbar-actions"><label class="input source-select"><span>Productora activa</span><select id="source-selector"><option value="">Selecciona una productora</option></select></label><button id="recommended-config" class="secondary" type="button">Configuración recomendada</button><button id="save-config" class="primary" type="button">Guardar cambios</button></div>
+        <div id="guide-header">
+          {% include "prospecting-guide-content.html" %}
         </div>
-        <div id="source-summary" class="source-summary">Cargando productoras...</div>
-        <div id="source-list" class="source-list"><p class="empty">Cargando configuración...</p></div>
-        <p id="scrape-message" class="form-message" role="status" aria-live="polite"></p>
+        <details id="legacy-prospecting" class="legacy-prospecting">
+          <summary>Filtros avanzados y automatizaciones</summary>
+          <div class="studio-toolbar">
+            <div><p class="eyebrow">CENTRO DE INVESTIGACIÓN</p><h2>Configuración profesional de prospección</h2><p class="intro">La configuración recomendada se construye automáticamente con el Onboarding. Puedes afinarla para una ejecución concreta sin modificar las respuestas originales.</p></div><button class="info-button" type="button" data-info-title="Prospección" data-info-copy="Permite revisar la configuración recomendada, definir filtros avanzados y preparar investigaciones. Las acciones reales dependen de permisos y disponibilidad del servicio.">i<span>Información de Prospección</span></button>
+            <div class="studio-toolbar-actions"><label class="input source-select"><span>Productora activa</span><select id="source-selector"><option value="">Selecciona una productora</option></select></label><button id="recommended-config" class="secondary" type="button">Configuración recomendada</button><button id="save-config" class="primary" type="button">Guardar cambios</button></div>
+          </div>
+          <div id="source-summary" class="source-summary">Cargando productoras...</div>
+          <div id="source-list" class="source-list"><p class="empty">Cargando configuración...</p></div>
+          <p id="scrape-message" class="form-message" role="status" aria-live="polite"></p>
+        </details>
 
         <section id="results" class="results-section" aria-labelledby="crm-board-heading">
-          <h2 id="crm-board-heading">Leads y CRM</h2>
+          <h2 id="crm-board-heading" tabindex="-1">Leads y CRM</h2>
           <div class="filters">
             <label class="input search-input"><span>Buscar leads</span><input id="result-search" type="search" placeholder="Escribe empresa, sector, ciudad o país" /></label>
           </div>
@@ -581,7 +588,7 @@
     async function saveAutomation(workspace){const button=workspace.querySelector('[data-action="save-automation"]'),nameInput=workspace.querySelector('[data-schedule-name]'),name=nameInput.value.trim(),source=dashboardData.sources.find(item=>item.onboarding_id===workspace.dataset.source),frequency=automationFrequency(workspace),favorite=workspace.querySelector('[data-schedule-favorite]').checked,adjustments={...collectResearchConfig(workspace),runs_per_cycle:frequency.runs_per_cycle};if(!name){nameInput.reportValidity();return;}if(!source)return;button.disabled=true;message.textContent='Guardando configuración real...';const result=await persistAutomation({source},{name,enabled:Boolean(source.automation?.enabled),favorite,...frequency,adjustments});button.disabled=false;message.textContent=result.detail;if(result.ok)await loadDashboard();}
     async function setAutomationState(workspace,enabled){const source=dashboardData.sources.find(item=>item.onboarding_id===workspace.dataset.source),nameInput=workspace.querySelector('[data-schedule-name]'),name=nameInput?.value.trim(),favorite=workspace.querySelector('[data-schedule-favorite]')?.checked,frequency=automationFrequency(workspace);if(!source)return;if(!name){nameInput.reportValidity();return;}const previous=structuredClone(source.automation||{}),adjustments={...collectResearchConfig(workspace),runs_per_cycle:frequency.runs_per_cycle};automationUpdatesInFlight.add(source.onboarding_id);applyAutomationOptimisticState(source,{name,enabled,favorite,...frequency,adjustments});message.textContent=enabled?'Automatización iniciada. Confirmando en Google Sheets…':'Automatización detenida. Confirmando en Google Sheets…';const result=await persistAutomation({source},{name,enabled,favorite,...frequency,adjustments});automationUpdatesInFlight.delete(source.onboarding_id);if(!result.ok){source.automation=previous;renderDashboardAutomationQuick();renderSources();message.textContent=`No se pudo ${enabled?'iniciar':'detener'}: ${result.detail}`;return;}message.textContent=result.detail;await loadDashboard();}
     async function setQuickAutomationState(enabled){const id=document.querySelector('#favorite-automation-select').value,item=readPreviewAutomations().find(candidate=>candidate.id===id);if(!item?.source)return;const choice=scheduleChoice(quickScheduleMinutes||item.interval_minutes),source=item.source,previous=structuredClone(source.automation||{}),adjustments={...recommendedConfig(source),...(item.adjustments||{}),runs_per_cycle:choice.runs};automationUpdatesInFlight.add(id);applyAutomationOptimisticState(source,{name:item.name,enabled,favorite:true,interval_minutes:choice.minutes,runs_per_cycle:choice.runs,adjustments});message.textContent=enabled?'Automatización iniciada. Confirmando en Google Sheets…':'Automatización detenida. Confirmando en Google Sheets…';const result=await persistAutomation(item,{enabled,favorite:true,interval_minutes:choice.minutes,runs_per_cycle:choice.runs,adjustments});automationUpdatesInFlight.delete(id);if(!result.ok){source.automation=previous;renderDashboardAutomationQuick();renderSources();message.textContent=`No se pudo ${enabled?'iniciar':'detener'}: ${result.detail}`;return;}message.textContent=result.detail;await loadDashboard();}
-    async function runSavedAutomation(item){if(!item)return;const confirmed=window.confirm(`Se ejecutará “${item.name}” ahora y se consumirán recursos reales para buscar hasta ${item.lead_count||5} resultados. ¿Continuar?`);if(!confirmed)return;selectedSourceId=item.id;showView('sources',true);renderSources();await startResearchJob(item.id,item.adjustments||{});}
+    async function runSavedAutomation(item){if(!item)return;const confirmed=window.confirm(`Se ejecutará “${item.name}” ahora y se consumirán recursos reales para buscar hasta ${item.lead_count||5} resultados. ¿Continuar?`);if(!confirmed)return;selectedSourceId=item.id;showView('sources',true);document.querySelector('#legacy-prospecting').open=true;renderSources();await startResearchJob(item.id,item.adjustments||{});}
     async function saveCRM(form){const body=Object.fromEntries(new FormData(form).entries()),r=await fetch(`/api/prospects/${encodeURIComponent(form.dataset.id)}/crm`,{method:'POST',headers:headers(),body:JSON.stringify(body)}),d=await r.json();if(!r.ok){message.textContent=d.detail||'No se pudo guardar el CRM.';return;}dialog.close();message.textContent='Seguimiento CRM guardado en Google Sheets.';await loadDashboard();}
     function leadFullText(x){return [`Empresa: ${x.company}`,`Web: ${x.website||'No disponible'}`,`Productora: ${x.productora||'Sin vincular'}`,`Sector: ${x.sector||'Pendiente'}`,`Ubicación: ${[x.city,x.country].filter(Boolean).join(', ')||'Pendiente'}`,`Resumen: ${x.summary||x.description||'Sin resumen'}`,`Contactos: ${(x.public_contacts||[]).map(c=>`${c.type}: ${c.value}`).join(', ')||'No disponibles'}`,`Notas: ${x.crm_notes||'Sin notas'}`,`Fuentes: ${(x.research_sources||[]).map(s=>s.url).join(', ')||'Sin fuentes'}`,dossierPlainText(x)].filter(Boolean).join('\n\n');}
     document.addEventListener('click',e=>{const button=e.target.closest('[data-download-dossier]');if(!button)return;const lead=dashboardData.prospects.find(item=>item.execution_id===button.dataset.downloadDossier);if(!lead||!dossierPlainText(lead))return;downloadLocalText(`${safeExportFilename(lead.company,'investigacion')}-${safeExportFilename(lead.execution_id,'lead')}.txt`,leadFullText(lead));});
@@ -591,7 +598,35 @@
     async function fetchDashboardPayload(endpoint,attempt=0){try{const r=await fetch(endpoint,{headers:{Accept:'application/json'}});if(r.status===401){location.assign('/');return null;}const raw=await r.text();let d={};if(raw.trim()){try{d=JSON.parse(raw);}catch{if(attempt<1&&r.status>=500){await dashboardRetryDelay(900);return fetchDashboardPayload(endpoint,attempt+1);}throw new Error('El servicio devolvió una respuesta temporal no válida.');}}if(!r.ok){if(attempt<1&&r.status>=500){await dashboardRetryDelay(900);return fetchDashboardPayload(endpoint,attempt+1);}throw new Error(d.detail||`No se pudo cargar el dashboard (${r.status}).`);}return d;}catch(error){if(attempt<1&&error?.name!=='AbortError'){await dashboardRetryDelay(900);return fetchDashboardPayload(endpoint,attempt+1);}throw error;}}
     async function loadDashboard(){try{const d=await fetchDashboardPayload(dashboardEndpoint());if(!d)return;dashboardData=d;renderAdminContext(d);renderMetrics(d);renderSources();renderDashboardAutomationQuick();optionize('#productora-filter','productora');optionize('#country-filter','country');optionize('#sector-filter','sector');optionize('#client-type-filter','client_type');renderKanbanStageFilter();renderProspects();renderCrmBoard();renderExecutions();}catch(error){message.textContent=`No se pudo cargar el panel: ${error.message||'error temporal'}. Recarga para intentarlo de nuevo.`;}}
     const loadDashboardWithoutCrmPreview=loadDashboard;
-    loadDashboard=async function(){await loadDashboardWithoutCrmPreview();renderCrmBoard();renderWarmupPreview();};
+    loadDashboard=async function(){await loadDashboardWithoutCrmPreview();renderCrmBoard();renderWarmupPreview();notifyProspectingGuide();};
+
+    function notifyProspectingGuide() {
+      if (!dashboardData.user || !document.querySelector('#sources.active')) return;
+      const sources = dashboardData.sources.map(source => ({
+        id:source.onboarding_id, name:source.productora?.name || source.onboarding_id,
+      }));
+      document.dispatchEvent(new CustomEvent('portal:prospecting', {detail:{sources, selectedSourceId}}));
+    }
+
+    document.addEventListener('portal:guide-account', ({detail:id}) => {
+      if (!dashboardData.sources.some(source => source.onboarding_id === id)) return;
+      selectedSourceId = id;
+      renderSources();
+    });
+
+    document.addEventListener('portal:guide-search-saved', () => loadDashboard());
+
+    let crmRefreshQueued = false;
+    document.addEventListener('portal:guide-leads', ({detail:{ids}}) => {
+      if (crmRefreshQueued || ids.every(id => dashboardData.prospects.some(lead => lead.execution_id === id))) return;
+      crmRefreshQueued = true;
+      loadDashboard().finally(() => {
+        crmRefreshQueued = false;
+        for (const id of ids) {
+          document.querySelector(`#crm-preview-board [data-drag-prospect="${CSS.escape(id)}"]`)?.classList.add('guide-lead-arrival');
+        }
+      });
+    });
 
     function showView(id, updateHash = false) {
       const board = document.getElementById('results');
@@ -606,9 +641,12 @@
       document.querySelector('#menu-toggle').setAttribute('aria-expanded', 'false');
       document.title = `${openBoard ? 'Leads y CRM' : target.dataset.title || 'Portal'} · Focus Business`;
       if (updateHash && location.hash !== `#${destination}`) history.pushState(null, '', `#${destination}`);
+      if (target.id === 'sources') notifyProspectingGuide();
       if (openBoard) board.scrollIntoView({block:'start', behavior:'auto'});
       else window.scrollTo({top:0, behavior:'auto'});
     }
+    document.querySelector('#source-selector').addEventListener('change', () => queueMicrotask(notifyProspectingGuide));
+
     function showBuilderStep(workspace,step){workspace.querySelectorAll('[data-builder-step]').forEach(card=>card.classList.toggle('active',card.dataset.builderStep===step));workspace.querySelectorAll('[data-builder-tab]').forEach(button=>button.classList.toggle('active',button.dataset.builderTab===step));}
 
     document.querySelector('#source-list').addEventListener('submit',e=>{if(e.target.id==='research-config-form'){e.preventDefault();runResearch(e.target.closest('[data-source]'));}});
@@ -717,5 +755,6 @@
     }
     document.querySelector('#warmup-action-form [name="scheduled_date"]').value=new Date(Date.now()+86400000).toISOString().slice(0,10);document.querySelector('#refresh')?.addEventListener('click',loadDashboard);document.querySelector('#refresh-top').addEventListener('click',loadDashboard);document.querySelector('#close-dialog').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});document.querySelector('#logout').addEventListener('click',async()=>{const r=await fetch('/auth/logout',{method:'POST',headers:headers()}),d=await r.json();location.assign(d.redirect||'/');});showView(location.hash.slice(1)||'dashboard');loadDashboard().finally(()=>setTimeout(finishPortalBoot,280));
   </script>
+  <script src="/static/prospecting-guide.js?v={{ portal_asset_version }}" defer></script>
 </body>
 </html>

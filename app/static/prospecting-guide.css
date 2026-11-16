@@ -1,0 +1,134 @@
+.guide-page{max-width:none;padding:0}
+.guide-main{max-width:1200px;margin:auto;padding:32px 4vw}
+.guide-main h1{font-size:clamp(32px,5vw,54px);line-height:1.1;margin-bottom:8px}
+.guide-page [hidden]{display:none!important}
+.guide-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,.9fr);gap:20px;align-items:start}
+.guide-layout .panel{min-width:0}
+.guide-main .small{font-size:13px}
+.guide-title,.guide-learning>div{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.guide-title p{margin:0}
+.guide-learning{margin:16px 0 23px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.guide-learning>div span{color:var(--gold);font-size:14px}
+.guide-learning p{margin:5px 0 0}
+.guide-card{min-width:0;padding:7px 6px 0 0}
+.guide-context-card{min-width:0;border-left:1px solid var(--line);padding:4px 0 4px 22px}
+.guide-context-card h2{margin:6px 0 12px}
+.guide-context-card .eyebrow{margin:0}
+.guide-context-card details{border-top:1px solid var(--line);padding-top:10px}
+.guide-context-card dd{white-space:pre-wrap}
+.guide-field{border-bottom:1px solid var(--line);padding:8px 0}
+.guide-field>dt{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.guide-field button{padding:4px 11px;font-size:13px}
+.guide-field form{margin-top:10px}
+.guide-field form label{margin-bottom:8px}
+.guide-field textarea,#guide-additional{min-height:65px}
+#guide-additional{margin-bottom:10px}
+#guide-execution{border-top:1px solid var(--line);margin-top:20px;padding-top:16px}
+#guide-schedule-form{margin:12px 0}
+#guide-job-progress{width:100%;accent-color:var(--gold)}
+#guide-job-status{margin:6px 0 10px}
+.guide-result{margin:12px 0 16px;padding:14px 16px;border:1px solid var(--line);border-inline-start:3px solid var(--gold);border-radius:10px;background:var(--panel)}
+.guide-result h4{margin:0 0 8px;scroll-margin-top:24px}
+.guide-result-leads{margin:0 0 10px;padding:0;list-style:none}
+.guide-result-leads li{padding:8px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
+.guide-result-leads p{margin:2px 0;font-size:13px}
+#guide-execution h3{margin:0 0 9px}
+#guide-busy-progress{width:100%;accent-color:var(--gold)}
+#guide-busy-elapsed{margin:8px 0;font-size:13px;font-variant-numeric:tabular-nums}
+#guide-busy-activity{display:grid;gap:6px;list-style:none;margin:12px 0 0;padding:0;text-align:left;font-size:13px;color:var(--muted)}
+#guide-busy-activity li:last-child{color:var(--text)}
+#guide-busy-leads{display:grid;gap:6px;list-style:none;margin:12px 0 0;padding:0;text-align:left;max-height:25vh;overflow:auto}
+#guide-busy-leads li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;overflow-wrap:anywhere}
+#guide-busy-leads span{color:var(--gold);font-size:12px}
+.guide-busy [hidden]{display:none!important}
+@media(prefers-reduced-motion:no-preference){
+  #guide-busy-leads li{animation:guide-lead-in 220ms ease-out both}
+  @keyframes guide-lead-in{from{opacity:0;transform:translateY(7px)}}
+}
+.guide-busy{position:fixed;inset:0;margin:auto;width:min(calc(100% - 32px),440px);padding:26px 24px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:20px;text-align:center;box-shadow:0 20px 80px #0008}
+.guide-busy::backdrop{background:#07111eaa;backdrop-filter:blur(5px)}
+html:has(#guide-busy){scrollbar-gutter:stable}
+html.guide-locked{overflow:hidden;overscroll-behavior:none}
+.guide-busy h2{margin:15px 0 8px;font:600 21px/1.3 system-ui,sans-serif}
+.guide-busy h2:focus{outline:none}
+.guide-busy p{margin:0;color:var(--muted);font-size:14px}
+.guide-brand-spinner{position:relative;display:grid;place-items:center;margin:auto;width:54px;height:54px}
+.guide-brand-spinner img{width:32px;height:32px;border-radius:6px}
+.guide-brand-spinner::before{content:'';position:absolute;inset:0;border:2px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:guide-spin 1s linear infinite}
+@keyframes guide-spin{to{transform:rotate(1turn)}}
+@media(prefers-reduced-motion:reduce){.guide-brand-spinner::before{animation:none;border-color:var(--gold)}}
+.guide-card fieldset{border:0;padding:0;margin:0;min-width:0}
+.guide-card legend{font-size:clamp(21px,3vw,29px);line-height:1.25;font-weight:700;margin-bottom:16px;padding:0}
+#guide-progress{width:100%;height:9px;accent-color:var(--gold)}
+#guide-status:empty{display:none}
+#guide-status{color:var(--muted);margin:10px 0}
+#guide-options{display:grid;gap:9px;margin-bottom:13px}
+.guide-option{display:flex;align-items:center;gap:11px;min-height:45px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.guide-option:has(input:checked){border-color:var(--gold);background:#d9af3c16}
+.guide-option input,.guide-check input{width:auto;flex:0 0 auto;accent-color:var(--gold)}
+#guide-custom textarea{width:100%;min-height:65px;margin-bottom:12px}
+.guide-main .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.guide-actions{margin-top:12px}
+.guide-main button{white-space:normal}
+.guide-main details{margin-top:14px}
+.guide-main summary{cursor:pointer;color:var(--gold)}
+.guide-main dl{display:grid;gap:8px}
+.guide-main dt{color:var(--muted);font-size:13px}
+.guide-main dd{margin:0;overflow-wrap:anywhere}
+.guide-check{display:flex;align-items:center;gap:8px;margin:14px 0}
+.guide-context-card p,.guide-main a,#guide-history-list{overflow-wrap:anywhere}
+#guide-history-list li{margin-bottom:8px}
+#guide-history-list p{margin:3px 0 7px;white-space:pre-wrap}
+#guide-history-list button{padding:4px 11px;font-size:13px}
+#guide-edit{margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:12px}
+#guide-edit-question{font-weight:700;color:var(--text)}
+#guide-question,#guide-checkpoint-title,#guide-review-title,#guide-history-label,#guide-reset-title{scroll-margin-top:24px}
+#guide-error{padding:12px;border:1px solid #ba6c66;background:#321e24;border-radius:10px}
+#sources:has(#guide-header) {
+  padding-inline: 0;
+}
+
+#sources #guide-header {
+  --text: var(--ink, #f3f1ec);
+  scroll-margin-top: 84px;
+}
+
+#sources .guide-main {
+  padding-inline: clamp(12px, 3vw, 36px);
+}
+
+#sources .guide-title label {
+  width: min(100%, 320px);
+}
+
+@media(max-width:780px){.guide-layout{grid-template-columns:1fr}.guide-main{padding:22px 14px}.guide-context-card{border-left:0;border-top:1px solid var(--line);padding:16px 0 0}body > header{gap:12px;padding:13px 14px}body > header nav{gap:11px;font-size:13px}}
+
+.portal-app > .content:has(#sources.active) {
+  width: 100%;
+}
+
+#sources .legacy-prospecting {
+  margin-inline: auto;
+  max-width: 1200px;
+  scroll-margin-top: 84px;
+}
+
+#sources .legacy-prospecting > summary {
+  cursor: pointer;
+  padding-block: 12px;
+}
+
+#sources #results {
+  scroll-margin-top: 84px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #sources .guide-lead-arrival {
+    animation: guide-lead-highlight 1.8s ease-out;
+  }
+}
+
+@keyframes guide-lead-highlight {
+  0%, 50% { box-shadow: inset 0 0 0 2px var(--gold); }
+  25%, 100% { box-shadow: inset 0 0 0 0 transparent; }
+}
