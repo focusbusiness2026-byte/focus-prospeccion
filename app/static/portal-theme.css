@@ -1,0 +1,165 @@
+.portal-theme-toggle {
+  background: transparent;
+  border-color: var(--line);
+}
+
+:root[data-portal-theme="light"] {
+  color-scheme: light;
+  --panel: #fffdf8;
+  --panel-2: #f3eee4;
+  --line: #c8bfae;
+  --paper: #202a37;
+  --muted: #505a67;
+  --gold: #795510;
+  --gold-soft: #795510;
+  --green: #27734f;
+  --yellow: #855b14;
+  --red: #9d303d;
+  --lime: #447028;
+  --lime-soft: #395b27;
+  --portal-canvas: #f8f5ed;
+  --portal-accent-fill: #e4b849;
+  --portal-accent-soft: #f8ecd0;
+}
+
+[data-portal-theme="light"] body {
+  background: var(--portal-canvas);
+  color: var(--paper);
+}
+
+[data-portal-theme="light"] :is(.site-header, .portal-boot-screen, .top-navigation, .more-menu > div,
+  .account-menu > .account-popover, .admin-control-popover, .studio-toolbar, .research-workspace,
+  .card, .stats article, .results-section, .crm-board-card, .crm-trello-card, .crm-preview-toolbar,
+  .source-card, .saved-automation-card, .automation-panel, .dashboard-automation-quick, .saved-search-dashboard,
+  .public-work-guide, .prospecting-improvements, .client-execution-card, .result-card, .builder-card,
+  .execution-overview article, .intro-video-card, .crm-preview-table table, dialog, .dialog-header) {
+  background: var(--panel);
+  color: var(--paper);
+  border-color: var(--line);
+}
+
+[data-portal-theme="light"] :is(.site-header, .top-navigation, .portal-boot-screen, dialog, .card,
+  .crm-board-card, .results-section, .admin-control-popover, .account-menu > .account-popover) {
+  box-shadow: 0 12px 30px #322c1b1a;
+}
+
+[data-portal-theme="light"] :is(.portal-role-banner.client, .portal-role-banner.admin,
+  .quick-automation-details div, .distribution div, .prompt-criteria-summary div, .filters, .filter-chips span,
+  .crm-column, .crm-canvas-scroll, .crm-drag-handle, .crm-column-edit, .crm-column > header span,
+  .crm-preview-table th, .copy-field-list > div, .copy-field-button, .client-selection-loading, .source-selection-empty,
+  .method-grid div, .detail-grid > div, .lead-dossier, .lead-decision-panel, .summary-request-card, .review-state-grid > div,
+  .review-state-row span, .signal, .module-info-content section, .icp-preview, .preview-facts div, .run-target,
+  .builder-info-button, .multi-dropdown summary, .multi-menu, .switch-row, .builder-tabs,
+  .client-execution-counts div, .client-execution-result, .execution-trace, .automation-countdown,
+  .prospecting-question, .question-options label, .improvement-suggestion, .audience-lead-list label,
+  .audience-legal-check, .audience-review, .lookalike-note, .ghl-mapping-note, .briefing-future-note,
+  .codex-package-preview, .ghl-master-files button, .schedule-frequency-button, .admin-presentation-toggle button,
+  .admin-control-menu > summary, .account-menu > summary, .menu-toggle, .info-button, .more-menu a:hover,
+  .account-menu a:hover, .account-menu button:hover, .multi-menu label:hover) {
+  background: var(--panel-2);
+  color: var(--paper);
+  border-color: var(--line);
+}
+
+[data-portal-theme="light"] :is(.brand, .secondary, .top-link, .more-menu > summary, .account-menu button,
+  .account-menu a, .account-menu strong, .admin-mode-status, .icon-button, .table-copy-button,
+  .source-selection-empty strong, .source-card h3, .crm-column h3, .crm-column > header input,
+  .quick-automation-details b, .prompt-criteria-summary b, .preview-facts b, .dossier-fact p,
+  .detail-grid strong, .saved-automation-card dd, .next-run-card span) {
+  color: var(--paper);
+}
+
+[data-portal-theme="light"] :is(.stats span, .stats small, .input span, .source-card p, .source-card small,
+  .source-selection-empty p, .distribution small, .quick-automation-details span, .quick-countdown small,
+  .quick-countdown span, .prompt-criteria-summary span, .crm-board-card small, .crm-board-card label,
+  .crm-trello-card label, .crm-canvas-scroll label, .crm-preview-table td, .crm-preview-table td small,
+  .copy-field-list > div > span, .module-info-dialog p, .module-info-content ol, .signal small,
+  .dossier-empty, .dossier-evidence, .evidence-list a, .evidence-list span, .muted-text, .saved-automation-card dt,
+  .client-execution-card p, .client-execution-card small, .research-progress p, .preview-facts span,
+  .prospecting-question small, .lead-dossier p, .dialog-intro, .account-context dt, .more-menu a) {
+  color: var(--muted);
+}
+
+[data-portal-theme="light"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea, select, .source-select select, .admin-client-view select, .crm-column > header .crm-column-title-input) {
+  background: var(--panel);
+  color: var(--paper);
+  border-color: #968a77;
+}
+
+[data-portal-theme="light"] :is(input, textarea)::placeholder {
+  color: #5d6570;
+}
+
+[data-portal-theme="light"] :is(.top-link.current, .top-link:hover, .more-menu > summary:hover,
+  .schedule-frequency-button.active, .builder-tabs button.active, .builder-tabs button:hover,
+  .admin-presentation-toggle button.active, .account-menu[open] > summary, .admin-control-menu[open] > summary,
+  .demo-badge, .source-pills span, .preview-only-pill, .preview-warning, .status-chip.paused, .crm-board-safety,
+  .crm-saving, .crm-column-add, .crm-add-column, .crm-canvas-scroll button, .portal-role-icon, .portal-role-badge,
+  .portal-role-banner.admin .portal-role-badge, .execution-status.pending, .execution-status.review,
+  .module-info-content .help-limit, .public-work-guide .pending-note) {
+  background: var(--portal-accent-soft);
+  border-color: #b18a39;
+  color: var(--gold);
+}
+
+[data-portal-theme="light"] :is(.stats b, .source-summary, .form-message, .crm-search-context, .preview-safety-note,
+  .automation-state, .social-link, .source-config summary, .preview-warning strong, .crm-board-safety strong) {
+  color: var(--gold);
+}
+
+[data-portal-theme="light"] .prospecting-studio > .source-summary {
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+
+[data-portal-theme="light"] :is(.top-link.portal-switch, .custom-scrape-button, .create-improvement-button,
+  .status-chip.active, .status-aprobado, .execution-status.success, .target-explanation, .source-identity,
+  .source-identity .badge, .research-launch, .research-progress, .research-saved-leads li, .crm-column.drop-target) {
+  background: #e6f3e9;
+  color: #22583a;
+  border-color: #79a388;
+}
+
+[data-portal-theme="light"] :is(.status-descartado, .execution-status.failure, .blocking-panel,
+  .danger-button, #guide-error, .research-progress[data-status="failed"]) {
+  background: #fbe9e9;
+  color: #8b2332;
+  border-color: #be7178;
+}
+
+[data-portal-theme="light"] :is(.primary, .small-button.primary, .launch-button) {
+  background: var(--portal-accent-fill);
+  color: var(--ink);
+  border-color: var(--portal-accent-fill);
+}
+
+[data-portal-theme="light"] :is(dialog, .guide-busy)::backdrop {
+  background: #202a3766;
+}
+
+[data-portal-theme="light"] :is(.portal-role-copy strong, .execution-overview b, .detail-grid p,
+  .decision-trace summary, .schedule-field-label, .automation-switch span, .run-target label,
+  .multi-menu label, .method-grid strong, .prospecting-question p, .question-options label) {
+  color: var(--paper);
+}
+
+[data-portal-theme="light"] :is(.portal-role-copy small, .review-state-grid b, .method-grid h3, .public-work-guide h3,
+  .builder-heading > div > .eyebrow, .automation-panel .eyebrow, .intro-video-card .eyebrow) {
+  color: var(--gold);
+}
+
+[data-portal-theme="light"] :is(.portal-role-copy span, .automation-guardrail, .automation-countdown span,
+  .saved-search-dashboard p, .saved-search-dashboard small,
+  .builder-heading p, .builder-card-title p, .builder-tabs button, .automation-panel p, .automation-panel small,
+  .research-launch small, .icp-preview p, .preview-facts span, .preview-results span, .source-identity small, .summary-request-safety,
+  .empty, .muted-pill, .detail-grid span, .review-state-grid span, .lead-focus-mark, .execution-overview span,
+  .execution-overview small, .intro-video-card p, .method-grid p, .public-work-guide p, .guide-card .muted),
+[data-portal-theme="light"] :is(#dashboard-preview-next-run, #execution-summary) {
+  color: var(--muted);
+}
+
+[data-portal-theme="light"] :is(.builder-tabs button.active, .builder-tabs button:hover, .intro-video-placeholder) {
+  background: var(--portal-accent-soft);
+  color: var(--gold);
+}

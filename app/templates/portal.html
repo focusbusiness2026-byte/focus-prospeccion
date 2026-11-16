@@ -6,7 +6,9 @@
   <title>Panel de prospección · Focus Business</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/static/app.css?v={{ portal_asset_version }}" />
+  <script src="/static/portal-theme.js?v={{ portal_asset_version }}"></script>
   <link rel="stylesheet" href="/static/prospecting-guide.css?v={{ portal_asset_version }}" />
+  <link rel="stylesheet" href="/static/portal-theme.css?v={{ portal_asset_version }}" />
 </head>
 <body class="portal-booting">
   <div id="portal-boot-screen" class="portal-boot-screen" role="status" aria-live="polite" aria-label="Focus Business está cargando">
@@ -38,6 +40,7 @@
         <a class="top-link" href="#activity" data-view="activity">Ejecuciones</a>
         <a class="top-link" href="#method" data-view="method">Guía de trabajo</a>
         {% if radar_portal_url %}<a class="top-link portal-switch" href="{{ radar_portal_url }}">Radar</a>{% endif %}
+        <button id="portal-theme-toggle" class="top-link portal-theme-toggle" type="button" hidden>Modo claro</button>
       </nav>
       <div class="header-actions"><details id="admin-control-menu" class="admin-control-menu" hidden><summary aria-label="Abrir controles de administración"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M7 14v6"></path></svg><span id="admin-control-label">Administración</span></summary><div class="admin-control-popover"><div id="admin-client-view" class="admin-client-view" hidden><label><span>Cliente seleccionado</span><select id="admin-view-as"><option value="">Todas las cuentas</option></select></label><div id="admin-presentation-toggle" class="admin-presentation-toggle" role="group" aria-label="Modo de visualización" hidden><button id="view-as-admin" class="active" type="button">Ver como administrador</button><button id="view-as-client" type="button">Ver como cliente</button></div><small id="admin-view-status">Control total · vista global</small></div></div></details><details class="account-menu"><summary aria-label="Abrir información de la cuenta"><svg class="account-avatar" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.25"></circle><path d="M5.75 19c.45-3.2 2.63-5 6.25-5s5.8 1.8 6.25 5"></path></svg></summary><div class="account-popover"><div class="account-profile-card"><svg class="account-profile-avatar" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.25"></circle><path d="M5.75 19c.45-3.2 2.63-5 6.25-5s5.8 1.8 6.25 5"></path></svg><div><small>CUENTA REGISTRADA</small><strong>{{ identity.email }}</strong><span>{{ identity.role }}</span></div></div><dl class="account-context"><div><dt>Acceso</dt><dd id="account-access-role">{{ identity.role }}</dd></div><div><dt>Vista actual</dt><dd id="account-current-view">Cargando…</dd></div><div><dt>Cliente consultado</dt><dd id="account-selected-client">Mi cuenta</dd></div></dl>{% if radar_portal_url %}<a href="{{ radar_portal_url }}">Abrir Radar viral</a>{% endif %}<button id="logout" type="button">Cerrar sesión</button></div></details></div>
     </header>
