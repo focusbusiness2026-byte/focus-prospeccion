@@ -92,6 +92,7 @@ async def review_layout(request: Request, call_next):
         request.state.integrated_guide = not embedded
         request.state.review_crm_embed = embedded
         request.state.guide_accounts_url = ACCOUNTS_PATH
+        request.state.review_ghl_disabled = True
     if request.url.path == "/prospecting-guide" and request.method in {"GET", "HEAD"}:
         query = f"?{request.url.query}" if request.url.query else ""
         return RedirectResponse(f"/portal{query}#sources", status_code=303)

@@ -934,6 +934,7 @@ async def portal(request: Request):
         interactive_review=getattr(request.state, "interactive_review", False),
         guide_accounts_url=getattr(request.state, "guide_accounts_url", ""),
         review_crm_embed=getattr(request.state, "review_crm_embed", False),
+        review_ghl_disabled=getattr(request.state, "review_ghl_disabled", False),
     )
 
 

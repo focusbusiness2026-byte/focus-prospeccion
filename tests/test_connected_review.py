@@ -129,8 +129,12 @@ with TestClient(review.app, base_url='https://review.focusbusinesslab.es') as cl
     assert len(client.get(accounts).json()['accounts']) == 2
     portal = client.get('/portal').text
     assert 'data-accounts-url="/api/prospecting-review/accounts"' in portal
+    assert 'data-review-ghl-disabled' in portal
     assert 'href="#sources" data-view="sources">Prospección' in portal
-    assert 'guide-crm-embedded' in client.get('/portal?crm_embed=1&source=COMPANY-A').text
+    embedded = client.get('/portal?crm_embed=1&source=COMPANY-A').text
+    assert 'guide-crm-embedded' in embedded
+    assert 'data-review-ghl-disabled' in embedded
+    assert client.get('/integrations/ghl').status_code == 404
     assert client.post('/api/internal/onboarding-trigger', json={}).status_code == 404
     assert not review.schedule_enabled
 """

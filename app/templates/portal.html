@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="/static/guide-crm.css?v={{ portal_asset_version }}" />
   {% endif %}
 </head>
-<body class="portal-booting{% if review_crm_embed %} guide-crm-embedded{% endif %}">
+<body class="portal-booting{% if review_crm_embed %} guide-crm-embedded{% endif %}"{% if review_ghl_disabled %} data-review-ghl-disabled{% endif %}>
   <div id="portal-boot-screen" class="portal-boot-screen" role="status" aria-live="polite" aria-label="Focus Business está cargando">
     <div class="portal-boot-brand">
       <div class="portal-boot-logo" aria-hidden="true">F</div>

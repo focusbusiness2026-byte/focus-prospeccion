@@ -2,6 +2,8 @@
 
 La entrada `app.connected_review:app` usa el portal original. La actualización se carga dentro de Prospección; los leads y su historial se leen con el mismo control de cuenta del CRM.
 
+GoHighLevel y sus controles de exportación están deshabilitados en esta copia.
+
 ## Configuración del servicio separado
 
 - Iniciar con `uvicorn app.connected_review_entrypoint:app --host 0.0.0.0 --port $PORT` y comprobar `/health`. Activar con `REVIEW_ACTIVE=1` solo tras configurar las credenciales y el dominio de la revisión.

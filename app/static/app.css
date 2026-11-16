@@ -1165,3 +1165,9 @@ body { background:radial-gradient(circle at 82% 8%,rgba(217,175,67,.09),transpar
 input,select,textarea { accent-color:var(--gold) }
 input:focus-visible,select:focus-visible,textarea:focus-visible,
 button:focus-visible,a:focus-visible,summary:focus-visible { outline:2px solid var(--gold); outline-offset:2px }
+body[data-review-ghl-disabled] :is(
+  #open-ghl-export, #ghl-export-dialog, #download-ghl-contacts,
+  #preview-ghl-master, #ghl-master-preview, .ghl-mapping-note
+) {
+  display: none !important;
+}
