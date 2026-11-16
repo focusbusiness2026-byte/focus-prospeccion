@@ -1,29 +1,47 @@
 <div class="guide-page"><div class="guide-main">
   <div class="guide-title"><h1>Prospección</h1><label id="guide-account-label" hidden>Empresa<select id="guide-account"></select></label></div>
+  <p class="guide-intro">Cuéntanos qué tipo de cliente buscas. Te haremos una pregunta a la vez y podrás revisar la búsqueda antes de iniciarla.</p>
+  <details class="guide-help">
+    <summary>Cómo usar Prospección, paso a paso</summary>
+    <ol>
+      <li><strong>Elige tu empresa.</strong> Si tienes acceso a varias, usa el selector <b>Empresa</b>. En <b>Ficha del cliente</b> puedes consultar los datos que registraste al comenzar. El asistente también consulta tu web oficial cuando está disponible.</li>
+      <li><strong>Responde una pregunta a la vez.</strong> Pulsa <b>Analizar mi empresa</b>. Marca la opción que mejor te encaje y pulsa <b>Continuar</b>. Si quieres responder con tus palabras, elige <b>Otra respuesta</b>. Por ejemplo: «Busco clínicas dentales en Valencia». Si aún estás decidiendo, marca <b>No lo sé todavía</b>.</li>
+      <li><strong>Revisa al llegar a 10 respuestas.</strong> Puedes escribir un detalle extra, revisar la propuesta o contestar cinco preguntas más. En <b>Ver criterios y supuestos</b> verás qué sectores y lugares se buscarán y qué datos quedan por confirmar.</li>
+      <li><strong>Guarda o inicia la búsqueda.</strong> Si los criterios te encajan, marca <b>He revisado los criterios</b> y pulsa <b>Guardar búsqueda</b>. Cuando quieras buscar empresas, pulsa <b>Iniciar raspado</b>. La ventana de carga te indica el avance. Si ya empezaste una búsqueda, usa <b>Consultar raspado</b> cuando aparezca ese botón.</li>
+      <li><strong>Revisa lo encontrado.</strong> Un <b>lead</b> es una empresa o contacto que podría encajar con tu oferta. Pulsa <b>Ver los leads nuevos en el tablero</b> para revisar las tarjetas. En <b>Ejecuciones</b> puedes consultar el historial de búsquedas.</li>
+    </ol>
+    <p>Para corregir una respuesta, abre <b>Respuestas guardadas</b>, pulsa <b>Editar</b> y guarda la corrección. Si quieres contestar desde el principio, elige <b>Empezar de cero</b>. Tus conversaciones anteriores siguen en el historial.</p>
+  </details>
   <section class="guide-learning" aria-labelledby="guide-learning-label">
     <div><strong id="guide-learning-label">Aprendizaje de tu búsqueda</strong><span id="guide-progress-label"></span></div>
     <progress id="guide-progress" max="10" value="0" aria-labelledby="guide-learning-label" aria-describedby="guide-learning-note"></progress>
-    <p id="guide-learning-note" class="muted small">Más contexto ayuda a afinar el perfil de tus leads.</p>
+    <p id="guide-learning-note" class="muted small">Aquí verás cuántas preguntas has contestado.</p>
   </section>
   <p id="guide-error" role="alert" tabindex="-1" hidden></p>
   <div class="guide-layout">
     <section class="guide-card" aria-label="Configura tu búsqueda">
       <p id="guide-status" role="status" aria-live="polite">Cargando tu cuenta…</p>
       <form id="guide-answer" hidden>
-        <fieldset id="guide-question-fieldset"><legend id="guide-question" tabindex="-1"></legend><div id="guide-options"></div></fieldset>
+        <fieldset id="guide-question-fieldset" aria-describedby="guide-answer-hint">
+          <legend id="guide-question" tabindex="-1"></legend>
+          <p id="guide-answer-hint" class="muted small">Marca una opción y pulsa Continuar. Si ninguna encaja, elige «Otra respuesta» y escribe la tuya.</p>
+          <div id="guide-options"></div>
+        </fieldset>
         <div id="guide-custom" hidden><label for="answer">Escribe tu respuesta</label><textarea id="answer" maxlength="2000" rows="2" placeholder="Con tus palabras…"></textarea></div>
         <button class="primary" id="guide-next" type="submit">Continuar</button>
       </form>
       <div id="guide-checkpoint" hidden>
         <h2 id="guide-checkpoint-title" tabindex="-1">¿Afinamos un poco más?</h2>
         <p id="guide-checkpoint-summary"></p>
+        <p class="muted small">Puedes revisar la propuesta ahora o responder cinco preguntas más. Si queda un detalle importante, escríbelo abajo.</p>
         <label for="guide-additional">¿Quieres añadir algo más? <span class="muted">Opcional</span></label>
         <textarea id="guide-additional" maxlength="2000" rows="3" placeholder="Un objetivo, una preferencia o algo que no te hayamos preguntado"></textarea>
         <div class="actions"><button class="primary" id="guide-review-choice">Revisar mi búsqueda</button><button id="guide-more">Responder 5 más</button></div>
       </div>
       <div id="guide-review" hidden>
         <h2 id="guide-review-title" tabindex="-1">Tu búsqueda propuesta</h2><p id="guide-summary"></p>
-        <details><summary>Ver criterios y supuestos</summary><dl id="guide-criteria"></dl><div id="guide-assumptions"></div></details>
+        <p class="muted small">Comprueba el sector, el país y el tipo de cliente. Si algo quedó mal, puedes corregirlo en «Respuestas guardadas».</p>
+        <details><summary>Ver criterios y supuestos</summary><p class="muted small">Los criterios guían la búsqueda. Los supuestos son detalles que el asistente propone y tú puedes confirmar o corregir.</p><dl id="guide-criteria"></dl><div id="guide-assumptions"></div></details>
         <p id="guide-missing" class="muted" hidden>Falta concretar el sector o el país antes de guardar.</p>
         <label class="guide-check" id="guide-confirm-label"><input type="checkbox" id="guide-confirm"> He revisado los criterios.</label>
         <div class="actions"><button class="primary" id="guide-apply">Guardar búsqueda</button><button id="guide-more-review" hidden>Responder 5 más</button></div>
@@ -43,6 +61,15 @@
           <button id="guide-launch" class="primary" type="button">Iniciar raspado</button>
           <button id="guide-program" type="button" aria-controls="legacy-prospecting">Programar raspado</button>
         </div>
+        <details class="guide-help">
+          <summary>Cómo programar una búsqueda</summary>
+          <ol>
+            <li>Pulsa <b>Programar raspado</b> para abrir <b>Filtros avanzados y automatizaciones</b>.</li>
+            <li>En <b>Opción para investigar</b>, elige la búsqueda que guardaste o revisa los filtros de la configuración actual.</li>
+            <li>En <b>Guardado y automatización</b>, ponle un nombre, elige la frecuencia y pulsa <b>Iniciar</b>.</li>
+            <li>Comprueba la fecha de la <b>Próxima ejecución programada</b>. La programación corre en el servidor. Para suspender las siguientes búsquedas, pulsa <b>Detener</b>.</li>
+          </ol>
+        </details>
       </section>
       <div class="actions guide-actions">
         <button class="primary" id="guide-start" disabled>Analizar mi empresa</button>

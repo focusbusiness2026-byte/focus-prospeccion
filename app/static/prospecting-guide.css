@@ -89,7 +89,7 @@ html.guide-locked{overflow:hidden;overscroll-behavior:none}
 }
 
 #sources #guide-header {
-  --text: var(--ink, #f3f1ec);
+  --text: var(--paper, #f3f1ec);
   scroll-margin-top: 84px;
 }
 
@@ -131,4 +131,32 @@ html.guide-locked{overflow:hidden;overscroll-behavior:none}
 @keyframes guide-lead-highlight {
   0%, 50% { box-shadow: inset 0 0 0 2px var(--gold); }
   25%, 100% { box-shadow: inset 0 0 0 0 transparent; }
+}
+
+#sources .guide-intro {
+  max-width: 68ch;
+  margin-block: 8px 14px;
+}
+
+#sources .guide-help {
+  max-width: 76ch;
+  margin-block: 12px 18px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+#sources .guide-help > summary {
+  color: var(--paper);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#sources .guide-help li + li {
+  margin-top: 8px;
+}
+
+#sources .guide-help > :last-child {
+  margin-bottom: 0;
 }
