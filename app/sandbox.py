@@ -1,6 +1,7 @@
 """Isolated staging entry point. Never imported by the production entry point."""
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import re
@@ -20,6 +21,9 @@ if any(os.environ.get(key) for key in ("GOOGLE_SERVICE_ACCOUNT_JSON", "GOOGLE_SH
 PUBLIC_DEMO = os.getenv("SANDBOX_PUBLIC_DEMO") == "1"
 PROSPECTING_PREVIEW = PUBLIC_DEMO and os.getenv("SANDBOX_PROSPECTING_V11") == "1"
 INTERACTIVE_REVIEW = PROSPECTING_PREVIEW and os.getenv("SANDBOX_INTERACTIVE_REVIEW") == "1"
+SHARED_DEMO = INTERACTIVE_REVIEW and os.getenv("SANDBOX_SHARED_DEMO") == "1"
+VISITOR_COOKIE = "focus_demo_visitor"
+VISITOR_MAX_AGE = 86400
 REVIEW_WRITE_PATHS = {
     "PATCH": re.compile(r"/api/intelligence/[^/]+/guide/intake"),
     "POST": re.compile(r"/api/intelligence/[^/]+/guide/sessions(?:/[0-9a-f-]{36}/(?:answers|revisions|reanalysis|checkpoint|apply|launch))?"),
@@ -248,6 +252,25 @@ def sandbox_onboarding(payload: dict):
         store._save(data)
     return {"ok":True,"id":record["ID registro"]}
 
+def visitor_signature(nonce):
+    return hmac.digest(SETTINGS.app_secret.encode(), nonce.encode(), "sha256").hex()
+
+
+def visitor_id(request):
+    token = request.cookies.get(VISITOR_COOKIE, "")
+    match = re.fullmatch(r"([0-9a-f]{32})\.([0-9a-f]{64})", token)
+    if match and hmac.compare_digest(visitor_signature(match[1]), match[2]):
+        return match[1]
+    return None
+
+
+def visitor_actor(request):
+    nonce = visitor_id(request)
+    if nonce is None:
+        raise HTTPException(403, "Vuelve a abrir el portal para iniciar tu sesión de demostración.")
+    return f"visitante-{nonce}@example.test"
+
+
 @app.middleware("http")
 async def sandbox_boundary(request, call_next):
     path = request.url.path
@@ -255,6 +278,12 @@ async def sandbox_boundary(request, call_next):
     if integrated_guide:
         request.state.integrated_guide = True
         request.state.interactive_review = True
+    if SHARED_DEMO:
+        request.state.review_ghl_disabled = True
+        if path == "/" and request.method in {"GET", "HEAD"}:
+            return RedirectResponse("/portal#sources", status_code=303)
+        if path.rstrip("/") == "/integrations/ghl":
+            return JSONResponse({"detail": "GoHighLevel está deshabilitado en esta copia."}, status_code=404)
     if PUBLIC_DEMO:
         if INTERACTIVE_REVIEW and path == "/prospecting-guide" and request.method in {"GET", "HEAD"}:
             query = f"?{request.url.query}" if request.url.query else ""
@@ -264,11 +293,13 @@ async def sandbox_boundary(request, call_next):
         if path in {"/static/three-dots-logo.svg", "/static/three-dots-logo-email.png"}:
             return JSONResponse({"detail": "No disponible en la demo"}, status_code=404)
         review_path = REVIEW_WRITE_PATHS.get(request.method)
-        local_review_write = (INTERACTIVE_REVIEW and request.client is not None
+        local_review_write = (INTERACTIVE_REVIEW and not SHARED_DEMO and request.client is not None
             and request.client.host in {"127.0.0.1", "::1"}
             and request.url.hostname in {"127.0.0.1", "::1", "localhost"}
             and review_path is not None and review_path.fullmatch(path))
-        if request.method not in {"GET", "HEAD", "OPTIONS"} and not local_review_write:
+        shared_review_write = (SHARED_DEMO and request.method == "POST"
+            and review_path is not None and review_path.fullmatch(path) and visitor_id(request))
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and not (local_review_write or shared_review_write):
             return JSONResponse({"detail": "La demo pública es de solo lectura."}, status_code=403)
     if REAL_MODE and path not in {"/health","/sandbox/session","/webhooks/ghl"} and not path.startswith("/static/"):
         identity=await auth.verify_central_session(request.cookies.get(auth.SESSION_COOKIE))
@@ -314,11 +345,18 @@ async def sandbox_boundary(request, call_next):
                 if not integrated_guide:
                     body = body.replace('href="#sources" data-view="sources">Prospección', 'href="/prospecting-guide">Prospección', 1)
                 body = body.replace('<a class="top-link" href="#results" data-view="results">Leads y CRM</a>', '', 1)
-                body = body.replace('</nav>', '<a href="/campaigns/outreach">Campañas</a><a href="/integrations/ghl">GoHighLevel</a></nav>', 1)
+                links = '<a href="/campaigns/outreach">Campañas</a>'
+                if not SHARED_DEMO:
+                    links += '<a href="/integrations/ghl">GoHighLevel</a>'
+                body = body.replace('</nav>', links + '</nav>', 1)
                 if not integrated_guide:
                     scripts += '<script src="/static/guide-portal-entry.js" defer></script>'
             response = HTMLResponse(body.replace('</body>', scripts + '</body>'), status_code=response.status_code,
                                     headers={"X-Focus-Environment":"sandbox","Cache-Control":"no-store"})
+    if SHARED_DEMO and path == "/portal" and response.status_code == 200 and visitor_id(request) is None:
+        nonce = secrets.token_hex(16)
+        response.set_cookie(VISITOR_COOKIE, f"{nonce}.{visitor_signature(nonce)}", max_age=VISITOR_MAX_AGE,
+                            httponly=True, secure=request.url.scheme == "https", samesite="lax")
     if not request.cookies.get(auth.CSRF_COOKIE):
         response.set_cookie(auth.CSRF_COOKIE, secrets.token_urlsafe(24), samesite="lax", secure=request.url.scheme=="https")
     return response
@@ -381,7 +419,12 @@ def guide_profile(tenant, identity):
 
 def guide_intake_view(tenant, identity):
     source = guide_source(tenant, identity)
-    return profile_from_source(source), guide_intake(source)
+    intake = guide_intake(source)
+    if SHARED_DEMO:
+        for section in intake:
+            for field in section["fields"]:
+                field["editable"] = False
+    return profile_from_source(source), intake
 
 def guide_update_intake(tenant, identity, field, before, value):
     source = guide_source(tenant, identity)
@@ -394,6 +437,8 @@ def guide_feedback(tenant, identity):
     return review_feedback(prospects, source.record_id, source.email)
 
 def guide_save(tenant, identity, name, criteria):
+    if SHARED_DEMO:
+        return {"name": name, "adjustments": criteria}
     source = guide_source(tenant, identity)
     adjustments = main.ResearchAdjustments.model_validate(criteria).model_dump()
     return main.SheetStore(SETTINGS).upsert_saved_search(source.record_id, source.email, name=name,
@@ -557,4 +602,5 @@ def guide_template(request, name, **context):
 app.include_router(guide_router(targeting_guide, auth.require_identity, guide_template, guide_profile,
     guide_save, guide_feedback, guide_intake_view, guide_update_intake, guide_run,
     None if INTERACTIVE_REVIEW else guide_schedule, guide_schedule_status, guide_pause_schedule, guide_job, guide_leads, guide_timing,
-    review_run_for=review_guide_run if INTERACTIVE_REVIEW else None))
+    review_run_for=review_guide_run if INTERACTIVE_REVIEW else None,
+    actor_for=visitor_actor if SHARED_DEMO else None))

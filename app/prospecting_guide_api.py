@@ -99,7 +99,7 @@ def intake_value(field, value):
 
 def guide_router(service, identity_dependency, template, source_for, save_for, feedback_for=None,
     intake_for=None, update_intake_for=None, run_for=None, schedule_for=None, schedule_status=None, pause_schedule=None,
-    job_for=None, leads_for=None, timing_for=None, *, review_run_for=None, authorize_for=None):
+    job_for=None, leads_for=None, timing_for=None, *, review_run_for=None, authorize_for=None, actor_for=None):
     router = APIRouter()
     def require_account(tenant, identity):
         if authorize_for:
@@ -110,6 +110,9 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
     def scope(tenant, identity):
         require_account(tenant, identity)
         return source_for(tenant, identity)
+
+    def actor(request, identity):
+        return actor_for(request) if actor_for else identity.email
 
     def run(fn, *args, **kwargs):
         try:
@@ -124,15 +127,15 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
         return template(request, 'prospecting-guide.html', identity=identity)
 
     @router.get('/api/intelligence/{tenant}/guide')
-    def state(tenant: str, identity=Depends(identity_dependency)):
+    def state(tenant: str, request: Request, identity=Depends(identity_dependency)):
         if intake_for:
             require_account(tenant, identity)
             profile, intake = intake_for(tenant, identity)
         else:
             profile, intake = scope(tenant, identity), []
         return {**profile_view(profile, intake), 'ai_ready': service.generator is not None,
-            'session': run(service.latest, tenant, identity.email), 'research_started': False,
-            'saved': run(service.saved, tenant, identity.email),
+            'session': run(service.latest, tenant, actor(request, identity)), 'research_started': False,
+            'saved': run(service.saved, tenant, actor(request, identity)),
             'research_available': bool(review_run_for or (run_for and service.engine.real)),
             'schedule_available': bool(schedule_for),
             'schedule': run(schedule_status, tenant, identity) if schedule_status else None,
@@ -168,25 +171,25 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
         validate_csrf(request)
         profile = scope(tenant, identity)
         feedback = run(feedback_for, tenant, identity) if feedback_for else {}
-        return run(service.start, tenant, str(payload.request_id), identity.email, profile, feedback, payload.fresh)
+        return run(service.start, tenant, str(payload.request_id), actor(request, identity), profile, feedback, payload.fresh)
 
     @router.get('/api/intelligence/{tenant}/guide/sessions/{sid}')
-    def get(tenant: str, sid: UUID, identity=Depends(identity_dependency)):
+    def get(tenant: str, sid: UUID, request: Request, identity=Depends(identity_dependency)):
         scope(tenant, identity)
-        return run(service.get, tenant, str(sid), identity.email)
+        return run(service.get, tenant, str(sid), actor(request, identity))
 
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/answers')
     def answer(tenant: str, sid: UUID, payload: Answer, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
         profile = scope(tenant, identity)
-        return run(service.answer, tenant, str(sid), identity.email, str(payload.request_id), payload.version,
+        return run(service.answer, tenant, str(sid), actor(request, identity), str(payload.request_id), payload.version,
             payload.answer, payload.mode, profile)
 
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/revisions')
     def revise(tenant: str, sid: UUID, payload: Revise, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
         profile = scope(tenant, identity)
-        return run(service.revise, tenant, str(sid), identity.email, str(payload.request_id),
+        return run(service.revise, tenant, str(sid), actor(request, identity), str(payload.request_id),
             payload.version, payload.index, payload.answer, profile)
 
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/reanalysis')
@@ -194,14 +197,14 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
         validate_csrf(request)
         profile = scope(tenant, identity)
         feedback = run(feedback_for, tenant, identity) if feedback_for else None
-        return run(service.revise, tenant, str(sid), identity.email, str(payload.request_id), payload.version,
+        return run(service.revise, tenant, str(sid), actor(request, identity), str(payload.request_id), payload.version,
             None, '', profile, feedback=feedback, additional_context=payload.additional_context, choice=payload.choice)
 
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/checkpoint')
     def checkpoint(tenant: str, sid: UUID, payload: Checkpoint, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
         scope(tenant, identity)
-        return run(service.checkpoint, tenant, str(sid), identity.email, payload.version, payload.choice)
+        return run(service.checkpoint, tenant, str(sid), actor(request, identity), payload.version, payload.choice)
 
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/apply')
     def apply(tenant: str, sid: UUID, payload: Apply, request: Request, identity=Depends(identity_dependency)):
@@ -209,12 +212,12 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
         profile = scope(tenant, identity)
         if payload.confirmed is not True:
             raise HTTPException(422, 'Confirma los criterios antes de guardarlos.')
-        return run(service.apply, tenant, str(sid), identity.email, payload.version, profile,
+        return run(service.apply, tenant, str(sid), actor(request, identity), payload.version, profile,
             lambda name, criteria: save_for(tenant, identity, name, criteria))
 
-    def reviewed(tenant, sid, identity, version):
+    def reviewed(tenant, sid, request, identity, version):
         profile = scope(tenant, identity)
-        session = run(service.get, tenant, str(sid), identity.email)
+        session = run(service.get, tenant, str(sid), actor(request, identity))
         if session['version'] != version or session['state'] not in {'ready', 'applied'} or not uses_profile(session, profile):
             raise HTTPException(409, 'Actualiza y revisa la propuesta antes de usarla.')
         if not all(any(item.strip() for item in session['criteria'][field]) for field in ('sectors', 'target_countries')):
@@ -225,7 +228,7 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
     def launch(tenant: str, sid: UUID, payload: Launch, request: Request, background_tasks: BackgroundTasks,
         identity=Depends(identity_dependency)):
         validate_csrf(request)
-        record_id, criteria = reviewed(tenant, sid, identity, payload.version)
+        record_id, criteria = reviewed(tenant, sid, request, identity, payload.version)
         if review_run_for:
             return run(review_run_for, tenant, identity, criteria)
         if not run_for or not service.engine.real:
@@ -235,7 +238,7 @@ def guide_router(service, identity_dependency, template, source_for, save_for, f
     @router.post('/api/intelligence/{tenant}/guide/sessions/{sid}/schedule')
     def schedule(tenant: str, sid: UUID, payload: Schedule, request: Request, identity=Depends(identity_dependency)):
         validate_csrf(request)
-        record_id, criteria = reviewed(tenant, sid, identity, payload.version)
+        record_id, criteria = reviewed(tenant, sid, request, identity, payload.version)
         if not schedule_for:
             raise HTTPException(503, 'La programación no está disponible en este entorno.')
         return run(schedule_for, record_id, str(sid), criteria, payload.interval_minutes, payload.max_total_runs, request, identity)
