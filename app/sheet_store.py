@@ -892,8 +892,10 @@ class SheetStore:
         else:
             renewal_start = renewal_start.astimezone(timezone.utc)
         successful_ids: set[str] = set()
-        for execution in self.recent_executions(record.email, limit=1000):
+        for execution in self.quota_executions(record.email):
             if not str(execution.get("status") or "").casefold().startswith("complet"):
+                continue
+            if execution.get("execution_origin") == "admin_diagnostic" and is_admin_role(execution.get("actor_role", "")):
                 continue
             execution_id = str(execution.get("execution_id") or "").strip()
             if not execution_id:
@@ -1197,6 +1199,29 @@ class SheetStore:
             "dossier": SheetStore._json_object(padded[45]),
         }
 
+    def prospect_feedback_rows(self, email: str, onboarding_id: str) -> list[dict]:
+        """Read only the fields used to learn from CRM decisions, excluding dossiers."""
+        table = f"'{self.settings.google_sheet_tab}'"
+        ranges = ("A2:B1000", "H2:H1000", "W2:Y1000", "AG2:AG1000", "AO2:AP1000")
+        identifiers, sectors, states, found, markets = [self._get(f"{table}!{columns}") for columns in ranges]
+        normalized = email.strip().casefold()
+        result = []
+        for index, row in enumerate(identifiers):
+            if len(row) < 2 or str(row[1]).strip().casefold() != normalized:
+                continue
+            status = states[index] if index < len(states) else []
+            if len(status) < 3 or status[2] != onboarding_id:
+                continue
+            place = markets[index] if index < len(markets) else []
+            result.append({
+                "execution_id": row[0], "email": row[1], "onboarding_id": status[2],
+                "lead_status": status[0], "sector": sectors[index][0] if index < len(sectors) and sectors[index] else "",
+                "country": place[0] if place else "", "client_type": place[1] if len(place) > 1 else "",
+                "prospect_found": str(found[index][0]).casefold() not in {"false", "0", "no"}
+                if index < len(found) and found[index] else True,
+            })
+        return result
+
     def recent_prospects(self, email: str | None, limit: int = 50) -> list[dict]:
         rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:AT1000")
         if email:
@@ -1241,6 +1266,24 @@ class SheetStore:
             }
         }])
         return self._prospect_from_row(row)
+
+    def quota_executions(self, email: str) -> list[dict]:
+        """Quota needs IDs, dates and outcomes, never research sources or traces."""
+        table = f"'{self.settings.google_executions_tab}'"
+        entries = self._get(f"{table}!A2:F1000")
+        origins = self._get(f"{table}!Y2:AA1000")
+        normalized = email.strip().casefold()
+        result = []
+        for index, row in enumerate(entries):
+            if len(row) < 6 or str(row[2]).strip().casefold() != normalized:
+                continue
+            origin = origins[index] if index < len(origins) else []
+            result.append({
+                "execution_id": row[0], "created_at": row[1], "status": row[5],
+                "actor_role": origin[1] if len(origin) > 1 else "",
+                "execution_origin": origin[2] if len(origin) > 2 else "manual",
+            })
+        return result
 
     def recent_executions(self, email: str | None, limit: int = 20, *, hide_admin: bool = False) -> list[dict]:
         rows = self._get(f"'{self.settings.google_executions_tab}'!A2:AA1000")
@@ -1294,17 +1337,21 @@ class SheetStore:
         return output
 
     def prospect_metrics(self, email: str | None) -> dict:
-        prospects = self.recent_prospects(email, limit=1000)
+        rows = self._get(f"'{self.settings.google_sheet_tab}'!A2:Y1000")
+        if email:
+            normalized = email.strip().casefold()
+            rows = [row for row in rows if len(row) > 1 and str(row[1]).strip().casefold() == normalized]
         classifications = {"green": 0, "yellow": 0, "red": 0}
         statuses = {status: 0 for status in KANBAN_STATUSES}
-        for prospect in prospects:
-            classification = str(prospect["classification"]).strip().lower()
+        for row in rows:
+            prospect = row + [""] * max(0, 25 - len(row))
+            classification = str(prospect[12]).strip().lower()
             if classification in classifications:
                 classifications[classification] += 1
-            status = normalized_kanban_status(prospect["lead_status"])
+            status = normalized_kanban_status(prospect[22])
             if status in statuses:
                 statuses[status] += 1
-        return {"total": len(prospects), "classifications": classifications, "statuses": statuses}
+        return {"total": len(rows), "classifications": classifications, "statuses": statuses}
 
     def update_prospect_status(self, execution_id: str, email: str, status: str, *, is_admin: bool = False) -> dict:
         raw_status = " ".join(str(status or "").split())
@@ -1376,9 +1423,9 @@ class SheetStore:
         from app.dedupe import company_dedupe_key
 
         return {
-            company_dedupe_key({"commercial_name": item.get("company", ""), "website": item.get("website", ""), "city": item.get("city", "")})
-            for item in self.recent_prospects(None, limit=1000)
-            if item.get("onboarding_id") == onboarding_id
+            company_dedupe_key({"commercial_name": row[3], "website": row[4], "city": row[9]})
+            for row in self._get(f"'{self.settings.google_sheet_tab}'!A2:Y1000")
+            if len(row) > 24 and row[24] == onboarding_id
         }
 
     def refresh_dashboard_summary(self) -> dict:

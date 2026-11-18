@@ -707,3 +707,68 @@ def test_schema_migration_rejects_reordered_existing_columns():
 
     with pytest.raises(RuntimeError, match="no coinciden"):
         store._ensure_header_row("Prospeccion", PROSPECT_HEADERS)
+
+def test_crm_feedback_uses_narrow_columns_and_keeps_client_scope():
+    from app.prospecting_guide import review_feedback
+
+    owner = "user@example.com"
+    other = "other@example.com"
+    rows = []
+    for number, email, status, found in (
+        (1, owner, "Aprobado para descarga", True),
+        (2, owner, "Descartado", True),
+        (3, other, "Aprobado para descarga", True),
+        (4, owner, "Descartado", False),
+    ):
+        row = [""] * len(PROSPECT_HEADERS)
+        row[0], row[1], row[7], row[22], row[24] = str(number), email, "Salud", status, "ONB-1"
+        row[32], row[40], row[41] = str(found), "España", "Empresa privada B2B"
+        row[45] = '{"large_dossier":"must not be read"}'
+        rows.append(row)
+
+    column_ranges = {
+        "'Prospeccion'!A2:B1000": (0, 2),
+        "'Prospeccion'!H2:H1000": (7, 8),
+        "'Prospeccion'!W2:Y1000": (22, 25),
+        "'Prospeccion'!AG2:AG1000": (32, 33),
+        "'Prospeccion'!AO2:AP1000": (40, 42),
+    }
+
+    class FeedbackStore(FakeStore):
+        def _get(self, a1_range):
+            start, end = column_ranges[a1_range]
+            return [row[start:end] for row in rows]
+
+    store = FeedbackStore()
+    actual = store.prospect_feedback_rows(owner.upper(), "ONB-1")
+    expected = [SheetStore._prospect_from_row(row) for row in rows]
+    assert review_feedback(actual, "ONB-1", owner) == review_feedback(expected, "ONB-1", owner)
+    assert not any("dossier" in row for row in actual)
+
+
+def test_diagnostic_run_does_not_reduce_reconciled_quota_after_reload():
+    class DiagnosticStore(FakeStore):
+        def _get(self, a1_range):
+            if "Accesos" in a1_range:
+                return self.rows
+            if a1_range == "'Ejecuciones'!A2:F1000":
+                return [
+                    ["ordinary", "2026-11-18T20:00:00Z", "user@example.com", "", "", "Completado"],
+                    ["diagnostic", "2026-11-18T20:05:00Z", "user@example.com", "", "", "Completado"],
+                    ["manual-admin", "2026-11-18T20:10:00Z", "user@example.com", "", "", "Completado"],
+                ]
+            if a1_range == "'Ejecuciones'!Y2:AA1000":
+                return [
+                    ["user@example.com", "Cliente", "manual"],
+                    ["admin@example.com", "Administrador", "admin_diagnostic"],
+                    ["admin@example.com", "Administrador", "manual"],
+                ]
+            raise AssertionError("Quota must not read source text or research traces")
+
+    store = DiagnosticStore()
+    store.rows[0][4:6] = [100, 95]
+    store.rows[0][9] = "13/10/2026"
+    assert store.check_scrape_limit("user@example.com").available == 5
+    assert store.updates == []
+    store.rows[0][5] = 0
+    assert store.check_scrape_limit("user@example.com").used == 2

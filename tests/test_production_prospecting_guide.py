@@ -52,7 +52,8 @@ class TestSheets:
     def get_onboarding_source(self, tenant, owner):
         return self.source if (tenant, owner) == (RECORD, OWNER) else None
 
-    def recent_prospects(self, owner, limit):
+    def prospect_feedback_rows(self, owner, source_id):
+        assert source_id == RECORD
         assert owner == OWNER
         return []
 
@@ -116,3 +117,30 @@ def test_guide_preserves_original_sheets_and_isolates_authenticated_answers(monk
     assert len(sheets.saved) == 1
     assert sheets.saved[0]["created_by_email"] == OWNER
     assert sheets.properties == [{"title": "Prospeccion Guiada", "sheetId": 7}]
+
+def test_client_cannot_request_quota_free_diagnostic_job(monkeypatch):
+    from app.sheet_store import AccessRecord
+    from fastapi.testclient import TestClient
+    from app.auth import CSRF_COOKIE, Identity, require_identity
+    from app.config import Settings
+
+    class Store:
+        def __init__(self, settings=None):
+            pass
+
+        def get_access(self, email):
+            return AccessRecord(14, email, "Cliente", "Activo", 100, 95)
+
+        def get_onboarding_source(self, *args):
+            raise AssertionError("Diagnostic permission must be checked before client data")
+
+    monkeypatch.setattr(main, "get_settings", lambda: Settings(google_sheets_enabled=True, openai_api_key="fixture"))
+    monkeypatch.setattr(main, "SheetStore", Store)
+    monkeypatch.setitem(main.app.dependency_overrides, require_identity, lambda: Identity(OWNER, "Cliente", "test"))
+    client = TestClient(main.app)
+    client.cookies.set(CSRF_COOKIE, "csrf")
+    response = client.post(
+        f"/api/onboarding-sources/{RECORD}/research-jobs?admin_diagnostic=true",
+        headers={"X-CSRF-Token": "csrf"}, json={},
+    )
+    assert response.status_code == 403

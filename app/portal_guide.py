@@ -152,7 +152,7 @@ def intake(tenant, identity):
 def feedback(tenant, identity):
     store = SheetStore(get_settings())
     source = source_for(tenant, identity, store)
-    return review_feedback(store.recent_prospects(source.email, limit=1000), source.record_id, source.email)
+    return review_feedback(store.prospect_feedback_rows(source.email, source.record_id), source.record_id, source.email)
 
 
 def save(tenant, identity, name, criteria):

@@ -341,3 +341,47 @@ def test_scheduler_retries_after_transient_sheets_failure(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(_automation_loop(60))
     assert len(calls) == 2
+
+def test_explicit_admin_diagnostic_preserves_client_balance(monkeypatch):
+    from app.sheet_store import AccessRecord
+
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True, openai_deep_research_enabled=False)
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.main.OpenAIProspectDiscovery", FixtureDiscovery)
+
+    class DiagnosticStore(PipelineStore):
+        def get_access(self, email):
+            assert email == "admin@example.test"
+            return AccessRecord(2, email, "Administrador", "Activo", 0, 0, unlimited=True)
+
+        def check_scrape_limit(self, email):
+            assert email == "owner@example.test"
+            return AccessRecord(14, email, "Cliente", "Activo", 100, 95, "13/10/2026")
+
+    store = DiagnosticStore()
+    result = _run_onboarding_research(
+        source(), store, actor_email="admin@example.test", actor_role="Administrador",
+        admin_diagnostic=True,
+    )
+    assert result["quota"]["available"] == 5
+    assert store.successful_scrapes == 0
+    assert store.execution["execution_origin"] == "admin_diagnostic"
+    assert len(store.prospects) == 1
+
+
+def test_non_admin_cannot_bypass_balance_with_diagnostic_option(monkeypatch):
+    from app.sheet_store import AccessRecord
+
+    settings = Settings(openai_api_key="fixture-only", google_sheets_enabled=True)
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+
+    class ClientStore(PipelineStore):
+        def get_access(self, email):
+            return AccessRecord(14, email, "Cliente", "Activo", 100, 95)
+
+    store = ClientStore()
+    with pytest.raises(PermissionError, match="administradora"):
+        _run_onboarding_research(source(), store, actor_email="owner@example.test", actor_role="Administrador",
+                                 admin_diagnostic=True)
+    assert store.successful_scrapes == 0
+    assert store.prospects == []

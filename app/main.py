@@ -426,12 +426,18 @@ def _run_onboarding_research(
     execution_origin: str = "manual",
     bypass_user_limit: bool = False,
     progress_callback: Callable[[dict], None] | None = None,
+    admin_diagnostic: bool = False,
 ) -> dict:
     def report(**update) -> None:
         if progress_callback:
             progress_callback(update)
 
     settings = get_settings()
+    if admin_diagnostic:
+        identity = Identity(email=actor_email, role=actor_role, google_sub="diagnostic")
+        if not _is_authorized_admin(identity, store.get_access(actor_email), settings):
+            raise PermissionError("La prueba sin descuento requiere una cuenta administradora activa")
+        execution_origin = "admin_diagnostic"
     if not source.ready:
         raise ValueError("; ".join(source.blockers))
     if not settings.openai_api_key:
@@ -444,9 +450,9 @@ def _run_onboarding_research(
             message="Validando la configuración y los límites de la cuenta…",
         )
         store.ensure_operational_schema()
-        # Always charge/check the account that owns the Onboarding source. An
-        # administrator acting on a client account must not bypass that client
-        # quota; only an ``Ilimitado`` assignment is exempt.
+        # Ordinary runs use the source account's balance. A separately
+        # verified administrative diagnostic records its origin without
+        # charging that balance.
         store.check_scrape_limit(source.email)
         report(
             phase="searching",
@@ -518,7 +524,10 @@ def _run_onboarding_research(
             message="Registrando la ejecución y actualizando el panel…",
             leads_found=total_to_save,
         )
-        quota_after_success = store.consume_successful_scrape(source.email)
+        if admin_diagnostic:
+            quota_after_success = store.check_scrape_limit(source.email)
+        else:
+            quota_after_success = store.consume_successful_scrape(source.email)
         store.append_execution(
             execution_id=execution_id,
             email=source.email,
@@ -608,6 +617,7 @@ def _execute_research_job(
     actor_email: str,
     actor_role: str,
     bypass_user_limit: bool,
+    admin_diagnostic: bool = False,
 ) -> None:
     def on_progress(update: dict) -> None:
         _update_research_job(job_id, **update)
@@ -622,6 +632,7 @@ def _execute_research_job(
             execution_origin="manual",
             bypass_user_limit=bypass_user_limit,
             progress_callback=on_progress,
+            admin_diagnostic=admin_diagnostic,
         )
         _update_research_job(
             job_id,
@@ -1110,6 +1121,7 @@ def start_research_job(
     request: Request,
     background_tasks: BackgroundTasks,
     identity: Identity = Depends(require_identity),
+    admin_diagnostic: bool = False,
 ):
     validate_csrf(request)
     settings = get_settings()
@@ -1125,6 +1137,8 @@ def start_research_job(
     if not access:
         raise HTTPException(status_code=403, detail="Acceso retirado en Google Sheets")
     is_admin = _is_authorized_admin(identity, access, settings)
+    if admin_diagnostic and not is_admin:
+        raise HTTPException(status_code=403, detail="La prueba sin descuento es exclusiva de administración")
     source = store.get_onboarding_source(record_id, None if is_admin else _account_scope_email(identity, access))
     if not source:
         raise HTTPException(status_code=404, detail="No se encontró la productora")
@@ -1141,6 +1155,8 @@ def start_research_job(
         active_id = _ACTIVE_RESEARCH_JOBS.get(active_key)
         active_job = _RESEARCH_JOBS.get(active_id) if active_id else None
         if active_job and active_job.get("status") in {"queued", "running"}:
+            if bool(active_job.get("admin_diagnostic")) != admin_diagnostic:
+                raise HTTPException(status_code=409, detail="Hay otra investigación en curso para esta cuenta")
             return JSONResponse(_public_research_job(active_job), status_code=200)
         job_id = str(uuid.uuid4())
         now = _utc_now()
@@ -1148,6 +1164,7 @@ def start_research_job(
             "job_id": job_id,
             "source_id": source.record_id,
             "owner_email": actor_email,
+            "admin_diagnostic": admin_diagnostic,
             "status": "queued",
             "phase": "queued",
             "progress": 0,
@@ -1178,6 +1195,7 @@ def start_research_job(
         actor_email,
         access.role,
         is_admin,
+        admin_diagnostic=admin_diagnostic,
     )
     return _public_research_job(_RESEARCH_JOBS[job_id])
 
